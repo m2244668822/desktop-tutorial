@@ -35,3 +35,19 @@ python3 desktop_chat_app.py --web-server --host 0.0.0.0 --port 5001 --workers 2
 ## 安全
 - 請勿提交 `.env`、憑證、key、影片輸出檔
 - 建議建立 **Private Repository**
+
+## CI 自動驗證（已啟用）
+
+- Workflow: `.github/workflows/verify-showcase.yml`
+- 功能：
+  - 建立 SQLite 測試資料
+  - 遷移到 CI 內建 PostgreSQL
+  - 執行嚴格驗證（repo 安全 + DB 一致性）
+  - 輸出 JSON 報告 artifact
+
+本地可執行（非嚴格）：
+
+```bash
+chmod +x tools/run_full_verification.sh
+tools/run_full_verification.sh
+```

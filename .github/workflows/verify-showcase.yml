@@ -1,0 +1,76 @@
+name: verify-showcase
+
+on:
+  push:
+    branches:
+      - main
+      - 'codex/**'
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: showcase
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d showcase"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 8
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install CI deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-ci.txt
+
+      - name: Build SQLite fixture
+        run: python tools/create_sqlite_fixture.py
+
+      - name: Migrate fixture SQLite -> PostgreSQL
+        env:
+          PSQL_URL: postgresql://postgres:postgres@127.0.0.1:5432/showcase
+        run: |
+          python migrate_sqlite_to_postgres.py \
+            --sqlite-path tmp/fixture.db \
+            --postgres-url "$PSQL_URL" \
+            --truncate-target
+
+      - name: Run strict verification
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PSQL_URL: postgresql://postgres:postgres@127.0.0.1:5432/showcase
+        run: |
+          python tools/verify_repo_and_db.py \
+            --project-root . \
+            --repo "${{ github.repository }}" \
+            --github-token "$GITHUB_TOKEN" \
+            --skip-service-checks \
+            --sqlite-path tmp/fixture.db \
+            --postgres-url "$PSQL_URL" \
+            --sample-size 5 \
+            --strict
+
+      - name: Upload verification report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verification-report
+          path: logs/verification_reports/latest_verification_report.json
