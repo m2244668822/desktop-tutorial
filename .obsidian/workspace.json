@@ -4,11 +4,11 @@
     "type": "split",
     "children": [
       {
-        "id": "773dc6147dbc7bf5",
+        "id": "b133152cb674a60e",
         "type": "tabs",
         "children": [
           {
-            "id": "78a663ae494988f4",
+            "id": "1745ed8686e6b61b",
             "type": "leaf",
             "state": {
               "type": "empty",
@@ -159,7 +159,7 @@
             }
           },
           {
-            "id": "b4f01baecfebda73",
+            "id": "16bdc76d4326292b",
             "type": "leaf",
             "state": {
               "type": "git-view",
@@ -188,8 +188,9 @@
       "obsidian-git:Open Git source control": false
     }
   },
-  "active": "78a663ae494988f4",
+  "active": "c8806ab31fcd3cbd",
   "lastOpenFiles": [
+    "未命名.md",
     "未命名.base",
     "建立鏈接.md",
     "歡迎.md"
