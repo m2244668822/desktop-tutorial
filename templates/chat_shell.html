@@ -1,0 +1,2205 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI 智能體中心</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230d1117'/%3E%3Cpath d='M18 45h28v6H18zM29 13h6v24h-6zM22 20h20v6H22zM24 34h16v6H24z' fill='%2322c55e'/%3E%3Ccircle cx='32' cy='32' r='22' fill='none' stroke='%233b82f6' stroke-width='4' opacity='.75'/%3E%3C/svg%3E">
+  <style>
+    :root {
+      --bg: #0d1117; --sb: rgba(10,15,23,.82); --card: rgba(22,30,46,.72);
+      --card-h: rgba(32,44,66,.82); --line: rgba(255,255,255,.095);
+      --text: rgba(255,255,255,.88); --muted: rgba(255,255,255,.4);
+      --accent: #3b82f6; --green: #22c55e; --red: #ef4444; --amber: #f59e0b;
+      --topbar-h: 56px; --sb-w: 220px; --rp-w: 210px; --input-h: 70px;
+      --glass-blur: 22px; --glass-saturate: 1.35; --glass-shadow: 0 18px 42px rgba(0,0,0,.24);
+    }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html,body{height:100%;overflow:hidden}
+    body{background:var(--bg);color:var(--text);font-family:-apple-system,"PingFang TC","Heiti TC","Microsoft JhengHei",sans-serif;font-size:15px}
+
+    /* ── Topbar ── */
+    .topbar{position:fixed;top:0;left:0;right:0;height:var(--topbar-h);background:rgba(8,12,20,.82);border-bottom:1px solid var(--line);display:flex;align-items:center;padding:0 14px;gap:10px;z-index:200;backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));-webkit-backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));box-shadow:0 10px 28px rgba(0,0,0,.18)}
+    .tb-brand{font-size:11px;letter-spacing:.18em;color:rgba(255,255,255,.22);font-weight:700;text-transform:uppercase;flex-shrink:0}
+    .tb-sep{width:1px;height:16px;background:var(--line);flex-shrink:0}
+    .tb-title{font-size:16px;font-weight:600;line-height:1}
+    .tb-sub{font-size:11px;color:var(--muted);letter-spacing:.05em}
+    .tb-right{margin-left:auto;display:flex;align-items:center;gap:6px}
+    .tb-badge{font-size:12px;padding:2px 8px;border-radius:999px;background:rgba(59,130,246,.14);border:1px solid rgba(59,130,246,.28);color:#93c5fd;white-space:nowrap}
+    .tb-badge.ok{background:rgba(34,197,94,.1);border-color:rgba(34,197,94,.3);color:#86efac}
+    .tb-badge.err{background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.3);color:#fca5a5}
+    .tb-icon{width:26px;height:26px;border-radius:7px;background:var(--card);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:14px;transition:background .12s}
+    .tb-icon:hover{background:var(--card-h)}
+    /* Logo Branding */
+    .tb-logo-wrap{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:flex;align-items:center;justify-content:center;z-index:201}
+    .tb-logo{height:42px;filter:drop-shadow(0 0 10px rgba(0,0,0,0.9)) drop-shadow(0 2px 4px rgba(0,0,0,0.5));transition:transform .2s;cursor:pointer}
+    .tb-logo:hover{transform:scale(1.05)}
+    /* 最低權限模式按鈕 */
+    .low-restrict-btn{font-size:12px;padding:3px 10px;border-radius:999px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.15);color:rgba(255,255,255,.4);cursor:pointer;font-family:inherit;transition:all .15s;display:flex;align-items:center;gap:5px;white-space:nowrap;user-select:none}
+    .low-restrict-btn:hover{background:rgba(245,158,11,.1);border-color:rgba(245,158,11,.3);color:#fcd34d}
+    .low-restrict-btn.on{background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.5);color:#fcd34d;box-shadow:0 0 8px rgba(245,158,11,.2)}
+    .low-restrict-dot{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.25);transition:background .15s}
+    .low-restrict-btn.on .low-restrict-dot{background:#f59e0b;box-shadow:0 0 4px #f59e0b}
+
+    /* ── Layout ── */
+    .app{position:fixed;top:var(--topbar-h);bottom:var(--input-h);left:0;right:0;display:flex;overflow:hidden}
+
+    /* ── Sidebar ── */
+    .sidebar{width:var(--sb-w);flex-shrink:0;background:var(--sb);border-right:1px solid var(--line);display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden;backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));-webkit-backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate))}
+    .sb-top{padding:8px 8px 4px}
+    .new-btn{width:100%;padding:7px 10px;background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.28);border-radius:8px;color:#93c5fd;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:6px;transition:background .12s;font-family:inherit}
+    .new-btn:hover{background:rgba(59,130,246,.22)}
+    .sb-sec{padding:2px 8px 4px}
+    .sb-lbl{font-size:11px;letter-spacing:.1em;color:rgba(255,255,255,.18);text-transform:uppercase;padding:8px 4px 3px}
+    .nav-item{padding:5px 7px;border-radius:6px;cursor:pointer;color:var(--muted);font-size:13px;display:flex;align-items:center;gap:6px;transition:all .1s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;user-select:none}
+    .nav-item:hover{background:rgba(255,255,255,.04);color:rgba(255,255,255,.75)}
+    .nav-item.active{background:rgba(59,130,246,.14);color:#93c5fd}
+    .nav-dot{width:5px;height:5px;border-radius:50%;background:var(--green);flex-shrink:0;margin-left:auto}
+
+    /* ── Main ── */
+    .main{flex:1;overflow:hidden;display:flex;flex-direction:column}
+
+    /* ── Hub ── */
+    .hub{flex:1;overflow-y:auto;padding:16px}
+    .hub-sub{font-size:13px;color:var(--muted);margin-bottom:14px;line-height:1.5}
+    .sec-lbl{font-size:11px;color:rgba(255,255,255,.2);letter-spacing:.09em;text-transform:uppercase;margin-bottom:7px;display:flex;align-items:center;gap:7px}
+    .sec-lbl::after{content:"";flex:1;height:1px;background:var(--line)}
+    .model-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:14px}
+    .mc{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:10px 11px;cursor:pointer;transition:all .14s;display:flex;flex-direction:column;gap:3px;position:relative;overflow:hidden;backdrop-filter:blur(calc(var(--glass-blur) * .8)) saturate(var(--glass-saturate));-webkit-backdrop-filter:blur(calc(var(--glass-blur) * .8)) saturate(var(--glass-saturate));box-shadow:inset 0 1px 0 rgba(255,255,255,.055)}
+    .mc:hover{background:var(--card-h);border-color:rgba(59,130,246,.34);transform:translateY(-1px);box-shadow:var(--glass-shadow), inset 0 1px 0 rgba(255,255,255,.08)}
+    .mc.sel{border-color:var(--accent);background:rgba(59,130,246,.1)}
+    .mc-top{display:flex;align-items:flex-start;gap:7px}
+    .mc-icon{width:24px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;margin-top:1px}
+    .mc-name{font-size:13px;font-weight:600;color:var(--text);line-height:1.3}
+    .mc-sub{font-size:11px;color:var(--muted)}
+    .mc-desc{font-size:12px;color:var(--muted);line-height:1.4;margin-top:1px}
+    .badge{display:inline-flex;align-items:center;gap:3px;font-size:11px;padding:1px 6px;border-radius:999px;border:1px solid;margin-top:3px;width:fit-content}
+    .b-local{border-color:rgba(34,197,94,.35);color:#86efac;background:rgba(34,197,94,.08)}
+    .b-cloud{border-color:rgba(59,130,246,.35);color:#93c5fd;background:rgba(59,130,246,.08)}
+    .b-key{border-color:rgba(245,158,11,.35);color:#fcd34d;background:rgba(245,158,11,.08)}
+    .b-tool{border-color:rgba(168,85,247,.35);color:#c4b5fd;background:rgba(168,85,247,.08)}
+    .b-active{border-color:rgba(34,197,94,.5);color:#86efac;background:rgba(34,197,94,.14)}
+    .b-disabled{border-color:rgba(100,100,100,.3);color:rgba(255,255,255,.25);background:rgba(100,100,100,.06)}
+    .mc.mc-offline{opacity:.45;cursor:not-allowed}
+    .mc.mc-primary{border-color:rgba(34,197,94,.35);box-shadow:0 0 0 1px rgba(34,197,94,.15)}
+
+    /* ── KAL Loop 狀態面板 ── */
+    .kal-panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:14px;display:flex;flex-direction:column;gap:10px;backdrop-filter:blur(calc(var(--glass-blur) * .8)) saturate(var(--glass-saturate));-webkit-backdrop-filter:blur(calc(var(--glass-blur) * .8)) saturate(var(--glass-saturate));box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
+    .kal-header{display:flex;align-items:center;justify-content:space-between}
+    .kal-title{font-size:13px;font-weight:600;display:flex;align-items:center;gap:7px}
+    .pulse{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 2s ease-in-out infinite}
+    @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.85)}}
+    .kal-refresh{padding:2px 8px;border-radius:5px;background:rgba(255,255,255,.04);border:1px solid var(--line);color:var(--muted);font-size:12px;cursor:pointer;font-family:inherit;transition:all .1s}
+    .kal-refresh:hover{color:var(--text);background:rgba(255,255,255,.08)}
+    .kal-bar-wrap{display:flex;flex-direction:column;gap:4px}
+    .kal-bar-meta{display:flex;justify-content:space-between;font-size:11px;color:var(--muted)}
+    .kal-track{height:5px;background:rgba(255,255,255,.07);border-radius:3px;overflow:hidden}
+    .kal-fill{height:100%;border-radius:3px;background:linear-gradient(90deg,#3b82f6,#22c55e);transition:width .6s ease}
+    .kal-chips{display:flex;flex-wrap:wrap;gap:5px}
+    .kal-chip{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid;display:inline-flex;align-items:center;gap:4px}
+    .kal-chip.on{border-color:rgba(34,197,94,.35);color:#86efac;background:rgba(34,197,94,.08)}
+    .kal-chip.off{border-color:rgba(148,163,184,.3);color:rgba(148,163,184,.6);background:transparent}
+    .kal-cols{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:2px}
+    .kal-col-title{font-size:11px;color:rgba(255,255,255,.25);text-transform:uppercase;letter-spacing:.07em;margin-bottom:5px}
+    .kal-item{padding:6px 8px;border-radius:6px;background:rgba(255,255,255,.03);border:1px solid var(--line);margin-bottom:4px;cursor:pointer;transition:all .1s}
+    .kal-item:hover{background:rgba(59,130,246,.08);border-color:rgba(59,130,246,.2)}
+    .kal-item-name{font-size:12px;color:rgba(255,255,255,.7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .kal-item-meta{font-size:11px;color:rgba(255,255,255,.25);margin-top:2px}
+    .kal-badge{display:inline-block;font-size:11px;padding:1px 6px;border-radius:999px;border:1px solid rgba(245,158,11,.35);color:#fcd34d;background:rgba(245,158,11,.08);margin-right:3px}
+    .kal-badge.done{border-color:rgba(34,197,94,.35);color:#86efac;background:rgba(34,197,94,.08)}
+    .kal-empty{font-size:12px;color:rgba(255,255,255,.2);padding:4px 0}
+
+    /* ── Tasks Panel ── */
+    .tasks-panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:14px;backdrop-filter:blur(calc(var(--glass-blur) * .8)) saturate(var(--glass-saturate));-webkit-backdrop-filter:blur(calc(var(--glass-blur) * .8)) saturate(var(--glass-saturate));box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
+    .tasks-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px}
+    .tasks-title{font-size:13px;font-weight:600}
+    .tasks-status-bar{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:9px}
+    .tasks-stat{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid;cursor:pointer;transition:all .1s;user-select:none}
+    .tasks-stat.pending{border-color:rgba(245,158,11,.35);color:#fcd34d;background:rgba(245,158,11,.08)}
+    .tasks-stat.running{border-color:rgba(59,130,246,.35);color:#93c5fd;background:rgba(59,130,246,.08)}
+    .tasks-stat.completed{border-color:rgba(34,197,94,.35);color:#86efac;background:rgba(34,197,94,.08)}
+    .tasks-stat.failed{border-color:rgba(239,68,68,.35);color:#fca5a5;background:rgba(239,68,68,.08)}
+    .tasks-stat.sel{box-shadow:0 0 0 1px currentColor}
+    .tasks-stat.all{border-color:rgba(255,255,255,.12);color:rgba(255,255,255,.4);background:transparent}
+    .tasks-list{display:flex;flex-direction:column;gap:4px;max-height:280px;overflow-y:auto}
+    .task-row{padding:6px 9px;border-radius:7px;background:rgba(255,255,255,.03);border:1px solid var(--line);cursor:pointer;transition:all .1s}
+    .task-row:hover{background:rgba(59,130,246,.08);border-color:rgba(59,130,246,.2)}
+    .task-row-top{display:flex;align-items:center;gap:6px}
+    .task-row-title{font-size:12px;color:rgba(255,255,255,.75);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .task-row-agent{font-size:10px;padding:1px 5px;border-radius:4px;background:rgba(59,130,246,.12);color:#93c5fd;flex-shrink:0}
+    .task-row-meta{font-size:11px;color:rgba(255,255,255,.25);margin-top:2px}
+    .task-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+    .task-dot.pending{background:#f59e0b}
+    .task-dot.running{background:#3b82f6;animation:pulse 1.5s infinite}
+    .task-dot.completed{background:#22c55e}
+    .task-dot.failed{background:#ef4444}
+
+    /* ── History sidebar items ── */
+    .hist-list{display:flex;flex-direction:column;gap:2px}
+    .hist-item{padding:5px 7px;border-radius:6px;cursor:pointer;color:var(--muted);font-size:12px;display:flex;flex-direction:column;gap:1px;transition:background .1s;border:1px solid transparent}
+    .hist-item:hover{background:rgba(255,255,255,.05);border-color:var(--line)}
+    .hist-item.active{background:rgba(59,130,246,.1);border-color:rgba(59,130,246,.2);color:#93c5fd}
+    .hist-title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px;color:rgba(255,255,255,.65)}
+    .hist-meta{font-size:11px;color:rgba(255,255,255,.22);display:flex;gap:5px}
+    .hist-agent{padding:0 4px;border-radius:4px;background:rgba(59,130,246,.1);color:#93c5fd;font-size:10px}
+
+    /* ── Chat view ── */
+    .chat-view{display:none;flex:1;flex-direction:column;overflow:hidden}
+    .chat-view.vis{display:flex}
+    .chat-topbar{padding:7px 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;background:rgba(10,15,23,.58);backdrop-filter:blur(calc(var(--glass-blur) * .7)) saturate(var(--glass-saturate));-webkit-backdrop-filter:blur(calc(var(--glass-blur) * .7)) saturate(var(--glass-saturate))}
+    .back-btn{padding:4px 10px;background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:6px;color:var(--muted);font-size:12px;cursor:pointer;font-family:inherit;transition:all .1s}
+    .back-btn:hover{color:var(--text);border-color:rgba(255,255,255,.14)}
+    .role-tag{font-size:12px;color:#93c5fd;padding:2px 8px;background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.22);border-radius:999px}
+    .model-indicator{font-size:11px;color:var(--muted)}
+    .backend-sync{margin-left:auto;font-size:11px;color:rgba(255,255,255,.32);padding:2px 8px;border-radius:999px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);white-space:nowrap}
+    .backend-sync.pending{color:#fcd34d;border-color:rgba(245,158,11,.3);background:rgba(245,158,11,.08)}
+    .backend-sync.ok{color:#86efac;border-color:rgba(34,197,94,.3);background:rgba(34,197,94,.08)}
+    .backend-sync.err{color:#fca5a5;border-color:rgba(239,68,68,.32);background:rgba(239,68,68,.08)}
+    .chat-area{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:9px}
+    .msg{padding:9px 13px;border-radius:10px;max-width:80%;line-height:1.65;font-size:14px;white-space:pre-wrap;word-break:break-word}
+    .msg.user{background:rgba(59,130,246,.18);border:1px solid rgba(59,130,246,.24);align-self:flex-end}
+    .msg.assistant{background:var(--card);border:1px solid var(--line);align-self:flex-start;backdrop-filter:blur(calc(var(--glass-blur) * .72)) saturate(var(--glass-saturate));-webkit-backdrop-filter:blur(calc(var(--glass-blur) * .72)) saturate(var(--glass-saturate));box-shadow:inset 0 1px 0 rgba(255,255,255,.045)}
+    .msg-status{font-size:11px;color:rgba(255,255,255,.22);margin-top:3px;padding-top:3px;border-top:1px solid rgba(255,255,255,.06)}
+    .qr-bar{padding:5px 16px;display:flex;flex-wrap:wrap;gap:4px}
+    .qr-btn{padding:3px 9px;font-size:12px;border-radius:999px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);color:rgba(255,255,255,.6);cursor:pointer;font-family:inherit;transition:all .1s}
+    .qr-btn:hover{background:rgba(255,255,255,.1);color:var(--text)}
+    .msg-img{max-width:100%;max-height:280px;border-radius:8px;display:block;margin-top:4px;cursor:zoom-in}
+    .msg-vid{max-width:100%;max-height:240px;border-radius:8px;display:block;margin-top:4px}
+    .generated-image-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-top:10px;min-width:min(520px,70vw)}
+    .generated-image-card{border:1px solid rgba(255,255,255,.09);border-radius:8px;background:rgba(255,255,255,.035);overflow:hidden}
+    .generated-image-card img{width:100%;aspect-ratio:1/1;object-fit:cover;display:block;cursor:zoom-in;background:#0f172a}
+    .generated-image-meta{font-size:11px;color:rgba(255,255,255,.42);padding:6px 8px;line-height:1.45}
+
+    /* ── Right panel ── */
+    .right-panel{width:var(--rp-w);flex-shrink:0;border-left:1px solid var(--line);background:var(--sb);overflow-y:auto;padding:12px 10px;display:flex;flex-direction:column;gap:14px;backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));-webkit-backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate))}
+    .rp-title{font-size:11px;color:rgba(255,255,255,.2);text-transform:uppercase;letter-spacing:.09em;margin-bottom:5px}
+    .rp-btn{width:100%;padding:5.5px 9px;border-radius:6px;background:rgba(255,255,255,.03);border:1px solid var(--line);color:var(--muted);font-size:13px;cursor:pointer;text-align:left;display:flex;align-items:center;gap:6px;font-family:inherit;transition:all .1s;margin-bottom:3px}
+    .rp-btn:hover{background:rgba(255,255,255,.07);color:var(--text);border-color:rgba(255,255,255,.12)}
+    .rp-btn.on{background:rgba(59,130,246,.12);color:#93c5fd;border-color:rgba(59,130,246,.26)}
+    /* 監控小格 */
+    .mon-grid{display:flex;flex-direction:column;gap:5px}
+    .mon-row{display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04)}
+    .mon-label{color:var(--muted)}
+    .mon-val{color:var(--text);font-weight:600}
+    .mon-val.ok{color:#86efac}
+    .mon-val.warn{color:#fcd34d}
+    .mon-val.err{color:#fca5a5}
+    .mon-note{font-size:11px;color:rgba(255,255,255,.45);line-height:1.4;padding:4px 0 0}
+
+    /* ── Bottom input ── */
+    .attach-strip{position:fixed;bottom:var(--input-h);left:0;right:0;background:rgba(8,12,20,.82);border-top:1px solid rgba(59,130,246,.26);display:none;flex-wrap:wrap;align-items:center;gap:7px;padding:6px 12px;z-index:199;backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));-webkit-backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate))}
+    .attach-strip.vis{display:flex}
+    .attach-thumb{position:relative;display:flex;align-items:center;gap:5px;background:rgba(22,30,46,.9);border:1px solid rgba(59,130,246,.25);border-radius:7px;padding:4px 7px}
+    .attach-thumb img{width:40px;height:40px;object-fit:cover;border-radius:4px}
+    .attach-rm{width:16px;height:16px;border-radius:50%;background:rgba(239,68,68,.7);border:none;color:#fff;font-size:10px;cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+    .attach-rm:hover{background:rgba(239,68,68,1)}
+    .input-bar{position:fixed;bottom:0;left:0;right:0;height:var(--input-h);background:rgba(8,12,20,.82);border-top:1px solid var(--line);display:flex;align-items:center;padding:8px 12px;gap:8px;z-index:200;backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));-webkit-backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));box-shadow:0 -10px 28px rgba(0,0,0,.18)}
+    .model-tag{padding:4px 9px;border-radius:6px;background:var(--card);border:1px solid var(--line);color:var(--muted);font-size:12px;display:flex;align-items:center;gap:4px;flex-shrink:0;cursor:pointer;transition:all .1s;white-space:nowrap}
+    .model-tag:hover{border-color:rgba(255,255,255,.14);color:rgba(255,255,255,.65)}
+    .model-tag .dot{width:5px;height:5px;border-radius:50%;background:var(--green)}
+    .attach-btn{width:34px;height:34px;border-radius:7px;flex-shrink:0;background:rgba(255,255,255,.04);border:1px solid var(--line);color:var(--muted);font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .1s}
+    .attach-btn:hover{background:rgba(59,130,246,.15);border-color:rgba(59,130,246,.3);color:#93c5fd}
+    .input-wrap{flex:1;display:flex;align-items:center;background:rgba(22,30,46,.72);border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:3px 3px 3px 11px;transition:border-color .14s;backdrop-filter:blur(calc(var(--glass-blur) * .6)) saturate(var(--glass-saturate));-webkit-backdrop-filter:blur(calc(var(--glass-blur) * .6)) saturate(var(--glass-saturate));box-shadow:inset 0 1px 0 rgba(255,255,255,.055)}
+    .input-wrap:focus-within{border-color:rgba(59,130,246,.45)}
+    .msg-input{flex:1;background:transparent;border:none;outline:none;color:var(--text);font-size:14px;font-family:inherit;resize:none;min-height:30px;max-height:100px;line-height:1.5;padding:3px 0}
+    .msg-input::placeholder{color:rgba(255,255,255,.18)}
+    .send-btn{padding:6px 16px;background:var(--accent);border:none;border-radius:7px;color:#fff;font-size:13px;cursor:pointer;font-weight:500;font-family:inherit;transition:opacity .12s;flex-shrink:0}
+    .send-btn.pending{background:var(--amber);color:#111827}
+    .send-btn:disabled{cursor:not-allowed;opacity:.6}
+    .send-btn:hover{opacity:.82}
+    .bridge-info{font-size:11px;color:rgba(255,255,255,.16);flex-shrink:0;white-space:nowrap}
+    /* Selects 在 input bar */
+    .bar-select{height:28px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--muted);font-size:11px;padding:0 6px;font-family:inherit;cursor:pointer;flex-shrink:0}
+    .bar-select:focus{outline:none;border-color:rgba(59,130,246,.4)}
+
+    /* ── Lightbox ── */
+    .lightbox{display:none;position:fixed;inset:0;z-index:999;background:rgba(0,0,0,.88);align-items:center;justify-content:center}
+    .lightbox.open{display:flex}
+    .lightbox img{max-width:90vw;max-height:90vh;border-radius:8px}
+    .lightbox-close{position:fixed;top:14px;right:18px;font-size:24px;color:#fff;cursor:pointer;z-index:1000;background:none;border:none}
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar{width:3px}
+    ::-webkit-scrollbar-track{background:transparent}
+    ::-webkit-scrollbar-thumb{background:rgba(255,255,255,.08);border-radius:2px}
+    ::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.16)}
+
+    /* ── Thinking indicator ── */
+    .thinking-dots span{animation:blink 1.2s infinite;display:inline-block}
+    .thinking-dots span:nth-child(2){animation-delay:.2s}
+    .thinking-dots span:nth-child(3){animation-delay:.4s}
+    @keyframes blink{0%,80%,100%{opacity:0}40%{opacity:1}}
+
+    /* ── Agent profile card ── */
+    .agent-card{background:linear-gradient(135deg,rgba(59,130,246,.1),rgba(99,102,241,.075));border:1px solid rgba(59,130,246,.24);border-radius:12px;padding:16px;margin-bottom:6px;display:flex;flex-direction:column;gap:10px;backdrop-filter:blur(calc(var(--glass-blur) * .8)) saturate(var(--glass-saturate));-webkit-backdrop-filter:blur(calc(var(--glass-blur) * .8)) saturate(var(--glass-saturate));box-shadow:inset 0 1px 0 rgba(255,255,255,.055)}
+    .apc-top{display:flex;align-items:center;gap:12px}
+    .apc-icon-wrap{width:46px;height:46px;border-radius:13px;display:flex;align-items:center;justify-content:center;font-size:22px;background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.18);flex-shrink:0}
+    .apc-name{font-size:16px;font-weight:700;color:var(--text);line-height:1.2}
+    .apc-key{font-size:11px;color:rgba(93,168,246,.65);letter-spacing:.07em;font-family:monospace;margin-top:2px}
+    .apc-desc{font-size:13px;color:var(--muted);line-height:1.6}
+    .apc-caps{display:flex;flex-wrap:wrap;gap:5px}
+    .apc-cap{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid rgba(255,255,255,.09);color:rgba(255,255,255,.45);background:rgba(255,255,255,.03)}
+    .apc-prompts-lbl{font-size:11px;color:rgba(255,255,255,.18);text-transform:uppercase;letter-spacing:.07em}
+    .apc-prompts{display:flex;flex-direction:column;gap:5px}
+    .apc-prompt{padding:7px 11px;border-radius:7px;background:rgba(59,130,246,.06);border:1px solid rgba(59,130,246,.12);color:rgba(255,255,255,.6);font-size:12px;cursor:pointer;text-align:left;font-family:inherit;transition:all .12s;line-height:1.45;width:100%}
+    .apc-prompt:hover{background:rgba(59,130,246,.14);color:var(--text);border-color:rgba(59,130,246,.28)}
+    /* 智能體名稱角標 */
+    .nav-item .nav-cnt{margin-left:auto;font-size:10px;padding:0 5px;background:rgba(59,130,246,.18);border-radius:999px;color:#93c5fd;display:none}
+    .nav-item .nav-cnt.vis{display:inline}
+  </style>
+</head>
+<body>
+
+<!-- ── Topbar ── -->
+<div class="topbar">
+  <div class="tb-logo-wrap" onclick="showHub()" title="返回主頁">
+    <svg class="tb-logo" viewBox="0 0 64 64" role="img" aria-label="XIUORAN Logo">
+      <defs>
+        <linearGradient id="tbLogoGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#60a5fa"></stop>
+          <stop offset="100%" stop-color="#22d3ee"></stop>
+        </linearGradient>
+      </defs>
+      <rect x="8" y="8" width="48" height="48" rx="14" fill="rgba(15,23,42,.86)" stroke="url(#tbLogoGradient)" stroke-width="3"></rect>
+      <path d="M20 20 L44 44 M44 20 L20 44" stroke="url(#tbLogoGradient)" stroke-width="4" stroke-linecap="round"></path>
+      <circle cx="32" cy="32" r="6" fill="#f8fafc"></circle>
+    </svg>
+  </div>
+  <div class="tb-brand">XIUORAN AI LAB</div>
+  <div class="tb-sep"></div>
+  <div style="display:flex;flex-direction:column;gap:1px">
+    <div class="tb-title">AI 智能體中心</div>
+    <div class="tb-sub">Desktop Command Center</div>
+  </div>
+  <div class="tb-right">
+    <button class="low-restrict-btn" id="lowRestrictBtn" onclick="toggleLowRestrict()" title="最低權限模式：可繞過一般限制並允許外部代理程式直通">
+      <span class="low-restrict-dot"></span>
+      <span id="lowRestrictLabel">最低權限</span>
+    </button>
+    <span class="tb-badge" id="apiBaseBadge" title="前端目前 API 基底">API: —</span>
+    <span class="tb-badge" id="bridgeState">連線中...</span>
+    <div class="tb-icon" id="reconnectBtn" title="重新聯網確認" onclick="reconnectAll()" style="cursor:pointer">🔄</div>
+    <div class="tb-icon" title="重整監控" onclick="fetchKALStatus()">↻</div>
+    <div class="tb-icon" title="設定">⚙️</div>
+  </div>
+</div>
+
+<!-- ── App layout ── -->
+<div class="app">
+
+  <!-- ── Sidebar ── -->
+  <aside class="sidebar">
+    <div class="sb-top">
+      <button class="new-btn" id="newBtn">＋ 新對話</button>
+    </div>
+
+    <div class="sb-sec">
+      <div class="sb-lbl">導航</div>
+      <div class="nav-item active" id="nav-hub" onclick="showHub()">🏠 總覽</div>
+      <div class="nav-item" onclick="showHubPanel('kalPanel')">🔬 KAL 學習</div>
+      <div class="nav-item" onclick="showHubPanel('tasksPanel')">📋 任務看板</div>
+    </div>
+
+    <div class="sb-sec">
+      <div class="sb-lbl">智能體</div>
+      <div class="nav-item" id="nav-dispatcher" onclick="selectAgent('dispatcher','👑','總管')"><span>👑</span> 總管<span class="nav-dot"></span><span class="nav-cnt" id="cnt-dispatcher"></span></div>
+      <div class="nav-item" id="nav-researcher" onclick="selectAgent('researcher','🔬','研究學習中樞')"><span>🔬</span> 研究學習中樞<span class="nav-dot"></span><span class="nav-cnt" id="cnt-researcher"></span></div>
+      <div class="nav-item" id="nav-engineer" onclick="selectAgent('engineer','⚙️','工程師')"><span>⚙️</span> 工程師<span class="nav-dot"></span><span class="nav-cnt" id="cnt-engineer"></span></div>
+      <div class="nav-item" id="nav-xiaobian" onclick="selectAgent('xiaobian','✍️','小編')"><span>✍️</span> 小編<span class="nav-dot"></span><span class="nav-cnt" id="cnt-xiaobian"></span></div>
+      <div class="nav-item" id="nav-proclaimer" onclick="selectAgent('proclaimer','✝️','申言者')"><span>✝️</span> 申言者<span class="nav-dot"></span><span class="nav-cnt" id="cnt-proclaimer"></span></div>
+      <div class="nav-item" id="nav-whitehat" onclick="selectAgent('whitehat','🕵️','帽子')"><span>🕵️</span> 帽子<span class="nav-dot"></span><span class="nav-cnt" id="cnt-whitehat"></span></div>
+      <div class="nav-item" id="nav-general" onclick="selectAgent('general','🤖','通用')"><span>🤖</span> 通用<span class="nav-dot"></span><span class="nav-cnt" id="cnt-general"></span></div>
+    </div>
+
+    <div class="sb-sec">
+      <div class="sb-lbl" style="display:flex;justify-content:space-between;align-items:center;">歷史對話<span style="font-size:11px;cursor:pointer;color:rgba(255,255,255,.25);" onclick="fetchHistory()" title="重整">↻</span></div>
+      <div class="hist-list" id="histList"><div class="kal-empty" style="padding:3px 0">載入中...</div></div>
+    </div>
+  </aside>
+
+  <!-- ── Main area ── -->
+  <div class="main">
+
+    <!-- Hub view -->
+    <div class="hub" id="hubView">
+      <p class="hub-sub">選擇智能體或模型開始對話，或查看下方 KAL 學習狀態。</p>
+
+      <div class="sec-lbl">本地模型</div>
+      <div class="model-grid">
+        <div class="mc" id="mc-auto" onclick="startChat('auto','自動選擇')">
+          <div class="mc-top"><div class="mc-icon" style="background:rgba(76,29,149,.35)">⚡</div><div><div class="mc-name">自動選擇</div><div class="mc-sub">智慧路由</div></div></div>
+          <div class="mc-desc">自動選最優模型</div>
+          <span class="badge b-local">本地優先</span>
+        </div>
+        <div class="mc" id="mc-ollama_qwen25_7b" onclick="startChat('ollama_qwen25_7b','Qwen2.5 7B')">
+          <div class="mc-top"><div class="mc-icon" style="background:rgba(14,116,144,.35)">🧠</div><div><div class="mc-name">Qwen2.5 7B</div><div class="mc-sub">4.7 GB · 32K</div></div></div>
+          <div class="mc-desc">本地高品質中文推理</div>
+          <span class="badge b-local">本地主力</span>
+        </div>
+        <div class="mc" id="mc-sidecar" onclick="startChat('sidecar','本地模型（跟隨 .env）')">
+          <div class="mc-top"><div class="mc-icon" style="background:rgba(20,83,45,.35)">🛠️</div><div><div class="mc-name">Local Sidecar</div><div class="mc-sub">跟隨 .env 設定</div></div></div>
+          <div class="mc-desc">使用 OPEN_SOURCE_CHAT_MODEL / OLLAMA_MODEL</div>
+          <span class="badge b-local">本地路由</span>
+        </div>
+      </div>
+
+      <div class="sec-lbl" style="display:flex;align-items:center;gap:8px">
+        雲端模型
+        <span id="cloudProviderStatus" style="font-size:11px;color:var(--muted);font-weight:400">載入中…</span>
+      </div>
+      <div class="model-grid" id="cloudModelGrid">
+        <div class="mc" id="mc-nvidia" onclick="startChat('nvidia','NVIDIA')">
+          <div class="mc-top"><div class="mc-icon" style="background:rgba(34,197,94,.2)">🟢</div><div><div class="mc-name">NVIDIA</div><div class="mc-sub" id="msub-nvidia">Llama 3.1 405B</div></div></div>
+          <div class="mc-desc">NVIDIA 超大語言模型</div>
+          <span class="badge b-active" id="mbadge-nvidia">主力模型</span>
+        </div>
+        <div class="mc" id="mc-openai" onclick="startChat('openai','OpenAI')">
+          <div class="mc-top"><div class="mc-icon" style="background:rgba(5,46,22,.35)">🤖</div><div><div class="mc-name">OpenAI GPT</div><div class="mc-sub" id="msub-openai">gpt-4o</div></div></div>
+          <div class="mc-desc">GPT-4o 頂尖模型</div>
+          <span class="badge b-key" id="mbadge-openai">需 API Key</span>
+        </div>
+        <div class="mc" id="mc-gemini" onclick="startChat('gemini','Gemini')">
+          <div class="mc-top"><div class="mc-icon" style="background:rgba(30,64,175,.35)">✨</div><div><div class="mc-name">Gemini</div><div class="mc-sub" id="msub-gemini">gemini-2.5-flash</div></div></div>
+          <div class="mc-desc">Google 雲端模型</div>
+          <span class="badge b-key" id="mbadge-gemini">需 API Key</span>
+        </div>
+        <div class="mc" id="mc-groq" onclick="startChat('groq','Groq')">
+          <div class="mc-top"><div class="mc-icon" style="background:rgba(124,45,18,.35)">⚡</div><div><div class="mc-name">Groq</div><div class="mc-sub" id="msub-groq">gpt-oss-20b</div></div></div>
+          <div class="mc-desc">低延遲快速回覆</div>
+          <span class="badge b-key" id="mbadge-groq">需 API Key</span>
+        </div>
+        <div class="mc" onclick="openExternal('https://claude.ai')">
+          <div class="mc-top"><div class="mc-icon" style="background:rgba(120,53,15,.35)">🌊</div><div><div class="mc-name">Claude</div><div class="mc-sub">claude.ai</div></div></div>
+          <div class="mc-desc">Anthropic 助手（外部）</div>
+          <span class="badge b-tool">外部工具</span>
+        </div>
+      </div>
+
+      <!-- KAL Loop 面板 -->
+      <div class="sec-lbl" id="kalPanel">KAL 自主學習迴圈</div>
+      <div class="kal-panel">
+        <div class="kal-header">
+          <div class="kal-title"><span class="pulse"></span> 學習系統狀態</div>
+          <button class="kal-refresh" onclick="fetchKALStatus()">↻ 重整</button>
+        </div>
+        <div class="kal-bar-wrap">
+          <div class="kal-bar-meta"><span id="kalLabel">載入中...</span><span id="kalPct">—</span></div>
+          <div class="kal-track"><div class="kal-fill" id="kalFill" style="width:0%"></div></div>
+        </div>
+        <div class="kal-chips" id="kalChips"></div>
+        <div class="kal-cols">
+          <div>
+            <div class="kal-col-title">待學習目標</div>
+            <div id="kalPending"><div class="kal-empty">載入中...</div></div>
+          </div>
+          <div>
+            <div class="kal-col-title">近期蒸餾記錄</div>
+            <div id="kalLogs"><div class="kal-empty">載入中...</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 任務看板 -->
+      <div class="sec-lbl" id="tasksPanel">任務看板</div>
+      <div class="tasks-panel">
+        <div class="tasks-header">
+          <div class="tasks-title">📋 所有任務</div>
+          <div style="display:flex;gap:6px">
+            <button class="kal-refresh" onclick="fetchTasksSummary()" title="重新載入任務清單">↻ 重載任務</button>
+            <button class="kal-refresh" onclick="reconnectAll()" title="重新確認後端連線">🔄 重新聯網</button>
+          </div>
+        </div>
+        <div class="tasks-status-bar" id="tasksStatusBar"></div>
+        <div class="tasks-list" id="tasksList"><div class="kal-empty">載入中...</div></div>
+      </div>
+    </div>
+
+    <!-- Chat view -->
+    <div class="chat-view" id="chatView">
+      <div class="chat-topbar">
+        <button class="back-btn" onclick="showHub()">← 返回</button>
+        <span class="role-tag" id="roleTag">總管</span>
+        <span class="model-indicator" id="modelIndicator"></span>
+        <span class="backend-sync" id="backendSync">後台同步：待機</span>
+      </div>
+      <div class="chat-area" id="chatArea"></div>
+      <div class="qr-bar" id="qrBar" style="display:none"></div>
+    </div>
+
+  </div><!-- /main -->
+
+  <!-- ── Right panel ── -->
+  <aside class="right-panel">
+    <div>
+      <div class="rp-title">模式</div>
+      <button class="rp-btn on" id="rpMode" onclick="setRpMode(this,'discussion')">📝 一般對話</button>
+      <button class="rp-btn" onclick="setRpMode(this,'analysis')">🔍 深度分析</button>
+      <button class="rp-btn" onclick="setRpMode(this,'coding')">💻 程式生成</button>
+      <button class="rp-btn" onclick="setRpMode(this,'creative')">🎨 創意寫作</button>
+    </div>
+    <div>
+      <div class="rp-title">外部工具</div>
+      <button class="rp-btn" onclick="openExternal('https://www.perplexity.ai')">🌐 Perplexity</button>
+      <button class="rp-btn" onclick="openExternal('https://notebooklm.google.com')">📓 NotebookLM</button>
+      <button class="rp-btn" onclick="openExternal('https://chat.openai.com')">🤖 ChatGPT</button>
+    </div>
+    <div>
+      <div class="rp-title">對話歸檔</div>
+      <button class="rp-btn" onclick="archiveExport()" id="archiveBtn">💾 打包存硬碟</button>
+      <button class="rp-btn" onclick="archiveCleanup(30)">🗑️ 清理 30 天前</button>
+      <button class="rp-btn" onclick="archiveCleanup(7)">⚠️ 清理 7 天前</button>
+      <div id="archiveStatus" style="font-size:11px;color:rgba(255,255,255,.3);margin-top:4px;line-height:1.5"></div>
+      <div class="rp-title" style="margin-top:8px">歸檔檔案</div>
+      <div id="archiveList" style="font-size:11px;color:var(--muted)">載入中...</div>
+    </div>
+    <div>
+      <div class="rp-title">系統監控</div>
+      <div class="mon-grid" id="monGrid">
+        <div class="mon-row"><span class="mon-label">KAL 迴圈</span><span class="mon-val" id="mon-kal">—</span></div>
+        <div class="mon-row"><span class="mon-label">蒸餾器</span><span class="mon-val" id="mon-distill">—</span></div>
+        <div class="mon-row"><span class="mon-label">驗證器</span><span class="mon-val" id="mon-valid">—</span></div>
+        <div class="mon-row"><span class="mon-label">Brave 搜尋</span><span class="mon-val" id="mon-brave">—</span></div>
+        <div class="mon-row"><span class="mon-label">執行輪次</span><span class="mon-val" id="mon-cycles">—</span></div>
+        <div class="mon-row"><span class="mon-label">待整合目標</span><span class="mon-val" id="mon-pending">—</span></div>
+        <div class="mon-row"><span class="mon-label">Harmony 健康</span><span class="mon-val" id="mon-harmony">—</span></div>
+        <div class="mon-row"><span class="mon-label">失敗檢查</span><span class="mon-val" id="mon-harmony-failed">—</span></div>
+        <div class="mon-note" id="mon-harmony-note">尚未載入協調健康報告</div>
+      </div>
+    </div>
+  </aside>
+
+</div><!-- /app -->
+
+<!-- ── Attach strip ── -->
+<div class="attach-strip" id="attachStrip"></div>
+
+<!-- ── Lightbox ── -->
+<div class="lightbox" id="lightbox" onclick="closeLightbox()">
+  <button class="lightbox-close" onclick="closeLightbox()">✕</button>
+  <img id="lightboxImg" src="" alt="">
+</div>
+
+<input type="file" id="fileInput" style="display:none"
+  accept="image/*,video/mp4,video/quicktime,.heic,.heif,.png,.jpg,.jpeg,.gif,.webp" multiple>
+
+<!-- ── Input bar ── -->
+<div class="input-bar">
+  <div class="model-tag" id="modelTagBar" onclick="showHub()">
+    <span class="dot"></span>
+    <span id="currentModelLabel">選擇模型</span>
+  </div>
+  <select class="bar-select" id="interactionSelect" title="互動模式">
+    <option value="auto">自動模式</option>
+    <option value="discussion">討論</option>
+    <option value="analysis">分析</option>
+    <option value="coding">程式</option>
+    <option value="creative">創意</option>
+    <option value="image_generation">圖像生成</option>
+    <option value="qa">問答</option>
+  </select>
+  <button class="attach-btn" id="imageModeBtn" title="啟用圖像生成" onclick="enableImageGenerationMode()">🎨</button>
+  <button class="attach-btn" title="附加圖片" onclick="triggerFilePicker()">📎</button>
+  <div class="input-wrap">
+    <textarea class="msg-input" id="msgInput" placeholder="輸入訊息，按兩次 Enter/送出確認；Shift+Enter 換行..." rows="1"></textarea>
+  </div>
+  <button class="send-btn" id="sendBtn" onclick="confirmAndSendMessage()">確認送出</button>
+  <span class="bridge-info" id="bridgeInfo">—</span>
+</div>
+
+<script>
+window.__API_TOKEN__ = "{{ server_api_token | default('') }}";
+window.__API_BASE__ = (() => {
+  const fromQuery = new URLSearchParams(window.location.search).get("api_base");
+  if (fromQuery) return fromQuery.replace(/\/+$/, "");
+  if (window.location.protocol === "file:") return "http://127.0.0.1:5001";
+  return "";
+})();
+(function patchFetchForFileMode() {
+  if (!window.__API_BASE__) return;
+  const rawFetch = window.fetch.bind(window);
+  const absolutize = (input) => {
+    if (typeof input !== "string") return input;
+    if (/^https?:\/\//i.test(input)) return input;
+    if (!input.startsWith("/")) return input;
+    return `${window.__API_BASE__}${input}`;
+  };
+  window.fetch = (input, init) => rawFetch(absolutize(input), init);
+})();
+
+function renderApiBaseBadge() {
+  const el = document.getElementById("apiBaseBadge");
+  if (!el) return;
+  const base = window.__API_BASE__ || window.location.origin || "";
+  const safe = (base || "—").replace(/^https?:\/\//i, "");
+  el.textContent = `API: ${safe}`;
+  el.title = `前端目前 API 基底：${base || "(same-origin)"}`;
+}
+
+/* ════════════════════════════════════════
+   State
+════════════════════════════════════════ */
+function newId() {
+  return typeof crypto !== "undefined" && crypto.randomUUID
+    ? crypto.randomUUID()
+    : Date.now().toString(36) + Math.random().toString(36).slice(2);
+}
+
+renderApiBaseBadge();
+
+let state = {
+  agentKey: "dispatcher",
+  agentLabel: "總管",
+  agentIcon: "👑",
+  model: "ollama_qwen25_7b",
+  modelLabel: "Qwen2.5 7B",
+  interactionMode: "auto",
+  sessionId: newId(),
+  composing: false,
+  attachments: [],
+  lowRestrict: false,  // 最低權限模式：可繞過一般限制並允許外部代理程式直通
+  pendingSend: null,
+  pendingSendTimer: null,
+  pendingForcedSource: "",
+};
+const __debugRunId = `ui-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+const DEBUG_INGEST_URL = window.__DEBUG_INGEST_URL__ || "";
+const DEBUG_SESSION_ID = window.__DEBUG_SESSION_ID__ || "";
+const $ = (id) => document.getElementById(id);
+
+function __agentLog(hypothesisId, location, message, data = {}) {
+  if (!DEBUG_INGEST_URL) return;
+  fetch(DEBUG_INGEST_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(DEBUG_SESSION_ID ? { "X-Debug-Session-Id": DEBUG_SESSION_ID } : {}),
+    },
+    body: JSON.stringify({
+      sessionId: DEBUG_SESSION_ID,
+      runId: __debugRunId,
+      hypothesisId,
+      location,
+      message,
+      data,
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+}
+
+// Per-agent independent conversation storage
+const agentChats = {};
+
+/* ════════════════════════════════════════
+   最低權限模式（外部代理直通）
+   說明：啟用後，前端會附帶 bypass 標記，允許你手動呼叫外部代理流程。
+════════════════════════════════════════ */
+function toggleLowRestrict() {
+  state.lowRestrict = !state.lowRestrict;
+  const btn = document.getElementById("lowRestrictBtn");
+  const lbl = document.getElementById("lowRestrictLabel");
+  if (state.lowRestrict) {
+    btn.classList.add("on");
+    lbl.textContent = "最低權限 ON";
+  } else {
+    btn.classList.remove("on");
+    lbl.textContent = "最低權限";
+  }
+}
+
+const AGENT_META = {
+  dispatcher: {
+    label: "總管中樞", icon: "👑",
+    desc: "主線路由中樞，負責協調各智能體、分派任務，所有複雜指令的起點。",
+    caps: ["📍 智能路由", "🔗 多智能體協調", "📊 任務拆解", "⚡ 優先排序"],
+    prompts: ["幫我把這個任務分派給合適的智能體", "分析我的需求並推薦最佳處理方式", "目前系統整體狀態如何？"]
+  },
+  researcher: {
+    label: "研究學習中樞", icon: "🔬",
+    desc: "整合研究員與學習器，負責資料研究、分類索引、知識蒸餾、方法論整理與 KAL 學習目標管理。",
+    caps: ["🔍 深度研究", "🧠 知識蒸餾", "🏷️ 分類索引", "🧭 方法論整理", "🔄 KAL 管理", "📊 知識缺口分析"],
+    prompts: ["整理創業、福利、標案相關資料", "把這批資料分類並蒸餾重點", "找出目前知識庫的缺口與下一輪學習目標"]
+  },
+  engineer: {
+    label: "工程師", icon: "⚙️",
+    desc: "系統工程師，先處理簡單程式修復；若資訊不足會先反查 Git 與其他智能體，再提出權限請求。",
+    caps: ["⚙️ 快速修復", "🧩 Git 反查", "🤝 跨智能體協作", "🧠 SMP 建議"],
+    prompts: ["先修簡單 bug 並回報修改點", "反查 Git 與相關智能體後再給修復方案", "若仍阻塞，提出最小權限請求"]
+  },
+  xiaobian: {
+    label: "小編設計師", icon: "✍️",
+    desc: "內容與視覺創作專家，擅長文案、版面、圖片生成、標題優化與摘要提煉。",
+    caps: ["✍️ 文案創作", "🎨 圖片生成", "🖼️ 視覺生成", "🎯 標題優化", "📝 摘要提煉"],
+    prompts: ["生成一張未來感 AI 智能體工作台圖片", "幫這段文字寫三個吸睛標題", "把這篇文章改成口語化版本"]
+  },
+  proclaimer: {
+    label: "申言者", icon: "✝️",
+    desc: "道德倫理分析師，擅長價值衝突拆解、跨文化詮釋與聖經脈絡解讀。",
+    caps: ["⚖️ 倫理分析", "📖 聖經脈絡", "🌏 跨文化視角", "💡 價值衝突"],
+    prompts: ["這個決定的倫理問題在哪？", "從聖經角度看這件事", "幫我分析這個議題的不同立場"]
+  },
+  whitehat: {
+    label: "白帽駭客", icon: "🕵️",
+    desc: "安全研究員，專注漏洞分析、滲透測試報告、資安評估與防禦建議。",
+    caps: ["🛡️ 漏洞分析", "🔍 滲透測試", "📋 資安報告", "🔐 防禦建議"],
+    prompts: ["分析這段程式碼的安全風險", "幫我寫一份滲透測試報告大綱", "評估這個架構的資安風險點"]
+  },
+  learner: {
+    label: "研究學習中樞", icon: "🔬",
+    desc: "學習器已併入研究員；此入口會轉到研究學習中樞處理知識蒸餾、分類與 KAL 任務。",
+    caps: ["🧠 知識蒸餾", "🏷️ 分類索引", "🔄 KAL 管理", "📈 學習追蹤"],
+    prompts: ["目前的學習進度如何？", "開始學習：Python 非同步程式設計", "顯示最近蒸餾的知識摘要"]
+  },
+  general: {
+    label: "通用助手", icon: "🤖",
+    desc: "通用智能助手，不限任務範圍，適合一般問答、頭腦風暴與多元輔助。",
+    caps: ["🤖 通用問答", "💡 頭腦風暴", "📋 清單整理", "🗣️ 自由對話"],
+    prompts: ["幫我腦力激盪幾個創業點子", "解釋這個概念給我聽", "幫我規劃今天的工作清單"]
+  },
+};
+
+function normalizeAgentKey(key) {
+  const normalized = String(key || "").trim().toLowerCase();
+  const aliasMap = {
+    learner: "researcher",
+    manager: "dispatcher",
+    proclaimer: "prophet",
+    申言者: "prophet",
+    whitehat: "hat",
+    帽子: "hat",
+  };
+  return aliasMap[normalized] || normalized;
+}
+
+function openExternal(url) {
+  window.open(url, "_blank");
+}
+
+function triggerFilePicker() {
+  $("fileInput")?.click();
+}
+
+function showHubPanel(panelId) {
+  showHub();
+  setTimeout(() => {
+    $(panelId)?.scrollIntoView({ behavior: "smooth" });
+  }, 100);
+}
+
+function syncModelHeader() {
+  $("currentModelLabel").textContent = state.modelLabel;
+  $("modelIndicator").textContent = "· " + state.modelLabel;
+}
+
+/* ════════════════════════════════════════
+   Navigation
+════════════════════════════════════════ */
+function showHub() {
+  $("hubView").style.display = "";
+  $("chatView").classList.remove("vis");
+  setActiveNav("nav-hub");
+}
+
+function showChat() {
+  $("hubView").style.display = "none";
+  $("chatView").classList.add("vis");
+}
+
+function setActiveNav(id) {
+  document.querySelectorAll(".nav-item").forEach(n => n.classList.remove("active"));
+  const el = $(id);
+  if (el) el.classList.add("active");
+}
+
+/* ════════════════════════════════════════
+   Agent / Model
+════════════════════════════════════════ */
+async function selectAgent(key, icon, label) {
+  key = normalizeAgentKey(key);
+  if (key === "researcher") {
+    key = "researcher";
+    icon = "🔬";
+    label = AGENT_META.researcher.label;
+  }
+  // Save current agent's chat before switching
+  const prevKey = state.agentKey;
+  if (prevKey && agentChats[prevKey] !== undefined) {
+    agentChats[prevKey].html = $("chatArea").innerHTML;
+    agentChats[prevKey].sessionId = state.sessionId;
+  }
+
+  const meta = AGENT_META[key] || { label: label, icon: icon };
+  state.agentKey = key;
+  state.agentLabel = meta.label || label;
+  state.agentIcon = meta.icon || icon;
+  setActiveNav("nav-" + key);
+  $("roleTag").textContent = (meta.icon || icon) + " " + (meta.label || label);
+  syncModelHeader();
+  showChat();
+
+  const area = $("chatArea");
+  const saved = agentChats[key];
+
+  if (saved && saved.html) {
+    // Restore in-memory conversation (fastest path)
+    area.innerHTML = saved.html;
+    state.sessionId = saved.sessionId;
+  } else {
+    area.innerHTML = "";
+    // Try to load all records for this agent from server
+    const hist = await fetchAgentHistory(key);
+    if (hist && hist.messages.length) {
+      state.sessionId = newId();
+      hist.messages.forEach(m => {
+        const div = document.createElement("div");
+        div.className = "msg " + (m.role === "user" ? "user" : "assistant");
+        if (m.time) {
+          const ts = document.createElement("div");
+          ts.style.cssText = "font-size:10px;color:rgba(255,255,255,.18);margin-bottom:2px";
+          ts.textContent = m.time;
+          div.appendChild(ts);
+        }
+        const txt = document.createElement("div");
+        txt.textContent = m.content || "";
+        div.appendChild(txt);
+        area.appendChild(div);
+      });
+      agentChats[key] = { html: area.innerHTML, sessionId: state.sessionId };
+    } else {
+      // No history — fresh conversation with agent intro card
+      state.sessionId = newId();
+      agentChats[key] = { html: "", sessionId: state.sessionId };
+      renderAgentCard(key);
+    }
+  }
+  area.scrollTop = area.scrollHeight;
+  resetSendConfirmation();
+  $("msgInput").focus();
+}
+
+async function fetchAgentHistory(agentKey) {
+  try {
+    const r = await fetch(`/history?agent=${encodeURIComponent(agentKey)}&limit=500`);
+    if (!r.ok) return null;
+    const records = await r.json();
+    if (!Array.isArray(records) || !records.length) return null;
+    const messages = [];
+    records.forEach(rec => {
+      if (rec.user) messages.push({ role: "user",      content: rec.user, time: rec.time });
+      if (rec.ai)   messages.push({ role: "assistant", content: rec.ai,   time: rec.time });
+    });
+    return { messages };
+  } catch { return null; }
+}
+
+function renderAgentCard(key) {
+  const meta = AGENT_META[key] || {};
+  const area = $("chatArea");
+  const card = document.createElement("div");
+  card.className = "agent-card";
+  const caps = (meta.caps || []).map(c => `<span class="apc-cap">${c}</span>`).join("");
+  const prompts = Array.isArray(meta.prompts) ? meta.prompts : [];
+  card.innerHTML = `
+    <div class="apc-top">
+      <div class="apc-icon-wrap">${meta.icon || "🤖"}</div>
+      <div>
+        <div class="apc-name">${meta.label || key}</div>
+        <div class="apc-key">${key}</div>
+      </div>
+    </div>
+    <div class="apc-desc">${meta.desc || ""}</div>
+    ${caps ? `<div class="apc-caps">${caps}</div>` : ""}
+    ${prompts.length ? `<div class="apc-prompts-lbl">建議問題</div><div class="apc-prompts"></div>` : ""}
+  `;
+
+  if (prompts.length) {
+    const promptWrap = card.querySelector(".apc-prompts");
+    prompts.forEach((text) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "apc-prompt";
+      btn.textContent = text;
+      btn.dataset.prompt = text;
+      promptWrap.appendChild(btn);
+    });
+    // 用事件委派避免 inline onclick 在部分環境失效
+    promptWrap.addEventListener("click", (ev) => {
+      const btn = ev.target.closest(".apc-prompt");
+      if (!btn) return;
+      usePrompt(btn.dataset.prompt || "", { autoSend: true });
+    });
+  }
+
+  area.appendChild(card);
+}
+
+function usePrompt(text, options = {}) {
+  const input = $("msgInput");
+  const finalText = String(text || "").trim();
+  if (!input || !finalText) return;
+  input.value = finalText;
+  input.focus();
+  input.style.height = "auto";
+  input.style.height = Math.min(input.scrollHeight, 100) + "px";
+  resetSendConfirmation();
+  const autoSend = options.autoSend !== false;
+  if (!autoSend) return;
+  if (state.busy) {
+    state.pendingForcedSource = "agent_prompt";
+    const sync = document.getElementById("backendSync");
+    if (sync) sync.textContent = "上一則訊息仍在處理，已排隊送出建議問題";
+    return;
+  }
+  state.attachments = [];
+  renderAttach();
+  if (!$("chatView").classList.contains("vis")) showChat();
+  return sendMessage({ source: "agent_prompt", force: true });
+}
+
+function updateAgentMsgCount(key) {
+  const chat = agentChats[key];
+  if (!chat) return;
+  const count = (chat.html.match(/class="msg user"/g) || []).length;
+  const el = $("cnt-" + key);
+  if (!el) return;
+  if (count > 0) { el.textContent = count; el.classList.add("vis"); }
+  else { el.classList.remove("vis"); }
+}
+
+function startChat(modelKey, modelLabel) {
+  const card = $("mc-" + modelKey);
+  if (card && card.classList.contains("mc-offline")) {
+    const badge = card.querySelector("[id^='mbadge-']");
+    const orig = badge ? badge.textContent : "";
+    if (badge) { badge.textContent = "請先設定 API Key"; badge.className = "badge b-disabled"; }
+    setTimeout(() => { if (badge) { badge.textContent = orig || "未設定"; badge.className = "badge b-disabled"; } }, 2000);
+    return;
+  }
+  state.model = modelKey;
+  state.modelLabel = modelLabel;
+  state.sessionId = newId();
+  setModelCardSelection(modelKey);
+  syncModelHeader();
+  $("chatArea").innerHTML = "";
+  $("qrBar").style.display = "none";
+  state.attachments = []; renderAttach();
+  resetSendConfirmation();
+  document.querySelectorAll(".nav-item").forEach(n => n.classList.remove("active"));
+  document.querySelectorAll(".hist-item").forEach(n => n.classList.remove("active"));
+  showChat();
+  renderBackendSync({ agent: state.agentKey, model: modelLabel }, "idle");
+  addMsg("assistant", `【${state.agentLabel}】已切換至「${modelLabel}」。請輸入您的問題。`);
+  $("msgInput").focus();
+}
+
+function setRpMode(btn, mode) {
+  document.querySelectorAll(".rp-btn").forEach(b => b.classList.remove("on"));
+  btn.classList.add("on");
+  state.interactionMode = mode;
+  document.getElementById("interactionSelect").value = mode === "discussion" ? "discussion" : mode;
+}
+
+/* ════════════════════════════════════════
+   Messages
+════════════════════════════════════════ */
+function extractConversationHistory(maxTurns = 12) {
+  const area = document.getElementById("chatArea");
+  const msgs = Array.from(area.querySelectorAll(".msg.user, .msg.assistant"));
+  const result = [];
+  for (const el of msgs) {
+    // 跳過 agent-card 和 thinking dots
+    if (el.querySelector(".apc-icon-wrap") || el.querySelector(".thinking-dots")) continue;
+    const role = el.classList.contains("user") ? "user" : "assistant";
+    // 取純文字（跳過時間戳小字）
+    const textNodes = Array.from(el.childNodes)
+      .filter(n => n.nodeType === Node.TEXT_NODE || (n.nodeName === "DIV" && !n.style?.fontSize?.includes("10px")))
+      .map(n => n.textContent || "").join("").trim();
+    if (textNodes) result.push({ role, text: textNodes });
+  }
+  // 只取最後 maxTurns 條，且排除最後一條（當前 user 訊息，payload 裡已有）
+  return result.slice(-maxTurns - 1, -1);
+}
+
+function addMsg(role, text) {
+  const area = document.getElementById("chatArea");
+  const div = document.createElement("div");
+  div.className = "msg " + role;
+  div.textContent = text;
+  area.appendChild(div);
+  area.scrollTop = area.scrollHeight;
+  return div;
+}
+
+function addMediaMsg(role, files) {
+  const area = document.getElementById("chatArea");
+  files.forEach(f => {
+    const div = document.createElement("div");
+    div.className = "msg " + role;
+    if (f.type.startsWith("image/")) {
+      const img = document.createElement("img");
+      img.src = f.dataUrl; img.alt = f.name; img.className = "msg-img";
+      img.onclick = () => openLightbox(f.dataUrl);
+      div.appendChild(img);
+    } else if (f.type.startsWith("video/")) {
+      const vid = document.createElement("video");
+      vid.src = f.dataUrl; vid.controls = true; vid.className = "msg-vid";
+      div.appendChild(vid);
+    } else {
+      div.textContent = "📄 " + f.name;
+    }
+    area.appendChild(div);
+  });
+  document.getElementById("chatArea").scrollTop = 99999;
+}
+
+function appendGeneratedImages(container, images) {
+  const list = Array.isArray(images) ? images.filter(img => img && img.src) : [];
+  if (!container || !list.length) return;
+  const grid = document.createElement("div");
+  grid.className = "generated-image-grid";
+  list.forEach((item, index) => {
+    const card = document.createElement("div");
+    card.className = "generated-image-card";
+    const img = document.createElement("img");
+    img.src = item.src;
+    img.alt = item.revised_prompt || item.prompt || `generated image ${index + 1}`;
+    img.onclick = () => openLightbox(item.src);
+    const meta = document.createElement("div");
+    meta.className = "generated-image-meta";
+    meta.textContent = `${item.provider || "image"} · ${item.model || "generated"}`;
+    card.appendChild(img);
+    card.appendChild(meta);
+    grid.appendChild(card);
+  });
+  container.appendChild(grid);
+}
+
+function showQR(replies) {
+  const bar = document.getElementById("qrBar");
+  if (!bar || !replies || !replies.length) { if (bar) bar.style.display = "none"; return; }
+  bar.innerHTML = "";
+  replies.forEach(r => {
+    const btn = document.createElement("button");
+    btn.className = "qr-btn";
+    btn.textContent = r.text || r;
+    btn.onclick = () => {
+      submitQuickReply(r);
+    };
+    bar.appendChild(btn);
+  });
+  bar.style.display = "flex";
+}
+
+function submitQuickReply(reply) {
+  const text = (reply && reply.text) ? reply.text : String(reply || "");
+  const input = document.getElementById("msgInput");
+  const bar = document.getElementById("qrBar");
+  if (!text || !input) return;
+  if (bar) bar.style.display = "none";
+  input.value = text;
+  input.focus();
+  input.style.height = "auto";
+  input.style.height = Math.min(input.scrollHeight, 100) + "px";
+  if (state.busy) {
+    state.pendingForcedSource = "quick_reply";
+    const sync = document.getElementById("backendSync");
+    if (sync) sync.textContent = "上一則訊息仍在處理，已排隊送出快速回覆";
+    return;
+  }
+  state.attachments = [];
+  renderAttach();
+  resetSendConfirmation();
+  if (!document.getElementById("chatView").classList.contains("vis")) showChat();
+  return sendMessage({ source: "quick_reply", force: true });
+}
+
+/* ════════════════════════════════════════
+   Send
+════════════════════════════════════════ */
+const SEND_CONFIRM_WINDOW_MS = 8000;
+
+function getDraftSignature() {
+  const input = document.getElementById("msgInput");
+  const text = (input?.value || "").trim();
+  const files = (state.attachments || [])
+    .map(f => `${f.name || ""}:${f.type || ""}:${f.url || ""}`)
+    .join("|");
+  return {
+    text,
+    hasContent: !!(text || (state.attachments && state.attachments.length)),
+    signature: `${text}\n--attachments--\n${files}`,
+  };
+}
+
+function renderSendButtonState() {
+  const btn = document.getElementById("sendBtn");
+  if (!btn) return;
+  if (state.busy) {
+    btn.disabled = true;
+    btn.textContent = "後台處理中";
+    btn.classList.remove("pending");
+    btn.title = "後台正在處理上一則訊息";
+    return;
+  }
+  btn.disabled = false;
+  if (state.pendingSend) {
+    btn.textContent = "再按一次送出";
+    btn.classList.add("pending");
+    btn.title = "文字已暫停送出，請再按一次確認";
+  } else {
+    btn.textContent = "確認送出";
+    btn.classList.remove("pending");
+    btn.title = "第一次確認，第二次才送出";
+  }
+}
+
+function resetSendConfirmation() {
+  state.pendingSend = null;
+  if (state.pendingSendTimer) {
+    clearTimeout(state.pendingSendTimer);
+    state.pendingSendTimer = null;
+  }
+  renderSendButtonState();
+}
+
+function armSendConfirmation() {
+  const draft = getDraftSignature();
+  if (!draft.hasContent) {
+    resetSendConfirmation();
+    return;
+  }
+  state.pendingSend = {
+    signature: draft.signature,
+    at: Date.now(),
+  };
+  if (state.pendingSendTimer) clearTimeout(state.pendingSendTimer);
+  state.pendingSendTimer = setTimeout(resetSendConfirmation, SEND_CONFIRM_WINDOW_MS);
+  renderSendButtonState();
+}
+
+async function confirmAndSendMessage() {
+  if (state.composing || state.busy) return;
+  const draft = getDraftSignature();
+  if (!draft.hasContent) {
+    resetSendConfirmation();
+    return;
+  }
+  const isConfirmed =
+    state.pendingSend &&
+    state.pendingSend.signature === draft.signature &&
+    Date.now() - state.pendingSend.at <= SEND_CONFIRM_WINDOW_MS;
+  // #region agent log
+  __agentLog("HUI2", "templates/chat.html:confirmAndSendMessage", "confirm send evaluated", {
+    hasContent: draft.hasContent,
+    isConfirmed: !!isConfirmed,
+    hasPendingSend: !!state.pendingSend,
+    composing: !!state.composing,
+    busy: !!state.busy,
+  });
+  // #endregion
+  if (!isConfirmed) {
+    armSendConfirmation();
+    return;
+  }
+  resetSendConfirmation();
+  return sendMessage();
+}
+
+function _setBusy(busy) {
+  state.busy = busy;
+  const inp = document.getElementById("msgInput");
+  renderSendButtonState();
+  if (inp) inp.style.opacity = busy ? ".5" : "";
+  if (!busy && state.pendingForcedSource) {
+    const pendingSource = state.pendingForcedSource;
+    state.pendingForcedSource = "";
+    setTimeout(() => {
+      const draft = getDraftSignature();
+      if (!draft.hasContent) return;
+      sendMessage({ source: pendingSource, force: true });
+    }, 0);
+  }
+}
+
+async function sendMessage(options = {}) {
+  const force = !!options.force;
+  if (!force && (state.composing || state.busy)) return;
+  const input = document.getElementById("msgInput");
+  const text = input.value.trim();
+  if (!text && !state.attachments.length) return;
+  // #region agent log
+  __agentLog("HUI3", "templates/chat.html:sendMessage", "sendMessage entry", {
+    force,
+    composing: !!state.composing,
+    busy: !!state.busy,
+    textLength: text.length,
+    attachmentCount: (state.attachments || []).length,
+    interactionMode: document.getElementById("interactionSelect").value || state.interactionMode,
+  });
+  // #endregion
+  if (!document.getElementById("chatView").classList.contains("vis")) showChat();
+
+  const iMode = document.getElementById("interactionSelect").value || state.interactionMode;
+  // 程式任務預設交給工程師，避免被總管中樞覆蓋成泛用對話。
+  if (iMode === "coding" && state.agentKey !== "engineer") {
+    state.agentKey = "engineer";
+    state.agentLabel = AGENT_META.engineer?.label || "工程師";
+    state.agentIcon = AGENT_META.engineer?.icon || "⚙️";
+    setActiveNav("nav-engineer");
+    const role = document.getElementById("roleTag");
+    if (role) role.textContent = `${state.agentIcon} ${state.agentLabel}`;
+  }
+  const fileRefs = state.attachments.map(f => f.url ? `[附件: ${f.name}](${f.url})` : `[附件: ${f.name}]`).join("\n");
+  const fullMsg = text + (text && fileRefs ? "\n\n" : "") + fileRefs;
+
+  if (state.attachments.length) addMediaMsg("user", [...state.attachments]);
+  if (text) addMsg("user", text);
+
+  state.attachments = []; renderAttach();
+  setTimeout(() => { input.value = ""; input.style.height = "auto"; }, 10);
+
+  _setBusy(true);
+  renderBackendPending(iMode);
+
+  // thinking bubble
+  const area = document.getElementById("chatArea");
+  const bubble = document.createElement("div");
+  bubble.className = "msg assistant";
+  bubble.innerHTML = `<span class="thinking-dots"><span>●</span><span>●</span><span>●</span></span>`;
+  area.appendChild(bubble);
+  area.scrollTop = 99999;
+
+  try {
+    const conversation = extractConversationHistory(12);
+    const payload = {
+      message: fullMsg || text,
+      agent: state.agentKey,
+      model: state.model,
+      interaction_mode: iMode,
+      session_id: state.sessionId,
+      conversation,
+    };
+    if (state.lowRestrict) {
+      payload.ethics_mode = "owner_relaxed";
+      payload.external_agent_proxy_allowed = true;
+      payload.execution_mode = "smp";
+      payload.permission_bypass = "low_restrict";
+    }
+    const reqHeaders = { "Content-Type": "application/json" };
+    if (state.lowRestrict) {
+      reqHeaders["X-Agent-Internal"] = "agent-internal-bypass-2024";
+      reqHeaders["X-Agent-Sender"] = "owner_ui";
+      reqHeaders["X-External-Agent-Proxy"] = "allow";
+      reqHeaders["X-Execution-Mode"] = "smp";
+    }
+    // #region agent log
+    __agentLog("HUI4", "templates/chat.html:sendMessage", "about to call /chat/agent", {
+      agent: state.agentKey,
+      model: state.model,
+      interaction_mode: iMode,
+      session_id: state.sessionId,
+      conversationTurns: Array.isArray(conversation) ? conversation.length : 0,
+    });
+    // #endregion
+    const r = await _fetchWithRetry("/chat/agent", {
+      method: "POST",
+      headers: reqHeaders,
+      body: JSON.stringify(payload),
+    });
+
+    /* 安全讀取 body，加 60s 逾時防止 body 掛住 */
+    let d = {};
+    try {
+      const jsonPromise = r.json();
+      const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error("body timeout")), 60000));
+      d = await Promise.race([jsonPromise, timeout]);
+    } catch (_) {}
+
+    if (!r.ok) {
+      // #region agent log
+      __agentLog("HUI5", "templates/chat.html:sendMessage", "chat api non-200", {
+        status: r.status,
+        error: d.error || "",
+        error_id: d.error_id || "",
+      });
+      // #endregion
+      const diag = normalizeBackendError({
+        status: r.status,
+        error: d.error || `HTTP ${r.status}`,
+        error_code: d.error_code || "",
+      });
+      const errId = d.error_id ? ` [err:${d.error_id}]` : "";
+      bubble.innerHTML = `<span style="color:#fca5a5">【${state.agentLabel}】${diag.userMessage}（${diag.code}${errId}）</span>`;
+      bubble.style.cssText += ";border-color:rgba(239,68,68,.4);";
+      renderBackendSync({ error: `${diag.userMessage}（${diag.code}）` }, "err");
+      return;
+    }
+
+    const reply = d.reply || d.response || d.message || "已收到，但回覆為空。";
+    const statusLine = buildBackendStatusLine(d, iMode);
+    const qr = d.quick_replies || [];
+
+    bubble.innerHTML = "";
+    const main = document.createElement("div");
+    main.textContent = reply;
+    bubble.appendChild(main);
+    if (statusLine) {
+      const st = document.createElement("div");
+      st.className = "msg-status";
+      st.textContent = statusLine;
+      bubble.appendChild(st);
+    }
+    appendGeneratedImages(bubble, d.images);
+    showQR(qr);
+    // #region agent log
+    __agentLog("HUI5", "templates/chat.html:sendMessage", "chat api success rendered", {
+      hasReply: !!reply,
+      quickReplies: Array.isArray(qr) ? qr.length : 0,
+      imageCount: Array.isArray(d.images) ? d.images.length : 0,
+      responseTime: d.response_time || "",
+    });
+    // #endregion
+    renderBackendSync(d, "ok");
+    agentChats[state.agentKey] = agentChats[state.agentKey] || { sessionId: state.sessionId };
+    agentChats[state.agentKey].html = area.innerHTML;
+    updateAgentMsgCount(state.agentKey);
+    syncAfterChat(d);
+  } catch (err) {
+    // #region agent log
+    __agentLog("HUI6", "templates/chat.html:sendMessage", "chat request threw", {
+      name: err && err.name ? err.name : "",
+      message: err && err.message ? err.message : String(err || ""),
+    });
+    // #endregion
+    const diag = normalizeBackendError(err || {});
+    bubble.innerHTML = `<span style="color:#fca5a5">【${state.agentLabel}】${diag.userMessage}（${diag.code}）</span>`;
+    bubble.style.cssText += ";border-color:rgba(239,68,68,.4);";
+    renderBackendSync({ error: `${diag.userMessage}（${diag.code}）` }, "err");
+  } finally {
+    _setBusy(false);
+    area.scrollTop = 99999;
+  }
+}
+
+/* ════════════════════════════════════════
+   Attachments
+════════════════════════════════════════ */
+function renderAttach() {
+  const strip = document.getElementById("attachStrip");
+  if (!state.attachments.length) { strip.classList.remove("vis"); return; }
+  strip.classList.add("vis");
+  strip.innerHTML = state.attachments.map((f, i) => {
+    const isImg = f.type.startsWith("image/");
+    const preview = isImg ? `<img src="${f.dataUrl}" alt="${f.name}">` : `<span>📄</span>`;
+    return `<div class="attach-thumb">${preview}<span style="font-size:11px;color:rgba(255,255,255,.5);max-width:80px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${f.name}</span><button class="attach-rm" onclick="removeAttach(${i})">✕</button></div>`;
+  }).join("");
+}
+function removeAttach(i) { state.attachments.splice(i, 1); resetSendConfirmation(); renderAttach(); }
+
+async function processFile(file) {
+  return new Promise(resolve => {
+    const reader = new FileReader();
+    reader.onload = async ev => {
+      const dataUrl = ev.target.result;
+      const base64 = dataUrl.split(",")[1] || "";
+      let url = null;
+      try {
+        const r = await fetch("/api/upload_file", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filename: file.name, data: base64 }),
+        });
+        const d = await r.json();
+        if (d.ok) url = d.url;
+      } catch (_) {}
+      state.attachments.push({ name: file.name, dataUrl, url, type: file.type });
+      resetSendConfirmation();
+      renderAttach();
+      resolve();
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+document.getElementById("fileInput").addEventListener("change", async function(e) {
+  for (const f of Array.from(e.target.files)) await processFile(f);
+  e.target.value = "";
+});
+document.addEventListener("paste", async function(e) {
+  const items = e.clipboardData && e.clipboardData.items;
+  if (!items) return;
+  for (const item of items) {
+    if (item.type.startsWith("image/")) {
+      const blob = item.getAsFile();
+      if (blob) await processFile(new File([blob], `截圖_${Date.now()}.png`, { type: blob.type }));
+    }
+  }
+});
+
+/* ════════════════════════════════════════
+   Lightbox
+════════════════════════════════════════ */
+function openLightbox(src) { document.getElementById("lightboxImg").src = src; document.getElementById("lightbox").classList.add("open"); }
+function closeLightbox() { document.getElementById("lightbox").classList.remove("open"); }
+
+/* ════════════════════════════════════════
+   KAL Loop 狀態
+════════════════════════════════════════ */
+const TYPE_MAP = { topic_expansion:"主題", seed:"種子", failure_recovery:"修復", programming_session:"程式" };
+const POLL_INTERVAL_MS = {
+  snapshot: 60000,
+  kal: 90000,
+  tasks: 90000,
+  history: 120000,
+  provider: 180000,
+};
+const MIN_FETCH_GAP_MS = {
+  kal: 18000,
+  tasks: 18000,
+  history: 45000,
+  provider: 45000,
+};
+const _fetchState = {
+  snapshot: { busy: false, lastAt: 0 },
+  kal: { busy: false, lastAt: 0 },
+  tasks: { busy: false, lastAt: 0 },
+  history: { busy: false, lastAt: 0 },
+  provider: { busy: false, lastAt: 0 },
+};
+let _latestSnapshot = null;
+
+async function fetchFrontendSnapshot(force = false) {
+  const now = Date.now();
+  const fs = _fetchState.snapshot;
+  if (!force) {
+    if (fs.busy) return null;
+    if (now - fs.lastAt < 15000) return _latestSnapshot;
+  }
+  fs.busy = true;
+  fs.lastAt = now;
+  try {
+    const ah = window.__API_TOKEN__ ? { "X-API-Token": window.__API_TOKEN__ } : {};
+    const r = await fetch(`/api/frontend/snapshot${force ? "?force=1" : ""}`, { headers: ah });
+    if (!r.ok) return null;
+    const snap = await r.json();
+    if (!snap || snap.ok === false) return null;
+    _latestSnapshot = snap;
+
+    const providers = snap.providers || {};
+    renderProviderStatusFromPayload(providers);
+
+    const tasks = snap.tasks || {};
+    renderTasksPanel(tasks.summary || {}, tasks.items || []);
+
+    const history = Array.isArray(snap.history) ? snap.history : [];
+    renderHistory(history);
+
+    const archive = snap.archive || {};
+    renderArchiveList(archive);
+
+    const orch = (snap.workflow && snap.workflow.last_state) || {};
+    const learn = snap.learning || {};
+    const harmony = snap.harmony || {};
+    if (Object.keys(orch).length || Object.keys(learn).length) {
+      renderKAL(orch, learn);
+      updateMonitor(orch);
+    }
+    updateHarmonyMonitor(harmony);
+    return snap;
+  } catch (_) {
+    return null;
+  } finally {
+    fs.busy = false;
+  }
+}
+
+async function fetchKALStatus(force = false) {
+  const now = Date.now();
+  const fs = _fetchState.kal;
+  if (!force) {
+    if (fs.busy) return;
+    if (now - fs.lastAt < MIN_FETCH_GAP_MS.kal) return;
+  }
+  fs.busy = true;
+  fs.lastAt = now;
+  try {
+    const ah = window.__API_TOKEN__ ? { "X-API-Token": window.__API_TOKEN__ } : {};
+    const [orchR, learnR] = await Promise.all([
+      fetch("/api/orchestrator/status", { headers: ah }),
+      fetch("/trace/learning-status", { headers: ah }),
+    ]);
+    const orch  = orchR.ok  ? await orchR.json()  : {};
+    const learn = learnR.ok ? await learnR.json() : {};
+    renderKAL(orch, learn);
+    updateMonitor(orch);
+  } catch (e) {
+    document.getElementById("kalLabel").textContent = "無法連線後端";
+  } finally {
+    fs.busy = false;
+  }
+}
+
+function renderKAL(orch, learn) {
+  const pending = orch.pending_goals || 0;
+  const cycles  = orch.cycle_count  || 0;
+  const kal     = orch.kal_loop     || {};
+  const total   = Math.max(cycles * 3, pending + cycles * 3, 1);
+  const done    = cycles * 3;
+  const pct     = Math.round((done / total) * 100);
+
+  document.getElementById("kalLabel").textContent = `已完成 ${cycles} 輪 · ${pending} 個目標待處理`;
+  document.getElementById("kalPct").textContent   = pct + "%";
+  document.getElementById("kalFill").style.width  = pct + "%";
+
+  // chips
+  const chips = [
+    { label: "蒸餾器", on: kal.distiller_active },
+    { label: "驗證器", on: kal.validator_active },
+    { label: "Brave 搜尋", on: kal.brave_api },
+    { label: "最多 " + (kal.max_rounds_per_goal || 3) + " 輪", on: true },
+  ];
+  document.getElementById("kalChips").innerHTML = chips.map(c =>
+    `<span class="kal-chip ${c.on ? "on" : "off"}">${c.on ? "●" : "○"} ${c.label}</span>`
+  ).join("");
+
+  // pending items from learn
+  const items = (learn.pending_items || []).slice(0, 5);
+  document.getElementById("kalPending").innerHTML = items.length
+    ? items.map(g => {
+        const q = (g.query || g.id || "").slice(0, 28);
+        const lbl = TYPE_MAP[g.type] || g.type || "";
+        return `<div class="kal-item" onclick="triggerLearn('${(g.query||g.id||"").replace(/'/g,"\\'")}')">
+          <div class="kal-item-name">${q}</div>
+          <div class="kal-item-meta"><span class="kal-badge">${lbl}</span>優先 ${g.priority||0}</div>
+        </div>`;
+      }).join("")
+    : '<div class="kal-empty">全部完成 🎉</div>';
+
+  // logs
+  const logs = (learn.recent_logs || []).slice(-4).reverse();
+  document.getElementById("kalLogs").innerHTML = logs.length
+    ? logs.map(l => `<div class="kal-item">
+        <div class="kal-item-name">${(l.task||"").slice(0,30)}</div>
+        <div class="kal-item-meta"><span class="kal-badge done">${TYPE_MAP[l.type]||l.type||""}</span>${(l.timestamp||"").slice(0,16)}</div>
+      </div>`).join("")
+    : '<div class="kal-empty">尚無記錄</div>';
+}
+
+function updateMonitor(orch) {
+  const kal = orch.kal_loop || {};
+  const set = (id, val, ok) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = val;
+    el.className = "mon-val" + (ok === true ? " ok" : ok === false ? " err" : "");
+  };
+  set("mon-kal",     orch.running ? "運行中" : "停止",  orch.running);
+  set("mon-distill", kal.distiller_active ? "啟用" : "停用", kal.distiller_active);
+  set("mon-valid",   kal.validator_active ? "啟用" : "停用", kal.validator_active);
+  set("mon-brave",   kal.brave_api        ? "已接" : "未設",  kal.brave_api);
+  set("mon-cycles",  orch.cycle_count || 0, null);
+  set("mon-pending", orch.pending_goals || 0, null);
+
+  const badge = document.getElementById("bridgeState");
+  badge.textContent = orch.running ? `KAL ✓ · 第 ${orch.cycle_count||0} 輪` : "KAL 停止";
+  badge.className = "tb-badge " + (orch.running ? "ok" : "err");
+  document.getElementById("bridgeInfo").textContent = orch.last_cycle_at ? orch.last_cycle_at.slice(11,16) : "—";
+}
+
+function updateHarmonyMonitor(harmony = {}) {
+  const set = (id, val, cls = "") => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = val;
+    el.className = "mon-val" + (cls ? ` ${cls}` : "");
+  };
+  const note = document.getElementById("mon-harmony-note");
+  if (!harmony || typeof harmony !== "object" || !Object.keys(harmony).length) {
+    set("mon-harmony", "未載入", "warn");
+    set("mon-harmony-failed", "—");
+    if (note) note.textContent = "尚未載入協調健康報告";
+    return;
+  }
+  const overall = harmony.overall_ok === true;
+  const state = harmony.state || (overall ? "ready" : "degraded");
+  const failed = Array.isArray(harmony.failed_checks) ? harmony.failed_checks : [];
+  if (overall) {
+    set("mon-harmony", "就緒", "ok");
+  } else if (state === "degraded") {
+    set("mon-harmony", "降級", "warn");
+  } else {
+    set("mon-harmony", "異常", "err");
+  }
+  set("mon-harmony-failed", failed.length ? failed.join(", ") : "無");
+  if (note) {
+    const ts = harmony.timestamp || "";
+    const shortTs = ts ? ts.replace("T", " ").slice(5, 16) : "未知";
+    note.textContent = `報告時間：${shortTs}`;
+  }
+}
+
+async function triggerLearn(query) {
+  await selectAgent("researcher", "🔬", "研究學習中樞");
+  const input = document.getElementById("msgInput");
+  input.value = "開始學習：" + query;
+  input.focus();
+  input.style.height = "auto";
+  input.style.height = Math.min(input.scrollHeight, 100) + "px";
+  resetSendConfirmation();
+}
+
+function refreshInputPlaceholder() {
+  const input = document.getElementById("msgInput");
+  const mode = document.getElementById("interactionSelect")?.value || state.interactionMode;
+  if (!input) return;
+  input.placeholder = mode === "image_generation"
+    ? "描述你想生成的圖片，按兩次 Enter/送出確認..."
+    : "輸入訊息，按兩次 Enter/送出確認；Shift+Enter 換行...";
+}
+
+async function enableImageGenerationMode() {
+  const select = document.getElementById("interactionSelect");
+  if (select) select.value = "image_generation";
+  state.interactionMode = "image_generation";
+  if (state.agentKey !== "xiaobian") {
+    await selectAgent("xiaobian", "✍️", "小編設計師");
+  }
+  refreshInputPlaceholder();
+  const input = document.getElementById("msgInput");
+  if (input) input.focus();
+  resetSendConfirmation();
+}
+
+async function reconnectAll() {
+  const btn = document.getElementById("reconnectBtn");
+  const badge = document.getElementById("bridgeState");
+  if (btn) btn.style.opacity = ".4";
+  if (badge) { badge.textContent = "連線中…"; badge.className = "tb-badge"; }
+  try {
+    const ah = window.__API_TOKEN__ ? { "X-API-Token": window.__API_TOKEN__ } : {};
+    const r = await fetch("/status", { headers: ah });
+    if (r.ok) {
+      if (badge) { badge.textContent = "已連線"; badge.className = "tb-badge ok"; }
+    } else {
+      if (badge) { badge.textContent = "連線異常"; badge.className = "tb-badge err"; }
+    }
+  } catch (_) {
+    if (badge) { badge.textContent = "無法連線"; badge.className = "tb-badge err"; }
+  }
+  const snap = await fetchFrontendSnapshot(true);
+  if (!snap) {
+    await Promise.all([
+      fetchKALStatus(true),
+      fetchTasksSummary(true),
+      fetchProviderStatus(true),
+      fetchHistory(true),
+    ]);
+  }
+  if (btn) btn.style.opacity = "";
+}
+
+/* ════════════════════════════════════════
+   Tasks Panel
+════════════════════════════════════════ */
+let _tasksFilter = "";
+
+/* ── Cloud Provider Status ── */
+const PROVIDER_META = {
+  nvidia:      { label:"NVIDIA",       sub:"Llama 3.1 405B",      icon:"🟢", bg:"rgba(34,197,94,.2)"  },
+  openai:      { label:"OpenAI GPT",   sub:"gpt-4o",              icon:"🤖", bg:"rgba(5,46,22,.35)"   },
+  gemini:      { label:"Gemini",       sub:"gemini-2.5-flash",    icon:"✨", bg:"rgba(30,64,175,.35)" },
+  groq:        { label:"Groq",         sub:"gpt-oss-20b",         icon:"⚡", bg:"rgba(124,45,18,.35)" },
+};
+
+function inferProviderKey(modelText) {
+  const text = String(modelText || "").toLowerCase();
+  if (!text) return "";
+  if (text.includes("qwen2.5:7b") || (text.includes("qwen2.5") && text.includes("7b"))) return "ollama_qwen25_7b";
+  if (text.includes("qwen")) return "ollama_qwen25_7b";
+  if (text.includes("tinyllama") || text.includes("mistral") || text.includes("ollama")) return "sidecar";
+  if (text.includes("openai") || text.includes("gpt-4o")) return "openai";
+  if (text.includes("nvidia") || text.includes("llama")) return "nvidia";
+  if (text.includes("gemini")) return "gemini";
+  if (text.includes("groq")) return "groq";
+  return "";
+}
+
+function setModelCardSelection(modelKey) {
+  document.querySelectorAll(".mc").forEach(card => card.classList.remove("sel"));
+  const card = modelKey ? document.getElementById("mc-" + modelKey) : null;
+  if (card) card.classList.add("sel");
+}
+
+function renderBackendPending(mode) {
+  const label = state.modelLabel || "自動選擇";
+  const sync = document.getElementById("backendSync");
+  const bridge = document.getElementById("bridgeInfo");
+  const badge = document.getElementById("bridgeState");
+  if (sync) {
+    sync.textContent = `後台處理中 · ${state.agentLabel} · ${label} · ${mode || "auto"}`;
+    sync.className = "backend-sync pending";
+  }
+  if (bridge) bridge.textContent = "後台處理中";
+  if (badge) { badge.textContent = "後台處理中"; badge.className = "tb-badge"; }
+}
+
+function renderBackendSync(data = {}, tone = "ok") {
+  const actualAgent = normalizeAgentKey(data.agent || state.agentKey);
+  const agentMeta = AGENT_META[actualAgent] || {};
+  const agentLabel = agentMeta.label || state.agentLabel || actualAgent;
+  const actualModel = data.model || state.modelLabel || "自動選擇";
+  const responseTime = data.response_time ? `${data.response_time}s` : "";
+  const providerKey = inferProviderKey(actualModel) || (data.model ? "" : state.model);
+  const parts = ["後台同步", agentLabel, actualModel, responseTime].filter(Boolean);
+  const sync = document.getElementById("backendSync");
+  const bridge = document.getElementById("bridgeInfo");
+  const badge = document.getElementById("bridgeState");
+
+  if (data.error) {
+    if (sync) { sync.textContent = `後台同步失敗 · ${data.error}`; sync.className = "backend-sync err"; }
+    if (bridge) bridge.textContent = "同步失敗";
+    if (badge) { badge.textContent = "同步失敗"; badge.className = "tb-badge err"; }
+    return;
+  }
+
+  if (actualAgent && actualAgent !== state.agentKey && AGENT_META[actualAgent]) {
+    state.agentKey = actualAgent;
+    state.agentLabel = agentLabel;
+    state.agentIcon = AGENT_META[actualAgent].icon || state.agentIcon;
+    setActiveNav("nav-" + actualAgent);
+  }
+  if (actualAgent) {
+    const role = document.getElementById("roleTag");
+    if (role) role.textContent = `${agentMeta.icon || state.agentIcon || "🤖"} ${agentLabel}`;
+  }
+  if (actualModel) {
+    state.lastBackendModel = actualModel;
+    const current = document.getElementById("currentModelLabel");
+    const indicator = document.getElementById("modelIndicator");
+    if (current) current.textContent = actualModel;
+    if (indicator) indicator.textContent = "· " + actualModel;
+  }
+  if (providerKey) setModelCardSelection(providerKey);
+  if (sync) { sync.textContent = parts.join(" · "); sync.className = "backend-sync " + (tone === "idle" ? "" : tone); }
+  if (bridge) bridge.textContent = responseTime ? `回覆 ${responseTime}` : "已同步";
+  if (badge) { badge.textContent = "已連線"; badge.className = "tb-badge ok"; }
+}
+
+function buildBackendStatusLine(data = {}, fallbackMode = "auto") {
+  const dataAgent = normalizeAgentKey(data.agent);
+  const agent = dataAgent ? (AGENT_META[dataAgent]?.label || dataAgent) : state.agentLabel;
+  const model = data.model || state.lastBackendModel || state.modelLabel;
+  const mode = data.interaction_mode || fallbackMode;
+  const time = data.response_time ? `${data.response_time}s` : "";
+  const topic = data.semantic_analysis && data.semantic_analysis.primary_topic
+    ? `主題: ${data.semantic_analysis.primary_topic}`
+    : "";
+  const safety = data.safety_guard && data.safety_guard.triggered ? "安全改寫" : "";
+  return ["後台同步", agent, model, `模式: ${mode}`, time, topic, safety]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function syncAfterChat(data = {}) {
+  // 分散請求壓力，避免併發衝擊
+  const delay = (ms) => new Promise(res => setTimeout(res, ms));
+  (async () => {
+    try {
+      await fetchTasksSummary(true);
+      await delay(400);
+      await fetchHistory(true);
+      await delay(400);
+      await fetchProviderStatus(true);
+      await delay(400);
+      await fetchKALStatus(true);
+      renderBackendSync(data, "ok");
+    } catch (e) {
+      console.warn("syncAfterChat partial failure", e);
+    }
+  })();
+}
+
+async function fetchProviderStatus(force = false) {
+  const now = Date.now();
+  const fs = _fetchState.provider;
+  if (!force) {
+    if (fs.busy) return;
+    if (now - fs.lastAt < MIN_FETCH_GAP_MS.provider) return;
+  }
+  fs.busy = true;
+  fs.lastAt = now;
+  try {
+    const headers = { "Content-Type": "application/json", "X-API-Token": window.__API_TOKEN__ || "" };
+    const r = await fetch("/status", { headers });
+    if (!r.ok) return;
+    const d = await r.json();
+    renderProviderStatusFromPayload(d);
+  } catch (_) {
+  } finally {
+    fs.busy = false;
+  }
+}
+
+function renderProviderStatusFromPayload(d = {}) {
+    const visibleProviders = new Set(
+      (d.provider_catalog || [])
+        .filter(item => item && item.visible)
+        .map(item => item.key)
+    );
+    const disabledLabels = (d.provider_catalog || [])
+      .filter(item => item && item.classification && item.classification.tier === "disabled")
+      .map(item => item.label);
+
+    let ready = 0, total = Object.keys(PROVIDER_META).length;
+    for (const [key, meta] of Object.entries(PROVIDER_META)) {
+      const enabled = !!(d[key] || d[key + "_key_configured"]);
+      const card = document.getElementById("mc-" + key);
+      const badge = document.getElementById("mbadge-" + key);
+      if (!card) continue;
+      card.style.display = visibleProviders.size && !visibleProviders.has(key) ? "none" : "";
+      if (enabled) {
+        ready++;
+        card.classList.remove("mc-offline");
+        if (badge) { badge.className = "badge b-active"; badge.textContent = "已連線"; }
+      } else {
+        card.classList.add("mc-offline");
+        if (badge) { badge.className = "badge b-disabled"; badge.textContent = "未設定"; }
+      }
+    }
+    /* 主力 provider 高亮 */
+    document.querySelectorAll(".mc-primary").forEach(card => card.classList.remove("mc-primary"));
+    const preferred = d.chat_preferred_provider || "nvidia";
+    const primary = document.getElementById("mc-" + preferred);
+    if (primary) {
+      primary.classList.add("mc-primary");
+      const b = primary.querySelector("[id^='mbadge-']");
+      if (b && b.textContent === "已連線") { b.textContent = "主力模型"; }
+    }
+    const statusEl = document.getElementById("cloudProviderStatus");
+    if (statusEl) {
+      const disabledText = disabledLabels.length ? ` · 已停用 ${disabledLabels.join("、")}` : "";
+      statusEl.textContent = `${ready}/${total} 已連線${disabledText}`;
+    }
+}
+
+async function fetchTasksSummary(force = false) {
+  const now = Date.now();
+  const fs = _fetchState.tasks;
+  if (!force) {
+    if (fs.busy) return;
+    if (now - fs.lastAt < MIN_FETCH_GAP_MS.tasks) return;
+  }
+  fs.busy = true;
+  fs.lastAt = now;
+  try {
+    const url = _tasksFilter
+      ? `/agent/tasks?status=${encodeURIComponent(_tasksFilter)}&limit=30&compact=1`
+      : "/agent/tasks?limit=30&compact=1";
+    const ah = window.__API_TOKEN__ ? { "X-API-Token": window.__API_TOKEN__ } : {};
+    const [sumR, tasksR] = await Promise.all([
+      fetch("/agent/tasks/summary", { headers: ah }),
+      fetch(url, { headers: ah }),
+    ]);
+    const sum   = sumR.ok   ? await sumR.json()   : {};
+    const tasks = tasksR.ok ? await tasksR.json() : {};
+    renderTasksPanel(sum, tasks.items || []);
+  } catch (_) {
+    const el = document.getElementById("tasksList");
+    if (el) el.innerHTML = '<div class="kal-empty">無法連線後端</div>';
+  } finally {
+    fs.busy = false;
+  }
+}
+
+function renderTasksPanel(sum, items) {
+  const sc  = sum.status_counts || {};
+  const bar = document.getElementById("tasksStatusBar");
+  if (!bar) return;
+  const stats = [
+    { key: "pending",   label: "待執行" },
+    { key: "running",   label: "執行中" },
+    { key: "completed", label: "已完成" },
+    { key: "failed",    label: "失敗" },
+  ];
+  bar.innerHTML = stats.map(s =>
+    `<span class="tasks-stat ${s.key}${_tasksFilter===s.key?' sel':''}" onclick="filterTasks('${s.key}')">${s.label} ${sc[s.key]||0}</span>`
+  ).join("") + `<span class="tasks-stat all${_tasksFilter===''?' sel':''}" onclick="filterTasks('')">全部</span>`;
+
+  const list = document.getElementById("tasksList");
+  if (!list) return;
+  if (!items.length) { list.innerHTML = '<div class="kal-empty">沒有符合的任務</div>'; return; }
+  list.innerHTML = items.map(t => {
+    const st    = t.status || "unknown";
+    const agent = normalizeAgentKey(t.assigned_agent || t.agent_label || "?");
+    const title = (t.title || "").slice(0, 42) || `#${t.task_id}`;
+    const time  = (t.updated_at || "").slice(5, 16).replace("T", " ");
+    const meta  = AGENT_META[agent] || {};
+    return `<div class="task-row" onclick="selectAgent('${agent}','${meta.icon||'🤖'}','${meta.label||agent}')">
+      <div class="task-row-top">
+        <span class="task-dot ${st}"></span>
+        <span class="task-row-title">${title}</span>
+        <span class="task-row-agent">${agent}</span>
+      </div>
+      <div class="task-row-meta">${st} · ${time}</div>
+    </div>`;
+  }).join("");
+}
+
+function filterTasks(status) {
+  _tasksFilter = status;
+  fetchTasksSummary(true);
+}
+
+/* ════════════════════════════════════════
+   _fetchWithRetry – 自動重試 + 逾時保護
+════════════════════════════════════════ */
+function _buildRouteCandidates(url) {
+  if (typeof url !== "string" || !url.startsWith("/")) return [url];
+  const candidates = [];
+  const push = (value) => {
+    if (value && !candidates.includes(value)) candidates.push(value);
+  };
+  const base = String(window.__API_BASE__ || "");
+  const hasPerobBase = /\/perob\/?$/i.test(base);
+  const withPerob = (path) =>
+    path.toLowerCase().startsWith("/perob/") ? path : `/Perob${path}`;
+  const withoutPerob = (path) =>
+    path.toLowerCase().startsWith("/perob/") ? path.slice(6) : path;
+
+  push(url);
+  if (hasPerobBase) {
+    // API base 已含 /Perob，補一條「去前綴」備援，避免 proxy 規則不一致時直接失敗。
+    push(withoutPerob(url));
+  } else {
+    // API base 不含 /Perob 時，補一條「含前綴」備援，支援反向代理場景。
+    push(withPerob(url));
+  }
+
+  // 舊版/精簡版後端可能只支援 /api/send_message，這裡做路由備援。
+  if (/^\/chat\/agent\/?$/i.test(url)) {
+    const alt = url.replace(/^\/chat\/agent\/?$/i, "/api/send_message");
+    push(alt);
+    if (hasPerobBase) push(withoutPerob(alt));
+    else push(withPerob(alt));
+  }
+  return candidates;
+}
+
+async function _fetchWithRetry(url, options, maxRetries = 1, delayMs = 1500) {
+  let lastErr;
+  const routeCandidates = _buildRouteCandidates(url);
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    for (const candidate of routeCandidates) {
+      const ctrl = new AbortController();
+      const tid  = setTimeout(() => ctrl.abort(), 45000);
+      try {
+        const r = await fetch(candidate, { ...options, signal: ctrl.signal });
+        clearTimeout(tid);
+        // 404: 路由不存在；405: 路由存在但 method 不匹配。
+        // 對這兩種狀態繼續嘗試備援候選，避免假性 API 權限錯誤。
+        if (r.status !== 404 && r.status !== 405) return r;
+        lastErr = Object.assign(new Error(`HTTP ${r.status}`), { status: r.status });
+      } catch (e) {
+        clearTimeout(tid);
+        lastErr = e;
+      }
+    }
+    if (attempt < maxRetries) {
+      await new Promise(res => setTimeout(res, delayMs * (attempt + 1)));
+    }
+  }
+  throw lastErr;
+}
+
+function normalizeBackendError(input = {}) {
+  const err = input && typeof input === "object" ? input : {};
+  const rawMessage = String(err.message || err.error || "未知錯誤");
+  const status = Number(err.status || 0);
+  const code = String(err.code || err.error_code || "");
+  const lower = rawMessage.toLowerCase();
+
+  let classCode = "E_UNKNOWN";
+  let userMessage = `服務暫時不可用：${rawMessage}`;
+
+  if (code) {
+    classCode = code;
+  } else if (status === 405) {
+    classCode = "E_METHOD_NOT_ALLOWED";
+  } else if (status === 404) {
+    classCode = "E_ROUTE_MISMATCH";
+  } else if (status === 502 || status === 503 || status === 504) {
+    classCode = "E_PROVIDER_DOWN";
+  } else if (/model timeout|provider timeout|llm timeout|模型逾時|模型超時/.test(lower)) {
+    classCode = "E_MODEL_TIMEOUT";
+  } else if (err.name === "AbortError" || /timeout|逾時|timed out/.test(lower)) {
+    classCode = "E_TIMEOUT";
+  } else if (/failed to fetch|networkerror|load failed|cors|preflight/.test(lower)) {
+    classCode = "E_NETWORK_CORS";
+  } else if (status >= 500) {
+    classCode = "E_HTTP_5XX";
+  } else if (status >= 400) {
+    classCode = "E_HTTP_4XX";
+  }
+
+  if (classCode === "E_MODEL_TIMEOUT") {
+    userMessage = "模型回覆逾時（上游模型忙碌或排隊中），建議稍後重試或切換模型。";
+  } else if (classCode === "E_METHOD_NOT_ALLOWED") {
+    userMessage = `路由方法不匹配（HTTP ${status}），已自動嘗試備援端點；請檢查 API Base 或反向代理規則。`;
+  } else if (classCode === "E_PROVIDER_DOWN") {
+    userMessage = `雲端供應商暫時不可用（HTTP ${status}），請切換供應商或稍後再試。`;
+  } else if (classCode === "E_ROUTE_MISMATCH") {
+    userMessage = "路由不匹配（可能是 /Perob 前綴或 API Base 錯誤），請檢查右上 API。";
+  } else if (classCode === "E_TIMEOUT") {
+    userMessage = "請求逾時（可能是模型回覆過慢或系統忙碌），請稍後再試。";
+  } else if (classCode === "E_NETWORK_CORS") {
+    userMessage = "連線失敗（可能是 API 位址或跨來源設定問題），請檢查右上 API。";
+  } else if (classCode === "E_HTTP_4XX") {
+    userMessage = `請求被拒絕（HTTP ${status}），請檢查 API 金鑰或權限。`;
+  } else if (classCode === "E_HTTP_5XX") {
+    userMessage = `伺服器錯誤（HTTP ${status}），請稍後再試。`;
+  }
+
+  return { code: classCode, status, userMessage, rawMessage };
+}
+
+/* ════════════════════════════════════════
+   History
+════════════════════════════════════════ */
+async function fetchHistory(force = false) {
+  const now = Date.now();
+  const fs = _fetchState.history;
+  if (!force) {
+    if (fs.busy) return;
+    if (now - fs.lastAt < MIN_FETCH_GAP_MS.history) return;
+  }
+  fs.busy = true;
+  fs.lastAt = now;
+  try {
+    const ah = window.__API_TOKEN__ ? { "X-API-Token": window.__API_TOKEN__ } : {};
+    const r = await fetch("/history?limit=120", { headers: ah });
+    if (!r.ok) return;
+    const records = await r.json();
+    if (!Array.isArray(records)) return;
+    renderHistory(records);
+  } catch (_) {
+  } finally {
+    fs.busy = false;
+  }
+}
+
+function renderHistory(records) {
+  const el = document.getElementById("histList");
+  if (!records.length) { el.innerHTML = '<div class="kal-empty" style="padding:3px 0">尚無記錄</div>'; return; }
+  // Group by agent, show last message per agent
+  const byAgent = {};
+  records.forEach(r => {
+    const a = normalizeAgentKey(r.agent || "general");
+    byAgent[a] = byAgent[a] || [];
+    byAgent[a].push(r);
+  });
+  el.innerHTML = Object.entries(byAgent).map(([agent, recs]) => {
+    const last = recs[recs.length - 1];
+    const preview = (last.user || "").slice(0, 28) || "…";
+    const meta = AGENT_META[agent] || {};
+    const icon = meta.icon || "🤖";
+    const label = meta.label || agent;
+    const cnt = recs.length;
+    return `<div class="hist-item" onclick="selectAgent('${agent}','${icon}','${label}')">
+      <div class="hist-title">${icon} ${label} <span style="font-size:10px;color:rgba(255,255,255,.2)">(${cnt})</span></div>
+      <div class="hist-meta" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block">${preview}</div>
+    </div>`;
+  }).join("");
+}
+
+/* ════════════════════════════════════════
+   Input listeners
+════════════════════════════════════════ */
+const msgInput = document.getElementById("msgInput");
+msgInput.addEventListener("compositionstart", () => { state.composing = true; });
+msgInput.addEventListener("compositionend",   () => { state.composing = false; });
+function cancelPendingSendConfirmation() {
+  if (!state.pendingSend) return;
+  resetSendConfirmation();
+}
+function handleMessageKeydown(e) {
+  if (e.key === "Escape") {
+    e.preventDefault();
+    e.stopPropagation();
+    cancelPendingSendConfirmation();
+    return;
+  }
+  if (e.key === "Enter" && !e.shiftKey && !state.composing) {
+    e.preventDefault();
+    confirmAndSendMessage();
+  }
+}
+
+function handleMessageInput() {
+  resetSendConfirmation();
+  msgInput.style.height = "auto";
+  msgInput.style.height = Math.min(msgInput.scrollHeight, 100) + "px";
+}
+
+msgInput.addEventListener("keydown", handleMessageKeydown);
+msgInput.addEventListener("keyup", e => {
+  if (e.key === "Escape") {
+    e.preventDefault();
+    e.stopPropagation();
+    cancelPendingSendConfirmation();
+  }
+});
+msgInput.addEventListener("input", handleMessageInput);
+function handleGlobalEscape(e) {
+  if (e.key !== "Escape") return;
+  e.preventDefault();
+  e.stopPropagation();
+  cancelPendingSendConfirmation();
+}
+msgInput.addEventListener("blur", cancelPendingSendConfirmation);
+window.addEventListener("keydown", handleGlobalEscape, true);
+window.addEventListener("keyup", handleGlobalEscape, true);
+document.addEventListener("keydown", handleGlobalEscape, true);
+document.addEventListener("keyup", handleGlobalEscape, true);
+document.getElementById("interactionSelect").addEventListener("change", e => {
+  state.interactionMode = e.target.value;
+  refreshInputPlaceholder();
+  resetSendConfirmation();
+});
+document.getElementById("newBtn").addEventListener("click", () => {
+  const key = state.agentKey;
+  state.sessionId = newId();
+  agentChats[key] = { html: "", sessionId: state.sessionId };
+  state.attachments = []; renderAttach();
+  resetSendConfirmation();
+  document.querySelectorAll(".hist-item").forEach(e => e.classList.remove("active"));
+  const area = document.getElementById("chatArea");
+  area.innerHTML = "";
+  document.getElementById("qrBar").style.display = "none";
+  // If already in an agent chat, show fresh card; else go to hub
+  if (document.getElementById("chatView").classList.contains("vis")) {
+    renderAgentCard(key);
+    updateAgentMsgCount(key);
+  } else {
+    showHub();
+  }
+});
+
+// 全域 fallback：避免局部事件在某些 WebView/瀏覽器失效
+document.addEventListener("click", (ev) => {
+  const btn = ev.target.closest(".apc-prompt");
+  if (!btn) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  const text = (btn.dataset.prompt || btn.textContent || "").trim();
+  if (!text) return;
+  usePrompt(text, { autoSend: true });
+}, true);
+
+/* ════════════════════════════════════════
+   Archive
+════════════════════════════════════════ */
+async function archiveExport() {
+  const btn = document.getElementById("archiveBtn");
+  const status = document.getElementById("archiveStatus");
+  btn.disabled = true; btn.textContent = "⏳ 打包中...";
+  try {
+    const r = await fetch("/archive/export", { method: "POST" });
+    const d = await r.json();
+    if (d.ok) {
+      status.textContent = `✅ 已儲存 ${d.records} 筆 (${d.size_kb} KB)\n${d.file}`;
+      fetchArchiveList();
+    } else {
+      status.textContent = `❌ ${d.error}`;
+    }
+  } catch (e) { status.textContent = `❌ ${e.message}`; }
+  btn.disabled = false; btn.textContent = "💾 打包存硬碟";
+}
+
+async function archiveCleanup(days) {
+  if (!confirm(`確定要刪除 ${days} 天前的對話記錄？此操作不可逆。`)) return;
+  const status = document.getElementById("archiveStatus");
+  status.textContent = "⏳ 清理中...";
+  try {
+    const r = await fetch("/archive/cleanup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ keep_days: days }),
+    });
+    const d = await r.json();
+    if (d.ok) {
+      status.textContent = `✅ 刪除 ${d.deleted_records} 筆 · 合併 ${d.merged_archived_records} 筆歸檔`;
+      fetchHistory();
+    } else {
+      status.textContent = `❌ ${d.error}`;
+    }
+  } catch (e) { status.textContent = `❌ ${e.message}`; }
+}
+
+async function fetchArchiveList() {
+  try {
+    const r = await fetch("/archive/list");
+    const d = await r.json();
+    renderArchiveList(d);
+  } catch (_) {}
+}
+
+function renderArchiveList(d = {}) {
+  const files = Array.isArray(d.files) ? d.files : [];
+  const el = document.getElementById("archiveList");
+  if (!el) return;
+  if (!files.length) { el.textContent = "尚無歸檔"; return; }
+  el.innerHTML = files.slice(0, 6).map(f =>
+    `<div style="padding:2px 0;border-bottom:1px solid rgba(255,255,255,.04)">
+      <span style="color:rgba(255,255,255,.55)">${String(f.name || "").slice(0,22)}</span>
+      <span style="float:right;color:rgba(255,255,255,.25)">${f.size_kb ?? 0}KB</span>
+    </div>`
+  ).join("");
+}
+
+/* ════════════════════════════════════════
+   Init
+════════════════════════════════════════ */
+syncModelHeader();
+// #region agent log
+__agentLog("HUI1", "templates/chat.html:init", "ui init executed", {
+  href: window.location.href,
+  userAgent: navigator.userAgent,
+  sessionId: state.sessionId,
+  agentKey: state.agentKey,
+});
+// #endregion
+refreshInputPlaceholder();
+setModelCardSelection(state.model);
+renderBackendSync({ agent: state.agentKey, model: state.modelLabel }, "idle");
+
+function bootstrapPolling() {
+  fetchFrontendSnapshot(true).then((snap) => {
+    if (!snap) {
+      fetchKALStatus(true);
+      fetchHistory(true);
+      fetchTasksSummary(true);
+      fetchProviderStatus(true);
+      fetchArchiveList();
+    }
+  });
+
+  setInterval(async () => {
+    const snap = await fetchFrontendSnapshot(false);
+    if (!snap) {
+      fetchKALStatus(false);
+      fetchTasksSummary(false);
+    }
+  }, POLL_INTERVAL_MS.snapshot);
+
+  // 低頻備援輪詢（snapshot 失效時仍能更新）
+  setInterval(() => fetchHistory(false), POLL_INTERVAL_MS.history);
+  setInterval(() => fetchProviderStatus(false), POLL_INTERVAL_MS.provider);
+
+  // 每 6 小時自動打包一次
+  setInterval(() => {
+    fetch("/archive/export", { method: "POST" }).catch(() => {});
+  }, 6 * 60 * 60 * 1000);
+}
+
+bootstrapPolling();
+</script>
+</body>
+</html>
