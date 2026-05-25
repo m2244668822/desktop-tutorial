@@ -43,3 +43,17 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:5001/api/gateway/policy
 - `tools/start_main_web_windows.ps1` stays responsible for main web only.
 - `tools/n8n_watchdog_windows.ps1` stays responsible for n8n liveness.
 - Keep frontend route logic thin; keep route compatibility in backend.
+
+## Related Docs
+
+- [Cross-System Linkage and Consolidation (2026-05-26)](./CROSS_SYSTEM_LINKAGE_AND_DOC_CONSOLIDATION_2026-05-26.md)
+- [Mac / Windows Shared Workspace Runbook](./MAC_WINDOWS_SHARED_WORKSPACE_RUNBOOK.md)
+
+## Task Status Snapshot (2026-05-26)
+- Status: `completed-core`
+- Completed:
+  - Canonical entry `5001` enforced in docs and gateway policy endpoint verified (`200`).
+  - Route alias compatibility retained (`/chat/agent`, `/api/send_message`, prefix fallback).
+- Pending:
+  - Keep regression checks when introducing new frontend routes.
+

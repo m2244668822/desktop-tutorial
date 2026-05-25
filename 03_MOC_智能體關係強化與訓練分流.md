@@ -23,3 +23,6 @@
 - [[Templates/對話回寫模板]]
 - [[04_關係圖強化操作清單]]
 - [[ProjectDocs/dev/AGENT_REPLY_OPTIMIZATION_VERIFICATION_2026-05-25]]
+- [[07_MOC_訓練群組_2026-05-26]]
+- [[06_MOC_運維群組_2026-05-26]]
+- [[08_關係圖更新紀錄_2026-05-26]]

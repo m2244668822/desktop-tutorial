@@ -21,4 +21,7 @@
 - [[00_智能體中樞儀表板]]
 - [[01_專案全貌與進度總覽_2026-05-25]]
 - [[ProjectDocs/dev/SINGLE_ENTRY_GATEWAY_POLICY_2026-05-25]]
-- [[ProjectDocs/dev/GIT_INTEGRITY_AND_BRANCH_TRACKING_2026-05-22]]
+- [[ProjectDocs/dev/CROSS_SYSTEM_LINKAGE_AND_DOC_CONSOLIDATION_2026-05-26]]
+- [[05_MOC_架構群組_2026-05-26]]
+- [[06_MOC_運維群組_2026-05-26]]
+

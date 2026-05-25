@@ -572,3 +572,13 @@ api.export_for_model('openai', recent_count=100) # 慢
 ---
 
 _文檔更新日期: 2026年3月1日_
+
+## 人工二次判讀標籤（2026-05-26）
+- 主流程標籤：`arch/memory-api`
+- 次流程標籤：`training/memory-retrieval`
+- 正相關判定：是（是模型與記憶層的接口契約，對回覆質量有實際增強）
+- 處置：升級為架構+訓練雙核心標籤。
+- 神經連結：
+  - [[05_MOC_架構群組_2026-05-26]]
+  - [[07_MOC_訓練群組_2026-05-26]]
+  - [[ProjectDocs/dev/MAC_WINDOWS_SHARED_WORKSPACE_RUNBOOK]]

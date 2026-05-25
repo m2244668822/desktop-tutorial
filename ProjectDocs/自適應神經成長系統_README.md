@@ -173,3 +173,13 @@ python3 500/llama32-chat/learning/progressive_connection_strengthening.py
 **創建日期**: 2026-03-03  
 **狀態**: ✅ 已測試並集成  
 **兼容性**: 與現有系統完全兼容
+
+## 人工二次判讀標籤（2026-05-26）
+- 主流程標籤：`training/neural-growth`
+- 次流程標籤：`training/connection-strengthening`
+- 正相關判定：是（直接描述連接增強機制，符合神經元式正增強）
+- 處置：由中信心升級為訓練高信心。
+- 神經連結：
+  - [[07_MOC_訓練群組_2026-05-26]]
+  - [[03_MOC_智能體關係強化與訓練分流]]
+  - [[ProjectDocs/dev/AGENT_RELATIONSHIP_ENHANCEMENT_PLAYBOOK_2026-05-25]]

@@ -1,0 +1,457 @@
+{
+  "total_notes": 70,
+  "orphans": 41,
+  "rows": [
+    {
+      "path": "C:\\Users\\pc\\Documents\\Obsidian Vault\\未命名.md",
+      "name": "未命名.md",
+      "suggested_group": "operations",
+      "confidence": "low",
+      "scores": {
+        "architecture": 0,
+        "operations": 0,
+        "training": 0
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\AGENT_SYSTEM_GUIDE.md",
+      "name": "AGENT_SYSTEM_GUIDE.md",
+      "suggested_group": "training",
+      "confidence": "high",
+      "scores": {
+        "architecture": 5,
+        "operations": 3,
+        "training": 12
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\AGENT_UPGRADE_READY.md",
+      "name": "AGENT_UPGRADE_READY.md",
+      "suggested_group": "training",
+      "confidence": "high",
+      "scores": {
+        "architecture": 3,
+        "operations": 2,
+        "training": 11
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\DATA_LAYER_SOURCE_OF_TRUTH.md",
+      "name": "DATA_LAYER_SOURCE_OF_TRUTH.md",
+      "suggested_group": "training",
+      "confidence": "high",
+      "scores": {
+        "architecture": 3,
+        "operations": 4,
+        "training": 7
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\DATA_TRACKING_TIERS.md",
+      "name": "DATA_TRACKING_TIERS.md",
+      "suggested_group": "training",
+      "confidence": "high",
+      "scores": {
+        "architecture": 1,
+        "operations": 3,
+        "training": 5
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\dev\\reports\\2026-05-14-postgres-migration-verification.md",
+      "name": "2026-05-14-postgres-migration-verification.md",
+      "suggested_group": "operations",
+      "confidence": "high",
+      "scores": {
+        "architecture": 2,
+        "operations": 5,
+        "training": 1
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\LEARNING_SESSION_PROGRESS.md",
+      "name": "LEARNING_SESSION_PROGRESS.md",
+      "suggested_group": "training",
+      "confidence": "high",
+      "scores": {
+        "architecture": 2,
+        "operations": 1,
+        "training": 10
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\MODEL_OPTIMIZATION_GUIDE.md",
+      "name": "MODEL_OPTIMIZATION_GUIDE.md",
+      "suggested_group": "training",
+      "confidence": "high",
+      "scores": {
+        "architecture": 0,
+        "operations": 1,
+        "training": 4
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\ooschool_live_sync_steps.md",
+      "name": "ooschool_live_sync_steps.md",
+      "suggested_group": "operations",
+      "confidence": "high",
+      "scores": {
+        "architecture": 1,
+        "operations": 8,
+        "training": 3
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\runbooks\\cors-low-restrict-policy.md",
+      "name": "cors-low-restrict-policy.md",
+      "suggested_group": "training",
+      "confidence": "medium",
+      "scores": {
+        "architecture": 1,
+        "operations": 0,
+        "training": 2
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\runbooks\\frontend-backend-route-compat.md",
+      "name": "frontend-backend-route-compat.md",
+      "suggested_group": "architecture",
+      "confidence": "high",
+      "scores": {
+        "architecture": 12,
+        "operations": 1,
+        "training": 2
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\runbooks\\knowledge_hub_faiss_enablement.md",
+      "name": "knowledge_hub_faiss_enablement.md",
+      "suggested_group": "training",
+      "confidence": "high",
+      "scores": {
+        "architecture": 1,
+        "operations": 2,
+        "training": 12
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\runbooks\\startup-command-contract.md",
+      "name": "startup-command-contract.md",
+      "suggested_group": "operations",
+      "confidence": "medium",
+      "scores": {
+        "architecture": 1,
+        "operations": 2,
+        "training": 1
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\SYSTEM_ARCHITECTURE_MAP.md",
+      "name": "SYSTEM_ARCHITECTURE_MAP.md",
+      "suggested_group": "architecture",
+      "confidence": "high",
+      "scores": {
+        "architecture": 16,
+        "operations": 3,
+        "training": 8
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\UNIFIED_LEARNING_SUMMARY.md",
+      "name": "UNIFIED_LEARNING_SUMMARY.md",
+      "suggested_group": "training",
+      "confidence": "high",
+      "scores": {
+        "architecture": 4,
+        "operations": 0,
+        "training": 10
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\WORKSPACE_ORGANIZATION_PLAN.md",
+      "name": "WORKSPACE_ORGANIZATION_PLAN.md",
+      "suggested_group": "training",
+      "confidence": "high",
+      "scores": {
+        "architecture": 4,
+        "operations": 0,
+        "training": 6
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\WORKSPACE_ORGANIZATION_SUMMARY.md",
+      "name": "WORKSPACE_ORGANIZATION_SUMMARY.md",
+      "suggested_group": "training",
+      "confidence": "high",
+      "scores": {
+        "architecture": 1,
+        "operations": 1,
+        "training": 4
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\中期改進_快速指南.md",
+      "name": "中期改進_快速指南.md",
+      "suggested_group": "training",
+      "confidence": "high",
+      "scores": {
+        "architecture": 2,
+        "operations": 1,
+        "training": 4
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\優化摘要.md",
+      "name": "優化摘要.md",
+      "suggested_group": "training",
+      "confidence": "high",
+      "scores": {
+        "architecture": 1,
+        "operations": 1,
+        "training": 9
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\學習系統說明.md",
+      "name": "學習系統說明.md",
+      "suggested_group": "training",
+      "confidence": "high",
+      "scores": {
+        "architecture": 2,
+        "operations": 3,
+        "training": 9
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\履歷使用指南.md",
+      "name": "履歷使用指南.md",
+      "suggested_group": "training",
+      "confidence": "medium",
+      "scores": {
+        "architecture": 1,
+        "operations": 1,
+        "training": 2
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\工程師交接_控制面板與實境監控_2026-04-11.md",
+      "name": "工程師交接_控制面板與實境監控_2026-04-11.md",
+      "suggested_group": "operations",
+      "confidence": "high",
+      "scores": {
+        "architecture": 3,
+        "operations": 5,
+        "training": 3
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\快速參考.md",
+      "name": "快速參考.md",
+      "suggested_group": "architecture",
+      "confidence": "medium",
+      "scores": {
+        "architecture": 4,
+        "operations": 3,
+        "training": 2
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\效能維護手冊.md",
+      "name": "效能維護手冊.md",
+      "suggested_group": "training",
+      "confidence": "high",
+      "scores": {
+        "architecture": 3,
+        "operations": 7,
+        "training": 9
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\智能體功能對應圖.md",
+      "name": "智能體功能對應圖.md",
+      "suggested_group": "training",
+      "confidence": "high",
+      "scores": {
+        "architecture": 6,
+        "operations": 3,
+        "training": 9
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\智能體升級完成報告_英文版.md",
+      "name": "智能體升級完成報告_英文版.md",
+      "suggested_group": "training",
+      "confidence": "high",
+      "scores": {
+        "architecture": 3,
+        "operations": 1,
+        "training": 10
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\智能體實務指南.md",
+      "name": "智能體實務指南.md",
+      "suggested_group": "training",
+      "confidence": "high",
+      "scores": {
+        "architecture": 1,
+        "operations": 0,
+        "training": 9
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\智能體快速啟動.md",
+      "name": "智能體快速啟動.md",
+      "suggested_group": "training",
+      "confidence": "medium",
+      "scores": {
+        "architecture": 2,
+        "operations": 5,
+        "training": 6
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\智能體快速啟動_英文版.md",
+      "name": "智能體快速啟動_英文版.md",
+      "suggested_group": "training",
+      "confidence": "medium",
+      "scores": {
+        "architecture": 2,
+        "operations": 5,
+        "training": 6
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\智能體系統升級_v1_英文版.md",
+      "name": "智能體系統升級_v1_英文版.md",
+      "suggested_group": "training",
+      "confidence": "high",
+      "scores": {
+        "architecture": 2,
+        "operations": 0,
+        "training": 10
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\智能體能力強化路線圖.md",
+      "name": "智能體能力強化路線圖.md",
+      "suggested_group": "architecture",
+      "confidence": "high",
+      "scores": {
+        "architecture": 6,
+        "operations": 1,
+        "training": 4
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\本地記憶API使用指南.md",
+      "name": "本地記憶API使用指南.md",
+      "suggested_group": "architecture",
+      "confidence": "medium",
+      "scores": {
+        "architecture": 6,
+        "operations": 1,
+        "training": 5
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\檔案清單總覽.md",
+      "name": "檔案清單總覽.md",
+      "suggested_group": "architecture",
+      "confidence": "medium",
+      "scores": {
+        "architecture": 3,
+        "operations": 2,
+        "training": 1
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\檔案系統學習說明.md",
+      "name": "檔案系統學習說明.md",
+      "suggested_group": "training",
+      "confidence": "high",
+      "scores": {
+        "architecture": 4,
+        "operations": 0,
+        "training": 7
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\終端機快速操作_智能體控制台失靈救援.md",
+      "name": "終端機快速操作_智能體控制台失靈救援.md",
+      "suggested_group": "operations",
+      "confidence": "medium",
+      "scores": {
+        "architecture": 5,
+        "operations": 6,
+        "training": 5
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\網狀語言比對_進度回報_2026-04-11.md",
+      "name": "網狀語言比對_進度回報_2026-04-11.md",
+      "suggested_group": "operations",
+      "confidence": "low",
+      "scores": {
+        "architecture": 1,
+        "operations": 0,
+        "training": 1
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\聊天系統說明.md",
+      "name": "聊天系統說明.md",
+      "suggested_group": "training",
+      "confidence": "medium",
+      "scores": {
+        "architecture": 1,
+        "operations": 0,
+        "training": 2
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\自適應神經成長系統_README.md",
+      "name": "自適應神經成長系統_README.md",
+      "suggested_group": "training",
+      "confidence": "medium",
+      "scores": {
+        "architecture": 4,
+        "operations": 3,
+        "training": 5
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\自適應神經成長系統指南.md",
+      "name": "自適應神經成長系統指南.md",
+      "suggested_group": "training",
+      "confidence": "high",
+      "scores": {
+        "architecture": 3,
+        "operations": 3,
+        "training": 5
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\連續自主學習使用指南.md",
+      "name": "連續自主學習使用指南.md",
+      "suggested_group": "training",
+      "confidence": "high",
+      "scores": {
+        "architecture": 2,
+        "operations": 2,
+        "training": 9
+      }
+    },
+    {
+      "path": "E:\\智能體\\城城城程式\\docs\\開源參考路線圖.md",
+      "name": "開源參考路線圖.md",
+      "suggested_group": "architecture",
+      "confidence": "high",
+      "scores": {
+        "architecture": 11,
+        "operations": 4,
+        "training": 8
+      }
+    }
+  ]
+}
