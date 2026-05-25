@@ -1,7 +1,7 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-智能體 Web 伺服器模組 (Web Server & API Handlers)
+?箄擃?Web 隡箸??冽芋蝯?(Web Server & API Handlers)
 """
 
 from __future__ import annotations
@@ -58,12 +58,12 @@ WEB_BRIDGE_SHIM = r"""
 """
 
 def inject_web_bridge_shim(html: str) -> str:
-    """注入 JS Shim 以模擬桌面應用的橋接環境"""
+    """瘜典 JS Shim 隞交芋?祆??Ｘ??函?璈?啣?"""
     if "window.pywebview.api" in html and "pywebviewready" in html:
-        if "</head>" in html:
-            return html.replace("</head>", WEB_BRIDGE_SHIM + "\n</head>", 1)
-        return WEB_BRIDGE_SHIM + "\n" + html
-    return html
+        return html
+    if "</head>" in html:
+        return html.replace("</head>", WEB_BRIDGE_SHIM + "\n</head>", 1)
+    return WEB_BRIDGE_SHIM + "\n" + html
 
 
 class WebServerMode:
@@ -90,13 +90,19 @@ class WebServerMode:
         self._provider_ttl_sec = 2.0
 
         self._agent_key_map = {
-            "general": "總管", "dispatcher": "總管", "manager": "總管",
-            "researcher": "研究員", "engineer": "工程師", "relay": "中繼器",
-            "xiaobian": "小編", "prophet": "申言者", "hat": "帽子",
+            "general": "總管",
+            "dispatcher": "總管",
+            "manager": "總管",
+            "researcher": "研究員",
+            "engineer": "工程師",
+            "relay": "中繼器",
+            "xiaobian": "小編",
+            "prophet": "申言者",
+            "hat": "帽子",
         }
 
     def _normalize_route_path(self, path: str) -> str:
-        """支援 reverse-proxy 路徑如 /Perob"""
+        """?舀 reverse-proxy 頝臬?憒?/Perob"""
         for prefix in ("/Perob", "/perob"):
             if path == prefix: return "/"
             if path.startswith(prefix + "/"):
@@ -109,7 +115,7 @@ class WebServerMode:
         
         class Handler(BaseHTTPRequestHandler):
             def _send_cors_headers(self):
-                """發送 CORS 標頭以支援 file:// 與跨來源請求"""
+                """?潮?CORS 璅隞交??file:// ?楊靘?隢?"""
                 origin = self.headers.get("Origin") or "*"
                 self.send_header("Access-Control-Allow-Origin", origin)
                 self.send_header("Vary", "Origin")
@@ -146,7 +152,7 @@ class WebServerMode:
                 self.end_headers()
 
             def do_OPTIONS(self):
-                """處理 CORS 預檢請求"""
+                """?? CORS ?炎隢?"""
                 self.send_response(HTTPStatus.NO_CONTENT)
                 self._send_cors_headers()
                 self.send_header("Content-Length", "0")
@@ -204,7 +210,8 @@ class WebServerMode:
                     return
 
                 if route_path == "/api/get_status":
-                    self._send_json({"ok": True, "reply_count": server_instance.bridge.reply_counter, "monitor": server_instance.bridge.get_status()})
+                    monitor_payload = server_instance.bridge.get_status()
+                    self._send_json({"ok": True, "reply_count": server_instance.bridge.reply_counter, "monitor": monitor_payload, "monitoring": monitor_payload})
                     return
 
                 if route_path == "/api/get_api_onboarding_info":
@@ -212,7 +219,7 @@ class WebServerMode:
                     return
 
                 if route_path == "/api/conversations":
-                    # 與 /history 對齊，避免前端顯示「歷史全消失」。
+                    # 與 /history 同步，避免前端顯示「未找到記錄」。
                     route_path = "/history"
 
                 if route_path in {"/api/frontend/snapshot", "/api/frontend/snapshot/file"}:
@@ -366,14 +373,14 @@ class WebServerMode:
                     self._send_json({"files": files})
                     return
 
-                # 靜態資源與模板
+                # 模板頁
                 target = template_map.get(route_path)
                 if target and target.exists():
                     html = target.read_text(encoding="utf-8", errors="ignore")
                     self._send_text(inject_web_bridge_shim(html))
                     return
                 
-                # 處理靜態資源存取
+                # ????鞈?摮?
                 name = Path(route_path.lstrip("/")).name
                 if name:
                     candidate = (server_instance.paths.templates / name).resolve()
@@ -398,7 +405,7 @@ class WebServerMode:
 
                 if route_path in {"/api/send_message", "/api/send_message/", "/chat/agent", "/chat/agent/"}:
                     role_value = payload.get("role", "總管")
-                    # 前端 chat shell 傳 agent key（如 engineer/dispatcher），後端 bridge 期望 role 字串。
+                    # 若 chat shell 傳 agent key，先轉成 bridge 需要的 role。
                     if route_path in {"/chat/agent", "/chat/agent/"}:
                         agent_to_role = {
                             "dispatcher": "總管",
@@ -465,7 +472,7 @@ class WebServerMode:
 
 
 def run_web_server(bridge: any, host: str, port: int, open_browser: bool = False) -> int:
-    """啟動 Web 伺服器的主進入點"""
+    """Run Web server mode with shared bridge and template routes."""
     paths = ProjectPaths(bridge.workspace)
     server_logic = WebServerMode(bridge, bridge.workspace, paths)
     
@@ -486,7 +493,7 @@ def run_web_server(bridge: any, host: str, port: int, open_browser: bool = False
     server = ThreadingHTTPServer((host, port), handler_class)
     
     app_url = f"http://{host}:{port}/chat_shell"
-    print(f"🌐 Web Server 模式啟動：{app_url}")
+    print(f"[web] server started at {app_url}")
     
     if open_browser:
         threading.Timer(1.5, lambda: webbrowser.open(app_url, new=2)).start()
@@ -499,3 +506,4 @@ def run_web_server(bridge: any, host: str, port: int, open_browser: bool = False
         bridge.monitor_active = False
         server.server_close()
     return 0
+

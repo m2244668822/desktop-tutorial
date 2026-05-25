@@ -280,6 +280,11 @@ class DesktopBridge:
         self.env_candidates = self.paths.env_candidates
         self.catalog_json = self.paths.catalog_json
         self.relay_log = self.workspace / "logs" / "manager_relay_status.jsonl"
+        self.interaction_graph_dir = self.paths.data / "interaction_graph"
+        self.interaction_turn_log = self.interaction_graph_dir / "turn_index.jsonl"
+        self.interaction_edge_log = self.interaction_graph_dir / "edges.jsonl"
+        self.training_overlay_dir = self.paths.data / "training_overlay"
+        self.training_turn_log = self.training_overlay_dir / "dialog_turns.jsonl"
         
         self.agent_system_prompts = dict(AGENT_SYSTEM_PROMPTS)
         self.agent_prompt_sources = {name: "builtin" for name in AGENT_SYSTEM_PROMPTS}
@@ -649,6 +654,243 @@ class DesktopBridge:
             if snippets:
                 self.context_summary = " | ".join(snippets)[: self.max_context_summary_length]
 
+    def _append_jsonl(self, target: Path, payload: dict[str, Any]) -> None:
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with target.open("a", encoding="utf-8") as fp:
+                fp.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+
+    def _normalize_keyword(self, value: str) -> str:
+        token = re.sub(r"\s+", "", str(value or "").strip().lower())
+        token = re.sub(r"[^\u4e00-\u9fffa-z0-9_#:+-]", "", token)
+        return token[:32]
+
+    def _derive_turn_keywords(self, message: str, analysis: dict, limit: int = 8) -> list[str]:
+        text = str(message or "").strip()
+        seed_words: list[str] = []
+        if isinstance(analysis, dict):
+            if analysis.get("primary_topic"):
+                seed_words.append(str(analysis.get("primary_topic", "")))
+            keywords = analysis.get("keywords", [])
+            if isinstance(keywords, list):
+                seed_words.extend(str(item) for item in keywords if item)
+
+        # 從原句拆段，補強語義模組可能切得太碎的情況
+        segments = re.split(r"[，,。！？!?；;、\n]", text)
+        for seg in segments:
+            seg = seg.strip()
+            if seg:
+                seed_words.append(seg)
+        phrase_patterns = (
+            "單一入口", "分支分流", "關係圖", "關鍵字檢索", "訓練分流",
+            "智能體", "中樞系統", "前後端", "前端", "後端", "n8n", "git",
+        )
+        for phrase in phrase_patterns:
+            if phrase.lower() in text.lower():
+                seed_words.append(phrase)
+        seed_words.extend(re.findall(r"[\u4e00-\u9fffA-Za-z0-9_#:+-]{2,24}", text))
+
+        stopwords = {
+            "請", "幫我", "你", "我們", "這個", "那個", "一下", "可以", "需要",
+            "然後", "就是", "是否", "問題", "今天", "現在", "剛剛", "不要", "重複",
+            "生活化方式", "給我", "並給我", "請用", "解釋", "介紹", "說明",
+        }
+        domain_markers = (
+            "入口", "分支", "智能體", "記憶", "關係圖", "訓練", "n8n", "git",
+            "前端", "後端", "api", "檢索", "優化", "回覆", "工作流", "單一",
+        )
+
+        def cleanup(raw: str) -> str:
+            token = self._normalize_keyword(raw)
+            token = re.sub(r"^(請用|請幫我|請幫|請|幫我|給我|並給我|用)", "", token)
+            token = re.sub(r"(方式|方法|步驟|一下|一下子|介紹|說明|解釋)$", "", token)
+            token = token.strip()
+            return token
+
+        unique: dict[str, int] = {}
+        for raw in seed_words:
+            token = cleanup(raw)
+            if not token or token in stopwords:
+                continue
+            if len(token) < 2 or len(token) > 12:
+                continue
+            score = len(token)
+            for marker in domain_markers:
+                if marker in token:
+                    score += 20
+            if token not in unique or score > unique[token]:
+                unique[token] = score
+
+        ranked = sorted(unique.items(), key=lambda kv: kv[1], reverse=True)
+        result = [token for token, _ in ranked[:limit]]
+        return result
+
+    def _run_keyword_retrieval(self, keywords: list[str], per_keyword: int = 2) -> dict[str, Any]:
+        checked = keywords[: max(1, min(6, len(keywords)))]
+        payload: dict[str, Any] = {
+            "ok": True,
+            "engine": "knowledge_hub",
+            "keywords": checked,
+            "checked_count": len(checked),
+            "matches": [],
+        }
+        if not checked:
+            return payload
+        if not self.knowledge_hub:
+            payload["ok"] = False
+            payload["error"] = "knowledge_hub_unavailable"
+            return payload
+
+        seen: set[tuple[str, str]] = set()
+        matches: list[dict[str, Any]] = []
+        for keyword in checked:
+            try:
+                res = self.knowledge_hub.search(keyword, top_k=per_keyword)
+            except Exception:
+                continue
+            items = res.get("matches", []) if isinstance(res, dict) else []
+            if not isinstance(items, list):
+                continue
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                summary = " ".join(str(item.get("summary", "")).split())
+                source = str(item.get("source", "") or "unknown")
+                if not summary:
+                    continue
+                fp = (source, summary[:100])
+                if fp in seen:
+                    continue
+                seen.add(fp)
+                matches.append(
+                    {
+                        "keyword": keyword,
+                        "source": source,
+                        "timestamp": str(item.get("timestamp", "") or ""),
+                        "summary": summary[:220],
+                    }
+                )
+        payload["matches"] = matches[:12]
+        payload["match_count"] = len(payload["matches"])
+        return payload
+
+    def _build_retrieval_brief(self, retrieval: dict[str, Any], max_items: int = 2) -> str:
+        if not isinstance(retrieval, dict):
+            return ""
+        items = retrieval.get("matches", [])
+        if not isinstance(items, list) or not items:
+            return ""
+        lines: list[str] = []
+        for row in items[:max_items]:
+            if not isinstance(row, dict):
+                continue
+            keyword = str(row.get("keyword", "")).strip()
+            summary = str(row.get("summary", "")).strip()
+            if not summary:
+                continue
+            if keyword:
+                lines.append(f"{keyword}: {summary[:68]}")
+            else:
+                lines.append(summary[:68])
+        return " | ".join(lines)[:220]
+
+    def _record_turn_artifacts(
+        self,
+        session_id: str,
+        role: str,
+        user_message: str,
+        assistant_message: str,
+        analysis: dict,
+        keywords: list[str],
+        retrieval: dict[str, Any],
+        workflow_ran: bool,
+        backend: str,
+        purpose: str,
+        interaction_mode: str,
+    ) -> None:
+        now = datetime.now().isoformat()
+        sid = str(session_id or "default")
+        turn_id = f"{sid}#turn:{self.reply_counter}"
+        topic = self._focus_topic(user_message, analysis if isinstance(analysis, dict) else {})
+        turn_payload = {
+            "timestamp": now,
+            "turn_id": turn_id,
+            "session_id": sid,
+            "role": str(role or "總管"),
+            "topic": topic,
+            "keywords": keywords,
+            "workflow_ran": bool(workflow_ran),
+            "backend": backend,
+            "purpose": purpose,
+            "interaction_mode": interaction_mode,
+            "user": str(user_message or "")[:400],
+            "assistant": str(assistant_message or "")[:500],
+            "retrieval_match_count": int(retrieval.get("match_count", 0) or 0)
+            if isinstance(retrieval, dict)
+            else 0,
+        }
+        self._append_jsonl(self.interaction_turn_log, turn_payload)
+
+        for keyword in keywords[:8]:
+            self._append_jsonl(
+                self.interaction_edge_log,
+                {
+                    "timestamp": now,
+                    "from": turn_id,
+                    "to": f"kw:{keyword}",
+                    "type": "mentions",
+                    "weight": 1.0,
+                },
+            )
+        if isinstance(retrieval, dict):
+            for idx, item in enumerate(retrieval.get("matches", [])[:5], start=1):
+                if not isinstance(item, dict):
+                    continue
+                source = self._normalize_keyword(item.get("source", "unknown"))
+                summary = self._normalize_keyword(item.get("summary", ""))[:24]
+                node = f"memory:{source}:{summary or idx}"
+                self._append_jsonl(
+                    self.interaction_edge_log,
+                    {
+                        "timestamp": now,
+                        "from": turn_id,
+                        "to": node,
+                        "type": "retrieved_from",
+                        "weight": 0.8,
+                        "keyword": item.get("keyword", ""),
+                    },
+                )
+
+    def _persist_training_overlay_sample(
+        self,
+        session_id: str,
+        role: str,
+        user_message: str,
+        assistant_message: str,
+        analysis: dict,
+        keywords: list[str],
+        workflow_ran: bool,
+        backend: str,
+    ) -> None:
+        sample = {
+            "timestamp": datetime.now().isoformat(),
+            "session_id": str(session_id or "default"),
+            "turn_id": f"{session_id or 'default'}#turn:{self.reply_counter}",
+            "role": str(role or "總管"),
+            "input": str(user_message or ""),
+            "output": str(assistant_message or ""),
+            "topic": self._focus_topic(user_message, analysis if isinstance(analysis, dict) else {}),
+            "intent": str(analysis.get("intent", "")) if isinstance(analysis, dict) else "",
+            "keywords": keywords,
+            "workflow_ran": bool(workflow_ran),
+            "backend": backend,
+            "overlay_only": True,
+            "label": "dialogue_training_sample",
+        }
+        self._append_jsonl(self.training_turn_log, sample)
+
     def _build_recent_context_block(self, user_message: str = "") -> str:
         context_info = ""
         depth = self._dynamic_context_window(user_message)
@@ -813,10 +1055,22 @@ class DesktopBridge:
         self, message: str, role: str, analysis: dict, similarity: float = 0.0
     ) -> str:
         role_name = role or "總管"
-        topic = ""
-        if isinstance(analysis, dict):
-            topic = str(analysis.get("primary_topic", "")).strip()
-        focus = topic or (str(message or "").strip()[:28] or "目前這題")
+        focus = self._focus_topic(message, analysis)
+        if (
+            not self._has_system_objective_request(message)
+            and not self._message_has_execution_intent(message)
+        ):
+            selected = self._build_general_non_system_reply(
+                message=message,
+                role=role_name,
+                analysis=analysis,
+                loop_breaking=True,
+                retrieval_brief="",
+            )
+            if similarity >= self.max_reply_similarity:
+                selected += f"\n（已避開近似回覆，上一輪相似度 {similarity:.2f}）"
+            return selected
+
         variants = [
             f"【{role_name}】我知道你在追同一個重點「{focus}」。這次不重覆前一句，直接換成執行版：我先列問題假設、再列驗證步驟、最後給修復動作。",
             f"【{role_name}】你抓得很準，剛剛回覆有重覆傾向。我切成反鬼打牆模式，針對「{focus}」改給新資訊與下一步，不再重述舊段落。",
@@ -930,6 +1184,7 @@ class DesktopBridge:
         requested_backend: str,
         interaction_mode: str,
         analysis: dict,
+        retrieval_brief: str = "",
     ) -> str:
         text = str(message or "").strip()
         compact = re.sub(r"\s+", "", text.lower())
@@ -967,6 +1222,18 @@ class DesktopBridge:
                     ),
                 ],
                 text,
+            )
+
+        if (
+            not self._has_system_objective_request(text)
+            and not self._message_has_execution_intent(text)
+        ):
+            return self._build_general_non_system_reply(
+                message=text,
+                role=role_name,
+                analysis=analysis,
+                loop_breaking=False,
+                retrieval_brief=retrieval_brief,
             )
 
         topic = analysis.get("primary_topic") if isinstance(analysis, dict) else ""
@@ -1030,8 +1297,108 @@ class DesktopBridge:
                 f"【{role_name}】我先用輕量對談模式回覆，不啟動工具巡檢。",
                 f"【{role_name}】這輪先維持對談模式，避免重型流程打斷節奏。",
             ],
+                text,
+            )
+
+    def _focus_topic(self, message: str, analysis: dict | None) -> str:
+        text = str(message or "").strip()
+        topic = ""
+        if isinstance(analysis, dict):
+            topic = str(analysis.get("primary_topic", "")).strip()
+        weak_topic = (
+            (not topic)
+            or len(topic) < 4
+            or ("給我" in topic)
+            or ("並給" in topic)
+            or bool(re.search(r"(請用|方式|步驟)$", topic))
+        )
+        if weak_topic:
+            candidates = self._derive_turn_keywords(text, analysis or {}, limit=3)
+            topic = candidates[0] if candidates else ""
+        if not topic:
+            cleaned = re.sub(r"[。！？!?，,；;：:\s]+", "", text)
+            topic = cleaned[:22]
+        return topic or "目前這題"
+
+    def _extract_requested_count(self, text: str, default: int = 3, max_count: int = 5) -> int:
+        raw = str(text or "")
+        m = re.search(r"([1-9])\s*(個|點|條|步|件|招|方法|建議)", raw)
+        if m:
+            return min(max(1, int(m.group(1))), max_count)
+        zh_map = {"一": 1, "二": 2, "兩": 2, "三": 3, "四": 4, "五": 5}
+        m2 = re.search(r"(一|二|兩|三|四|五)\s*(個|點|條|步|件|招|方法|建議)", raw)
+        if m2:
+            return min(max(1, zh_map.get(m2.group(1), default)), max_count)
+        return min(max(1, int(default)), max_count)
+
+    def _build_general_non_system_reply(
+        self,
+        message: str,
+        role: str,
+        analysis: dict | None,
+        loop_breaking: bool = False,
+        retrieval_brief: str = "",
+    ) -> str:
+        role_name = role or "總管"
+        text = str(message or "").strip()
+        focus = self._focus_topic(text, analysis or {})
+        count = self._extract_requested_count(text, default=3, max_count=5)
+
+        wellness_tokens = (
+            "放鬆", "壓力", "焦慮", "心情", "緊張", "失眠", "過敏", "疲倦", "喘不過氣"
+        )
+        if any(token in text for token in wellness_tokens):
+            steps = [
+                "先降載 2 分鐘：離開螢幕，慢吸慢吐 10 次，讓身體先降速。",
+                "做一個最小動作：喝水、洗臉或走 50 步，只選一件馬上做。",
+                "把困擾寫成 1 句，接著只安排下一個 10 分鐘可完成的小任務。",
+                "把刺激源先關一輪：通知靜音 20 分鐘，避免腦袋繼續過熱。",
+                "若身體症狀持續（胸悶、心悸、失眠），今天先優先休息與就醫評估。",
+            ]
+            selected_steps = steps[:count]
+            if loop_breaking:
+                rotated = steps[1:] + steps[:1]
+                selected_steps = rotated[:count]
+            body = "\n".join(
+                f"{idx}. {item}" for idx, item in enumerate(selected_steps, start=1)
+            )
+            prefix = "我換一組不重複版本，直接給你可做的步驟：" if loop_breaking else "先給你可立刻做的做法："
+            if retrieval_brief:
+                return f"【{role_name}】{prefix}\n{body}\n[關聯記憶] {retrieval_brief}"
+            return f"【{role_name}】{prefix}\n{body}"
+
+        explain_tokens = ("是什麼", "為什麼", "如何", "怎麼", "差異", "比較")
+        if any(token in text for token in explain_tokens):
+            base = (
+                f"【{role_name}】我用白話整理「{focus}」：\n"
+                "1. 先看結論：先抓重點，再處理細節，效率最高。\n"
+                "2. 常見卡點：一次想解太多，反而每一步都卡住。\n"
+                "3. 你現在可做：先做一個 10 分鐘可完成的最小步驟。"
+            )
+            if retrieval_brief:
+                return base + f"\n[關聯記憶] {retrieval_brief}"
+            return base
+
+        generic = self._pick_variant(
+            [
+                (
+                    f"【{role_name}】我直接回你這題，不走工程模板。\n"
+                    f"1. 先把「{focus}」拆成目標與限制。\n"
+                    "2. 先做一個最小可執行步驟（10 分鐘內）。\n"
+                    "3. 把結果丟回來，我幫你做第二輪微調。"
+                ),
+                (
+                    f"【{role_name}】我先給你實用版，不重述空話。\n"
+                    f"1. 這題先定義成一句話：{focus}。\n"
+                    "2. 先完成最小動作，再決定是否加碼。\n"
+                    "3. 若你要，我下一則可改成清單/表格版。"
+                ),
+            ],
             text,
         )
+        if retrieval_brief:
+            return generic + f"\n[關聯記憶] {retrieval_brief}"
+        return generic
 
     def _load_merged_env_data(self) -> dict:
         if cns_load_combined_env is not None:
@@ -1178,6 +1545,9 @@ class DesktopBridge:
         else:
             analysis = self._fallback_message_analysis(message)
         self.last_message_analysis = analysis
+        turn_keywords = self._derive_turn_keywords(message, analysis)
+        retrieval_payload = self._run_keyword_retrieval(turn_keywords, per_keyword=2)
+        retrieval_brief = self._build_retrieval_brief(retrieval_payload)
         
         # 決定後端
         interaction_mode = self._normalize_interaction_mode(interaction_mode)
@@ -1194,6 +1564,10 @@ class DesktopBridge:
         reply = ""
         workflow_payload: dict = {}
         workflow_ran = False
+        workflow_payload["retrieval"] = retrieval_payload
+        workflow_payload["keywords"] = turn_keywords
+        if retrieval_brief:
+            workflow_payload["retrieval_brief"] = retrieval_brief
         should_run_workflow = self._should_run_workflow(message, role, purpose, interaction_mode)
         react_loop = self._build_react_loop(
             message=message,
@@ -1239,6 +1613,7 @@ class DesktopBridge:
                     requested_backend,
                     interaction_mode,
                     analysis,
+                    retrieval_brief,
                 )
             else:
                 reply = (
@@ -1291,6 +1666,29 @@ class DesktopBridge:
             analysis=analysis,
             workflow_ran=workflow_ran,
         )
+        self._record_turn_artifacts(
+            session_id=session_id,
+            role=role,
+            user_message=message,
+            assistant_message=reply,
+            analysis=analysis,
+            keywords=turn_keywords,
+            retrieval=retrieval_payload,
+            workflow_ran=workflow_ran,
+            backend=requested_backend,
+            purpose=purpose,
+            interaction_mode=interaction_mode,
+        )
+        self._persist_training_overlay_sample(
+            session_id=session_id,
+            role=role,
+            user_message=message,
+            assistant_message=reply,
+            analysis=analysis,
+            keywords=turn_keywords,
+            workflow_ran=workflow_ran,
+            backend=requested_backend,
+        )
 
         # 強制存入永久記憶 (Permanent Memory Save)
         if self.memory_manager:
@@ -1307,6 +1705,8 @@ class DesktopBridge:
                         "completion_state": completion.get("state", ""),
                         "escalation_required": bool(escalation_required),
                         "react_action": react_loop.get("action", ""),
+                        "keywords": turn_keywords[:8],
+                        "retrieval_match_count": int(retrieval_payload.get("match_count", 0) or 0),
                     }
                 )
             except Exception:
@@ -1325,6 +1725,8 @@ class DesktopBridge:
             "response_time": duration,
             "analysis": analysis,
             "semantic_analysis": analysis,
+            "keywords": turn_keywords,
+            "retrieval": retrieval_payload,
             "workflow": workflow_payload,
             "workflow_ran": workflow_ran,
             "purpose": purpose,
