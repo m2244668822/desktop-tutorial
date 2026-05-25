@@ -17,6 +17,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error as urllib_error
 import urllib.request as urllib_request
 import webbrowser
 from datetime import datetime
@@ -192,6 +193,14 @@ BACKEND_LABELS = {
     "offline": "Offline Fallback",
 }
 
+DEFAULT_CHAT_MODEL_BY_PROVIDER = {
+    "nvidia": "meta/llama-3.1-8b-instruct",
+    "openai": "gpt-4o-mini",
+    "groq": "llama-3.1-8b-instant",
+    "gemini": "gemini-2.0-flash",
+    "open_source": "qwen2.5:7b",
+}
+
 
 class DesktopBridge:
     """提供前端 JS 呼叫的橋接 API（多空間版本）"""
@@ -273,6 +282,24 @@ class DesktopBridge:
             "cpu_critical": 85,
             "memory_high": 75,
             "memory_critical": 88,
+        }
+        self.enable_live_llm_default = (
+            str(os.getenv("CHAT_LIVE_LLM_DEFAULT", "1")).strip().lower()
+            not in {"0", "false", "off", "no"}
+        )
+        self.live_llm_timeout_sec = max(
+            8.0, float(os.getenv("CHAT_LLM_TIMEOUT_SEC", "45") or 45)
+        )
+        self.live_llm_max_tokens = max(
+            128, int(os.getenv("CHAT_LLM_MAX_TOKENS", "700") or 700)
+        )
+        self.live_llm_temperature = min(
+            1.2, max(0.0, float(os.getenv("CHAT_LLM_TEMPERATURE", "0.45") or 0.45))
+        )
+        self.last_live_llm_meta: dict[str, Any] = {}
+        self._langgraph_status_cache: dict[str, Any] = {
+            "checked_at": 0.0,
+            "available": False,
         }
 
         # 路徑跟隨 workspace（使用 centralized paths）
@@ -598,6 +625,8 @@ class DesktopBridge:
             summary = " ".join(str(item.get("summary", "")).split())
             if not summary:
                 continue
+            if self._is_stale_langgraph_unavailable_summary(summary):
+                continue
                 
             entry = f"{idx}. 【{source_label}】 {timestamp} | 摘要: {summary[:180]}"
             if used_chars + len(entry) > max_chars:
@@ -666,6 +695,36 @@ class DesktopBridge:
         token = re.sub(r"\s+", "", str(value or "").strip().lower())
         token = re.sub(r"[^\u4e00-\u9fffa-z0-9_#:+-]", "", token)
         return token[:32]
+
+    def _langgraph_available_now(self, ttl_sec: float = 30.0) -> bool:
+        now_ts = time.time()
+        checked_at = float(self._langgraph_status_cache.get("checked_at", 0.0) or 0.0)
+        if (now_ts - checked_at) <= max(1.0, float(ttl_sec)):
+            return bool(self._langgraph_status_cache.get("available", False))
+        available = False
+        try:
+            from core.langgraph_workflow import LANGGRAPH_AVAILABLE
+
+            available = bool(LANGGRAPH_AVAILABLE)
+        except Exception:
+            available = False
+        self._langgraph_status_cache = {"checked_at": now_ts, "available": available}
+        return available
+
+    def _is_stale_langgraph_unavailable_summary(self, summary: str) -> bool:
+        text = str(summary or "")
+        if not text:
+            return False
+        lower = text.lower()
+        unavailable_markers = (
+            "langgraph 尚未可用",
+            "langgraph未可用",
+            "langgraph not available",
+            "回退到總管單一路由",
+        )
+        if not any(marker in text or marker in lower for marker in unavailable_markers):
+            return False
+        return self._langgraph_available_now(ttl_sec=30.0)
 
     def _derive_turn_keywords(self, message: str, analysis: dict, limit: int = 8) -> list[str]:
         text = str(message or "").strip()
@@ -759,6 +818,9 @@ class DesktopBridge:
                 summary = " ".join(str(item.get("summary", "")).split())
                 source = str(item.get("source", "") or "unknown")
                 if not summary:
+                    continue
+                # 避免已過期的「LangGraph 不可用」歷史摘要污染目前判斷。
+                if self._is_stale_langgraph_unavailable_summary(summary):
                     continue
                 fp = (source, summary[:100])
                 if fp in seen:
@@ -1135,6 +1197,31 @@ class DesktopBridge:
         )
         return any(token in text for token in tokens)
 
+    def _is_langgraph_status_query(self, message: str) -> bool:
+        text = str(message or "").strip().lower()
+        if not text:
+            return False
+        if "langgraph" not in text:
+            return False
+        status_tokens = ("可用", "不可用", "尚未可用", "是不是", "是否", "狀態", "available")
+        return any(token in text for token in status_tokens)
+
+    def _build_langgraph_status_guard_reply(self, role: str) -> str:
+        role_name = str(role or "總管")
+        available = self._langgraph_available_now(ttl_sec=5.0)
+        now_text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if available:
+            return (
+                f"【{role_name}】本機即時檢查結果：LangGraph 目前可用。"
+                f"\n- 檢查時間：{now_text}"
+                "\n- 說明：你看到的「尚未可用」多半是舊記憶紀錄，不是現在狀態。"
+            )
+        return (
+            f"【{role_name}】本機即時檢查結果：LangGraph 目前不可用。"
+            f"\n- 檢查時間：{now_text}"
+            "\n- 建議：先檢查 `langgraph` 套件與啟動環境，再重試 workflow。"
+        )
+
     def _has_system_objective_request(self, message: str) -> bool:
         text = str(message or "").strip().lower()
         if not text:
@@ -1406,6 +1493,297 @@ class DesktopBridge:
             return data
         return {}
 
+    def _is_placeholder_token(self, value: str) -> bool:
+        raw = str(value or "").strip()
+        if not raw:
+            return True
+        if cns_is_placeholder_value is not None:
+            try:
+                return bool(cns_is_placeholder_value(raw))
+            except Exception:
+                pass
+        lowered = raw.lower()
+        return (
+            "placeholder" in lowered
+            or "example" in lowered
+            or lowered.startswith("your_")
+            or lowered.endswith("_here")
+        )
+
+    def _provider_runtime_config(self, backend: str) -> dict[str, Any]:
+        provider = str(backend or "nvidia").strip().lower()
+        if provider not in {"nvidia", "openai", "groq", "gemini"}:
+            provider = "nvidia"
+
+        env = self._load_merged_env_data()
+        cfg: dict[str, Any] = {}
+        if cns_resolve_provider_config is not None:
+            try:
+                cfg = cns_resolve_provider_config(self.workspace, provider) or {}
+            except Exception:
+                cfg = {}
+
+        key_names = {
+            "nvidia": ("NVAPI_API_KEY", "OPENAI_API_KEY"),
+            "openai": ("OPENAI_API_KEY",),
+            "groq": ("GROQ_API_KEY",),
+            "gemini": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+        }
+        base_names = {
+            "nvidia": ("NVIDIA_BASE_URL", "OPENAI_BASE_URL"),
+            "openai": ("OPENAI_PROVIDER_BASE_URL", "OPENAI_BASE_URL"),
+            "groq": ("GROQ_BASE_URL", "OPENAI_BASE_URL"),
+            "gemini": ("GEMINI_BASE_URL", "OPENAI_BASE_URL"),
+        }
+        model_names = {
+            "nvidia": ("NVIDIA_MODEL", "OPENAI_MODEL"),
+            "openai": ("OPENAI_PROVIDER_MODEL", "OPENAI_MODEL"),
+            "groq": ("GROQ_MODEL", "OPENAI_MODEL"),
+            "gemini": ("GEMINI_MODEL", "OPENAI_MODEL"),
+        }
+        default_base = {
+            "nvidia": "https://integrate.api.nvidia.com/v1",
+            "openai": "https://api.openai.com/v1",
+            "groq": "https://api.groq.com/openai/v1",
+            "gemini": "https://generativelanguage.googleapis.com/v1beta/openai",
+        }
+
+        key = str(cfg.get("key", "") or "").strip()
+        key_name = str(cfg.get("key_name", "") or "").strip()
+        if self._is_placeholder_token(key):
+            key = ""
+        if not key:
+            for name in key_names[provider]:
+                candidate = str(env.get(name, "") or "").strip()
+                if candidate and not self._is_placeholder_token(candidate):
+                    key = candidate
+                    key_name = name
+                    break
+
+        base_url = str(cfg.get("base_url", "") or "").strip()
+        if self._is_placeholder_token(base_url):
+            base_url = ""
+        if not base_url:
+            for name in base_names[provider]:
+                candidate = str(env.get(name, "") or "").strip()
+                if candidate and not self._is_placeholder_token(candidate):
+                    base_url = candidate
+                    break
+        if not base_url:
+            base_url = default_base[provider]
+
+        model = str(cfg.get("model", "") or "").strip()
+        if self._is_placeholder_token(model):
+            model = ""
+        if not model:
+            for name in model_names[provider]:
+                candidate = str(env.get(name, "") or "").strip()
+                if candidate and not self._is_placeholder_token(candidate):
+                    model = candidate
+                    break
+        if not model:
+            model = DEFAULT_CHAT_MODEL_BY_PROVIDER.get(provider, "")
+
+        return {
+            "provider": provider,
+            "key": key,
+            "key_name": key_name or key_names[provider][0],
+            "base_url": str(base_url).rstrip("/"),
+            "model": model,
+        }
+
+    def _extract_openai_message_text(self, payload: dict[str, Any]) -> str:
+        if not isinstance(payload, dict):
+            return ""
+        choices = payload.get("choices", [])
+        if not isinstance(choices, list) or not choices:
+            return ""
+        first = choices[0] if isinstance(choices[0], dict) else {}
+        message = first.get("message", {}) if isinstance(first, dict) else {}
+        content = message.get("content", "") if isinstance(message, dict) else ""
+        if isinstance(content, str):
+            return content.strip()
+        if isinstance(content, list):
+            pieces: list[str] = []
+            for item in content:
+                if isinstance(item, str):
+                    pieces.append(item)
+                    continue
+                if not isinstance(item, dict):
+                    continue
+                text = str(item.get("text", "") or item.get("content", "") or "").strip()
+                if text:
+                    pieces.append(text)
+            return "\n".join(piece for piece in pieces if piece).strip()
+        return ""
+
+    def _call_openai_compatible_chat(
+        self, backend: str, messages: list[dict[str, str]]
+    ) -> tuple[str, dict[str, Any]]:
+        runtime = self._provider_runtime_config(backend)
+        key = str(runtime.get("key", "") or "").strip()
+        base_url = str(runtime.get("base_url", "") or "").strip().rstrip("/")
+        model = str(runtime.get("model", "") or "").strip()
+        provider = str(runtime.get("provider", backend) or backend).strip().lower()
+        if not key:
+            raise RuntimeError(f"{provider}: API key missing")
+        if not base_url:
+            raise RuntimeError(f"{provider}: base_url missing")
+        if not model:
+            raise RuntimeError(f"{provider}: model missing")
+
+        endpoint = base_url if base_url.endswith("/chat/completions") else f"{base_url}/chat/completions"
+        req_payload: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "temperature": self.live_llm_temperature,
+            "max_tokens": self.live_llm_max_tokens,
+            "stream": False,
+        }
+        data = json.dumps(req_payload, ensure_ascii=False).encode("utf-8")
+        req = urllib_request.Request(
+            endpoint,
+            data=data,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {key}",
+            },
+            method="POST",
+        )
+        try:
+            with urllib_request.urlopen(req, timeout=self.live_llm_timeout_sec) as resp:
+                body = resp.read().decode("utf-8", errors="ignore")
+        except urllib_error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="ignore")[:260]
+            raise RuntimeError(f"{provider}: http {exc.code} {detail}") from exc
+        except urllib_error.URLError as exc:
+            raise RuntimeError(f"{provider}: network {exc.reason}") from exc
+
+        payload = json.loads(body or "{}")
+        text = self._extract_openai_message_text(payload)
+        if not text:
+            raise RuntimeError(f"{provider}: empty_response")
+        usage = payload.get("usage", {}) if isinstance(payload, dict) else {}
+        meta = {
+            "ok": True,
+            "transport": "openai_compatible",
+            "provider": provider,
+            "model": model,
+            "endpoint": endpoint,
+            "usage": usage if isinstance(usage, dict) else {},
+        }
+        return text.strip(), meta
+
+    def _call_ollama_chat(
+        self, messages: list[dict[str, str]]
+    ) -> tuple[str, dict[str, Any]]:
+        env = self._load_merged_env_data()
+        endpoint = str(env.get("OLLAMA_CHAT_URL", "http://127.0.0.1:11434/api/chat") or "").strip()
+        model = str(
+            env.get("OPEN_SOURCE_CHAT_MODEL", "")
+            or env.get("OLLAMA_MODEL", "")
+            or DEFAULT_CHAT_MODEL_BY_PROVIDER.get("open_source", "qwen2.5:7b")
+        ).strip()
+        req_payload: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "stream": False,
+            "options": {"temperature": self.live_llm_temperature},
+        }
+        data = json.dumps(req_payload, ensure_ascii=False).encode("utf-8")
+        req = urllib_request.Request(
+            endpoint,
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib_request.urlopen(req, timeout=self.live_llm_timeout_sec) as resp:
+                body = resp.read().decode("utf-8", errors="ignore")
+        except urllib_error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="ignore")[:260]
+            raise RuntimeError(f"open_source: http {exc.code} {detail}") from exc
+        except urllib_error.URLError as exc:
+            raise RuntimeError(f"open_source: network {exc.reason}") from exc
+
+        payload = json.loads(body or "{}")
+        message_obj = payload.get("message", {}) if isinstance(payload, dict) else {}
+        content = str(message_obj.get("content", "") or "").strip() if isinstance(message_obj, dict) else ""
+        if not content:
+            raise RuntimeError("open_source: empty_response")
+        meta = {
+            "ok": True,
+            "transport": "ollama",
+            "provider": "open_source",
+            "model": model,
+            "endpoint": endpoint,
+        }
+        return content, meta
+
+    def _build_live_llm_messages(
+        self,
+        role: str,
+        user_message: str,
+        retrieval_brief: str = "",
+    ) -> list[dict[str, str]]:
+        role_name = str(role or "總管").strip() or "總管"
+        system_prompt = self._get_dynamic_system_prompt(role_name)
+        behavior_guard = (
+            "請使用繁體中文，優先直接回答問題本身，不要只回模板話術。"
+            "若有不確定處要誠實說明，並給最小可執行下一步。"
+        )
+        memory_hint = ""
+        if retrieval_brief:
+            memory_hint = f"[關聯記憶摘要]\n{retrieval_brief}"
+        composed_user = self._compose_model_message(
+            agent_name=role_name,
+            user_message=user_message,
+            plan="",
+            workflow_memory_context=memory_hint,
+        )
+        return [
+            {"role": "system", "content": f"{system_prompt}\n\n{behavior_guard}".strip()},
+            {"role": "user", "content": composed_user.strip()},
+        ]
+
+    def _generate_live_llm_reply(
+        self,
+        message: str,
+        role: str,
+        requested_backend: str,
+        retrieval_brief: str = "",
+    ) -> tuple[str, dict[str, Any]]:
+        if not self.enable_live_llm_default:
+            return "", {
+                "ok": False,
+                "attempted": False,
+                "fallback_reason": "CHAT_LIVE_LLM_DEFAULT=off",
+            }
+
+        backend = str(requested_backend or "nvidia").strip().lower()
+        messages = self._build_live_llm_messages(
+            role=role,
+            user_message=message,
+            retrieval_brief=retrieval_brief,
+        )
+        try:
+            if backend == "open_source":
+                reply, meta = self._call_ollama_chat(messages)
+            else:
+                reply, meta = self._call_openai_compatible_chat(backend, messages)
+            result = dict(meta or {})
+            result["attempted"] = True
+            result["fallback_used"] = False
+            return reply, result
+        except Exception as exc:
+            return "", {
+                "ok": False,
+                "attempted": True,
+                "fallback_used": True,
+                "provider": backend,
+                "fallback_reason": str(exc),
+            }
+
     def _get_dynamic_system_prompt(self, agent_name: str) -> str:
         return get_agent_system_prompt(agent_name, self.workspace)
 
@@ -1564,6 +1942,12 @@ class DesktopBridge:
         reply = ""
         workflow_payload: dict = {}
         workflow_ran = False
+        live_llm_meta: dict[str, Any] = {
+            "ok": False,
+            "attempted": False,
+            "fallback_used": False,
+            "provider": requested_backend,
+        }
         workflow_payload["retrieval"] = retrieval_payload
         workflow_payload["keywords"] = turn_keywords
         if retrieval_brief:
@@ -1578,8 +1962,19 @@ class DesktopBridge:
         )
         workflow_payload["react"] = dict(react_loop)
 
+        if (not should_run_workflow) and self._is_langgraph_status_query(message):
+            reply = self._build_langgraph_status_guard_reply(role)
+            live_llm_meta = {
+                "ok": False,
+                "attempted": False,
+                "fallback_used": True,
+                "provider": requested_backend,
+                "fallback_reason": "langgraph_status_guard",
+            }
+            workflow_payload["llm_live"] = dict(live_llm_meta)
+
         # 明確任務才啟動 LangGraph；一般總管聊天保持輕量對談。
-        if should_run_workflow:
+        if should_run_workflow and not reply.strip():
             try:
                 from core.langgraph_workflow import run_workflow
                 wf_result = run_workflow(message, workspace=str(self.workspace))
@@ -1602,6 +1997,24 @@ class DesktopBridge:
                         reply += f"\n[風險分級] {risk_level}（前置：{precheck}）"
             except Exception as e:
                 reply = f"【{role}】工作流執行失敗：{e}"
+            live_llm_meta = {
+                "ok": False,
+                "attempted": False,
+                "fallback_used": True,
+                "provider": requested_backend,
+                "fallback_reason": "workflow_mode",
+            }
+            workflow_payload["llm_live"] = dict(live_llm_meta)
+        elif (not should_run_workflow) and (not reply.strip()):
+            live_reply, live_llm_meta = self._generate_live_llm_reply(
+                message=message,
+                role=role,
+                requested_backend=requested_backend,
+                retrieval_brief=retrieval_brief,
+            )
+            if live_reply.strip():
+                reply = live_reply.strip()
+            workflow_payload["llm_live"] = dict(live_llm_meta)
 
         # 後備回覆：一般對談避免暴露巡檢細節；任務失敗才給簡短狀態。
         if not reply.strip():
@@ -1622,6 +2035,22 @@ class DesktopBridge:
                     f"\n- 模式：{interaction_mode}"
                     f"\n- 後端：{requested_backend}"
                 )
+        if (
+            not should_run_workflow
+            and not live_llm_meta.get("attempted")
+            and not live_llm_meta.get("fallback_reason")
+        ):
+            live_llm_meta = {
+                "ok": False,
+                "attempted": False,
+                "fallback_used": True,
+                "provider": requested_backend,
+                "fallback_reason": "no_live_call",
+            }
+            workflow_payload["llm_live"] = dict(live_llm_meta)
+        elif not should_run_workflow and not live_llm_meta.get("ok"):
+            workflow_payload["llm_live"] = dict(live_llm_meta)
+        self.last_live_llm_meta = dict(live_llm_meta)
 
         reply = self._apply_reply_diversity(
             message=message,
@@ -1729,6 +2158,7 @@ class DesktopBridge:
             "retrieval": retrieval_payload,
             "workflow": workflow_payload,
             "workflow_ran": workflow_ran,
+            "llm_live": live_llm_meta,
             "purpose": purpose,
             "interaction_mode": interaction_mode,
             "model": requested_backend,
@@ -1746,12 +2176,27 @@ class DesktopBridge:
         return {"cpu_percent": 0, "memory_percent": 0}
 
     def _api_health(self) -> dict:
+        if cns_llm_snapshot is not None:
+            try:
+                snapshot = cns_llm_snapshot(self.workspace) or {}
+                return {
+                    "key_source": str(snapshot.get("key_source", "NVAPI_API_KEY")),
+                    "key_state": str(snapshot.get("key_state", "未知")),
+                    "model_state": str(snapshot.get("model", "未設定")),
+                    "open_source_model": str(snapshot.get("open_source_model", "未設定")),
+                }
+            except Exception:
+                pass
         env = self._load_merged_env_data()
-        nv_key = env.get("NVAPI_API_KEY", "")
+        nv_key = str(env.get("NVAPI_API_KEY", "") or "").strip()
+        model = str(env.get("OPENAI_MODEL", "") or "").strip() or "未設定"
         return {
             "key_source": "NVAPI_API_KEY",
             "key_state": "已設定" if len(nv_key) > 20 else "未設定",
-            "model_state": "qwen2.5:7b" if self.oss_is_healthy else "雲端模式"
+            "model_state": model,
+            "open_source_model": str(
+                env.get("OPEN_SOURCE_CHAT_MODEL", env.get("OLLAMA_MODEL", "未設定"))
+            ),
         }
 
     def _git_status_filtered(self, short: bool = True) -> str:
@@ -1768,7 +2213,19 @@ class DesktopBridge:
         }
 
     def get_api_onboarding_info(self) -> dict:
-        return {"providers": PROVIDER_PROFILES} if 'PROVIDER_PROFILES' in globals() else {"providers": []}
+        if cns_frontend_provider_status is not None:
+            try:
+                return {"providers": cns_frontend_provider_status(self.workspace)}
+            except Exception:
+                pass
+        if cns_provider_matrix is not None:
+            try:
+                env = self._load_merged_env_data()
+                rows = cns_provider_matrix(env)
+                return {"providers": {"rows": rows}}
+            except Exception:
+                pass
+        return {"providers": {}}
 
     def _get_available_models(self) -> list:
         return [{"name": "qwen2.5:7b", "size_gb": 4.7}]

@@ -228,23 +228,26 @@ class WebServerMode:
                         status_payload = server_instance.bridge.get_status() or {}
                     except Exception:
                         status_payload = {}
-                    provider_payload = {
-                        "chat_preferred_provider": "nvidia",
-                        "provider_catalog": [
-                            {"key": "nvidia", "label": "NVIDIA", "visible": True, "classification": {"tier": "primary"}},
-                            {"key": "openai", "label": "OpenAI", "visible": True, "classification": {"tier": "enabled"}},
-                            {"key": "gemini", "label": "Gemini", "visible": True, "classification": {"tier": "enabled"}},
-                            {"key": "groq", "label": "Groq", "visible": True, "classification": {"tier": "enabled"}},
-                        ],
-                        "nvidia": True,
-                        "openai": True,
-                        "gemini": True,
-                        "groq": True,
-                        "nvidia_key_configured": True,
-                        "openai_key_configured": True,
-                        "gemini_key_configured": True,
-                        "groq_key_configured": True,
-                    }
+                    try:
+                        onboarding = server_instance.bridge.get_api_onboarding_info() or {}
+                        candidate = onboarding.get("providers", onboarding)
+                        if isinstance(candidate, dict):
+                            provider_payload = candidate
+                    except Exception:
+                        provider_payload = {}
+                    if not provider_payload:
+                        provider_payload = {
+                            "chat_preferred_provider": "nvidia",
+                            "provider_catalog": [],
+                            "nvidia": False,
+                            "openai": False,
+                            "gemini": False,
+                            "groq": False,
+                            "nvidia_key_configured": False,
+                            "openai_key_configured": False,
+                            "gemini_key_configured": False,
+                            "groq_key_configured": False,
+                        }
                     self._send_json(
                         {
                             "ok": True,
