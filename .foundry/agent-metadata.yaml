@@ -1,0 +1,21 @@
+agent:
+  name: brain-spirit-guide
+  kind: prompt
+  description: "整合精神健康、腦科學與聖經學習的專業導航 Agent"
+  instructions: "./foundry_agent_instructions.txt"
+  model: "gpt-4o" # 默認使用強大的 gpt-4o 模型
+  tools:
+    - type: "web_search"
+    - type: "memory"
+
+environments:
+  dev:
+    projectEndpoint: "PENDING_USER_INPUT" # 請在此處填入您的 Project Endpoint
+    modelDeploymentName: "gpt-4o"
+
+evaluations:
+  testCases:
+    - name: "精神健康應對測試"
+      description: "測試 Agent 在面對心理危機時的引導能力"
+    - name: "腦科學與信仰橋接測試"
+      description: "測試 Agent 的跨領域分析邏輯"

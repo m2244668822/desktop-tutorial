@@ -91,3 +91,45 @@ reports/evals/
 .git_corrupt_backup_*/
 .python-installations/
 .pytest_cache/
+
+# Local assistant/tooling state from desktop runs
+.claude/settings.local.json
+.playwright-cli/
+.tmp_*.py
+message.txt
+
+# Local or historical environment backups
+*.env.backup*
+*.env.bak*
+500/llama32-chat/.env.backup*
+500/llama32-chat/.env.bak*
+
+# Mutable local memory and usage counters
+config/chat_memory*.json
+config/api_usage.json
+config/gemini_config.json
+
+# Local development certificates
+certs/*.crt
+certs/local-*.*
+
+# Generated uploads and media artifacts
+uploads/
+reports/*.html
+reports/*.pdf
+reports/*.csv
+reports/*.png
+reports/*.svg
+reports/*.gif
+reports/lacan_short_video_20260523/
+
+# Generated runtime reports; keep canonical Markdown notes in docs/dev or docs/
+reports/*.json
+reports/*.txt
+500/llama32-chat/reports/
+
+# Imported historical/runtime archives that need manual curation before tracking
+archive/chat_sessions/
+archive/redundant_scripts/
+legacy/
+500/llama32-chat/legacy/

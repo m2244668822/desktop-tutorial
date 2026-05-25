@@ -1,0 +1,63 @@
+{
+  "name": "cursor-agent-sidebar",
+  "displayName": "Cursor 智能體側欄",
+  "description": "提供智能體對話與全量同步進度的側欄（chatgpt_server.py）",
+  "version": "0.0.1",
+  "publisher": "chengcheng-local",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "extensionKind": [
+    "ui"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+        {
+          "command": "cursorAgentSidebar.focus",
+          "title": "Cursor 智能體：聚焦側欄"
+        }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "cursorAgentSidebar",
+          "title": "智能體中心",
+          "icon": "media/agent.svg"
+        }
+      ]
+    },
+    "views": {
+      "cursorAgentSidebar": [
+        {
+          "id": "cursorAgentSidebar.view",
+          "name": "智能體控制台",
+          "type": "webview"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Cursor 智能體側欄",
+      "properties": {
+        "cursorAgentSidebar.serverBaseUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:5001",
+          "description": "後端服務基礎網址"
+        },
+        "cursorAgentSidebar.serverToken": {
+          "type": "string",
+          "default": "",
+          "description": "Server API Token（會以 Authorization: Bearer <token> 傳送）"
+        },
+        "cursorAgentSidebar.bridgeToken": {
+          "type": "string",
+          "default": "",
+          "description": "Bridge ingest token（X-Bridge-Token，可選）"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,32 @@
+# Core desktop / agent runtime
+pywebview==6.1
+python-dotenv==1.2.1
+httpx==0.28.1
+tenacity==9.1.4
+pydantic==2.12.5
+openai
+anthropic
+google-genai
+requests
+groq==1.0.0
+langgraph
+langchain
+chromadb
+faiss-cpu
+sentence-transformers
+autogen-agentchat
+autogen-ext
+pathvalidate==3.3.1
+universal-pathlib==0.3.10
+
+# Test tooling
+pytest==9.0.3
+
+# Legacy Gemini client kept for current start_gemini_memory_chat.py compatibility
+google-generativeai==0.8.6
+
+# macOS native backend for pywebview
+pyobjc-core; platform_system == "Darwin"
+pyobjc-framework-Cocoa; platform_system == "Darwin"
+
+# CrewAI 官方目前要求 Python < 3.14；本工作區是 Python 3.14.x，暫不列入
