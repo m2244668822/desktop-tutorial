@@ -166,3 +166,9 @@ flowchart TD
 - `tools/n8n_watchdog_windows.ps1`: n8n 預設 port 5678（line 4）
 - `tools/start_n8n_windows.cmd`: `cmd /c n8n start`（line 8）
 
+## Related Docs
+
+- [Cross-System Linkage and Consolidation (2026-05-26)](./CROSS_SYSTEM_LINKAGE_AND_DOC_CONSOLIDATION_2026-05-26.md)
+- [Single Entry Gateway Policy](./SINGLE_ENTRY_GATEWAY_POLICY_2026-05-25.md)
+- [Agent Relationship Enhancement Playbook](./AGENT_RELATIONSHIP_ENHANCEMENT_PLAYBOOK_2026-05-25.md)
+

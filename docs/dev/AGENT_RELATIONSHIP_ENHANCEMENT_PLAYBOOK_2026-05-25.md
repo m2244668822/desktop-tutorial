@@ -29,3 +29,17 @@
 1. 先維持單一入口（5001）穩定。
 2. 每天看 `interaction_graph` 是否正常增長。
 3. 每週挑一批 `training_overlay` 做人工驗收後再合併規則。
+
+## Related Docs
+
+- [Cross-System Linkage and Consolidation (2026-05-26)](./CROSS_SYSTEM_LINKAGE_AND_DOC_CONSOLIDATION_2026-05-26.md)
+- [Agent Reply Optimization Verification](./AGENT_REPLY_OPTIMIZATION_VERIFICATION_2026-05-25.md)
+- [LLM Default Fallback Fix](./LLM_DEFAULT_FALLBACK_FIX_2026-05-25.md)
+
+## Task Status Snapshot (2026-05-26)
+- Status: `in-progress-followup`
+- Completed:
+  - Keyword retrieval, graph writeback, and overlay split strategy documented.
+- Pending:
+  - Add measurable weekly KPIs for relationship quality improvement and drift control.
+

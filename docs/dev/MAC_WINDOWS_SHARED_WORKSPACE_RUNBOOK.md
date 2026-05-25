@@ -193,3 +193,18 @@ Notes:
 - Cursor: optional editor integration.
 - Docker Desktop: only needed if the workflow uses containers.
 - FFmpeg: needed for MP4 export only.
+
+## Related Docs
+
+- [Cross-System Linkage and Consolidation (2026-05-26)](./CROSS_SYSTEM_LINKAGE_AND_DOC_CONSOLIDATION_2026-05-26.md)
+- [Single Entry Gateway Policy](./SINGLE_ENTRY_GATEWAY_POLICY_2026-05-25.md)
+- [Agent Reply Optimization Verification](./AGENT_REPLY_OPTIMIZATION_VERIFICATION_2026-05-25.md)
+
+## Task Status Snapshot (2026-05-26)
+- Status: `completed-core`
+- Completed:
+  - Cross-system runbook normalized to UTF-8 and single-entry policy aligned.
+  - n8n CMD channel policy defined and linked.
+- Pending:
+  - Continue weekly validation of `manifest.json` regeneration on active machine.
+

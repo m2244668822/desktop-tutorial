@@ -60,3 +60,18 @@
 1. 把 `CHAT_PREFERRED_PROVIDER` 明確設成你要的主供應商（例如 `nvidia`）。
 2. 若要更像對話助手，可把 `CHAT_LLM_TEMPERATURE` 調到 `0.55~0.7`。
 3. 保留 fallback，但在前端顯示「本輪為模板降級」提示，方便立即察覺。
+
+## Related Docs
+
+- [Cross-System Linkage and Consolidation (2026-05-26)](./CROSS_SYSTEM_LINKAGE_AND_DOC_CONSOLIDATION_2026-05-26.md)
+- [Agent Reply Optimization Verification](./AGENT_REPLY_OPTIMIZATION_VERIFICATION_2026-05-25.md)
+- [Mac / Windows Shared Workspace Runbook](./MAC_WINDOWS_SHARED_WORKSPACE_RUNBOOK.md)
+
+## Task Status Snapshot (2026-05-26)
+- Status: `completed-core`
+- Completed:
+  - Default path documented as live LLM first; template only fallback.
+  - Provider snapshot changed from hardcoded to dynamic data source.
+- Pending:
+  - Keep fallback observability in UI to detect degraded rounds quickly.
+

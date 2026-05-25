@@ -61,3 +61,17 @@
 - 前後端已成功開啟，且主入口與 n8n 均可用。
 - 智能體「重複回覆」已從模板回覆改善為內容型回覆，重問時會變換輸出。
 - 上次 training overlay 優化尚未併入目前分支；若要完整接軌，下一步建議做分支級合併與回歸測試。
+
+## Related Docs
+
+- [Cross-System Linkage and Consolidation (2026-05-26)](./CROSS_SYSTEM_LINKAGE_AND_DOC_CONSOLIDATION_2026-05-26.md)
+- [LLM Default Fallback Fix](./LLM_DEFAULT_FALLBACK_FIX_2026-05-25.md)
+- [Single Entry Gateway Policy](./SINGLE_ENTRY_GATEWAY_POLICY_2026-05-25.md)
+
+## Task Status Snapshot (2026-05-26)
+- Status: `in-progress-followup`
+- Completed:
+  - Loop-breaker and route compatibility checks passed in prior verification.
+- Pending:
+  - Merge and re-verify training overlay branch artifacts into current governance branch.
+
