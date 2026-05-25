@@ -1,19 +1,19 @@
-﻿{
-  "nodes": [
-    {"id":"n1","type":"text","text":"使用者 / 前端","x":-780,"y":-120,"width":260,"height":120},
-    {"id":"n2","type":"text","text":"單一入口 Gateway\\n:5001","x":-420,"y":-120,"width":300,"height":140},
-    {"id":"n3","type":"text","text":"Agent Core","x":20,"y":-280,"width":240,"height":110},
-    {"id":"n4","type":"text","text":"Memory Layer\\nSQLite + FAISS","x":20,"y":-120,"width":280,"height":130},
-    {"id":"n5","type":"text","text":"n8n\\n:5678","x":20,"y":50,"width":220,"height":110},
-    {"id":"n6","type":"text","text":"LLM Provider Router","x":20,"y":210,"width":280,"height":110},
-    {"id":"n7","type":"file","file":"00_智能體中樞儀表板.md","x":-420,"y":120,"width":300,"height":120}
-  ],
-  "edges": [
-    {"id":"e1","fromNode":"n1","fromSide":"right","toNode":"n2","toSide":"left"},
-    {"id":"e2","fromNode":"n2","fromSide":"right","toNode":"n3","toSide":"left"},
-    {"id":"e3","fromNode":"n2","fromSide":"right","toNode":"n4","toSide":"left"},
-    {"id":"e4","fromNode":"n2","fromSide":"right","toNode":"n5","toSide":"left"},
-    {"id":"e5","fromNode":"n2","fromSide":"right","toNode":"n6","toSide":"left"},
-    {"id":"e6","fromNode":"n2","fromSide":"bottom","toNode":"n7","toSide":"top"}
-  ]
+{
+	"nodes":[
+		{"id":"n1","type":"text","text":"使用者 / 前端","x":-780,"y":-120,"width":260,"height":120},
+		{"id":"n2","type":"text","text":"單一入口 Gateway\\n:5001","x":-420,"y":-120,"width":300,"height":140},
+		{"id":"n3","type":"text","text":"Agent Core","x":20,"y":-280,"width":240,"height":110},
+		{"id":"n4","type":"text","text":"Memory Layer\\nSQLite + FAISS","x":20,"y":-120,"width":280,"height":130},
+		{"id":"n5","type":"text","text":"n8n\\n:5678","x":20,"y":50,"width":220,"height":110},
+		{"id":"n6","type":"text","text":"LLM Provider Router","x":20,"y":210,"width":280,"height":110},
+		{"id":"n7","type":"file","file":"00_智能體中樞儀表板.md","x":-420,"y":120,"width":300,"height":120}
+	],
+	"edges":[
+		{"id":"e1","fromNode":"n1","fromSide":"right","toNode":"n2","toSide":"left"},
+		{"id":"e2","fromNode":"n2","fromSide":"right","toNode":"n3","toSide":"left"},
+		{"id":"e3","fromNode":"n2","fromSide":"right","toNode":"n4","toSide":"left"},
+		{"id":"e4","fromNode":"n2","fromSide":"right","toNode":"n5","toSide":"left"},
+		{"id":"e5","fromNode":"n2","fromSide":"right","toNode":"n6","toSide":"left"},
+		{"id":"e6","fromNode":"n2","fromSide":"bottom","toNode":"n7","toSide":"top"}
+	]
 }

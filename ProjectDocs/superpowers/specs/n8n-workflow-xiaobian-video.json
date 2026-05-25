@@ -1,0 +1,76 @@
+{
+  "name": "Xiaobian Short Video Automation",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "video-script",
+        "options": {}
+      },
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "model": "gemini-1.5-flash",
+        "prompt": "={{$json.body.script}}",
+        "systemInstruction": "You are Xiaobian, a master short video designer. Parse this script into structured scenes with visual prompts and TTS text. Output JSON.",
+        "options": {}
+      },
+      "name": "Gemini Parser",
+      "type": "n8n-nodes-base.googleGemini",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "prompt": "={{$json.visual_prompt}}",
+        "model": "dall-e-3",
+        "size": "1024x1792"
+      },
+      "name": "DALL-E 3 Generator",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [650, 200]
+    },
+    {
+      "parameters": {
+        "text": "={{$json.text}}",
+        "voice": "onyx",
+        "model": "tts-1"
+      },
+      "name": "OpenAI TTS",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [650, 400]
+    },
+    {
+      "parameters": {
+        "command": "ffmpeg -i image.png -i audio.mp3 -vf 'drawtext=...' output.mp4"
+      },
+      "name": "FFmpeg Assembly",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [850, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [[{ "node": "Gemini Parser", "type": "main", "index": 0 }]]
+    },
+    "Gemini Parser": {
+      "main": [
+        [{ "node": "DALL-E 3 Generator", "type": "main", "index": 0 }],
+        [{ "node": "OpenAI TTS", "type": "main", "index": 0 }]
+      ]
+    },
+    "DALL-E 3 Generator": {
+      "main": [[{ "node": "FFmpeg Assembly", "type": "main", "index": 0 }]]
+    },
+    "OpenAI TTS": {
+      "main": [[{ "node": "FFmpeg Assembly", "type": "main", "index": 0 }]]
+    }
+  }
+}
