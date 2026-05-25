@@ -1,22 +1,24 @@
-# Mac / Windows Shared Workspace Runbook
+﻿# Mac / Windows Shared Workspace Runbook
 
-Last updated: 2026-05-23
+Last updated: 2026-05-25
 
 This runbook is the clean UTF-8 handoff guide for running the same workspace on macOS and Windows.
 The goal is simple: keep data safe, avoid path confusion, and let the agent system know where its memory lives.
 
-## Current Verified Status
+## Current Verified Status (2026-05-25)
 
-- Windows workspace: `G:\城城城程式`
+- Windows workspace: `E:\智能體\城城城程式`
 - Main web service: `http://127.0.0.1:5001`
+- Chat shell: `http://127.0.0.1:5001/chat_shell`
 - Knowledge manifest: `data/knowledge_hub/manifest.json`
 - ChatGPT long-term database: ready
 - SQLite memory layer: ready
 - FAISS semantic index: ready
-- Indexed memory items: 446
-- Task board: pending 0, running 0
+- Agent interaction graph: enabled (`data/interaction_graph/*.jsonl`)
+- Training overlay stream: enabled (`data/training_overlay/dialog_turns.jsonl`)
 - n8n: use the Windows CMD channel, do not mix it into the web startup script
-- FFmpeg: not installed yet; winget source is reachable, but download stalled in this environment
+- Active service ports: `5001` (web), `5678` (n8n), `5679` (n8n task broker), `11434` (Ollama)
+- FFmpeg: optional; only required for MP4 export workflows
 
 ## Everyday Explanation
 
@@ -29,6 +31,23 @@ The goal is simple: keep data safe, avoid path confusion, and let the agent syst
 - `manifest.json` is the sticky note on the front door telling both Mac and Windows where the library is.
 
 If the sticky note is missing but SQLite and FAISS are still present, the data is not gone. It means the handoff card needs to be regenerated.
+
+## Local ChatGPT History Integration (for memory enhancement)
+
+If you have local ChatGPT conversation exports or historical logs, treat them as reference memory input, not direct runtime overwrite.
+
+Recommended flow:
+
+1. Put raw historical files in a staging folder (example: `data/import/chatgpt_history/`).
+2. Normalize encoding to UTF-8 plain text/JSON.
+3. Run project ingestion tools to index the content into SQLite + FAISS.
+4. Verify through `/api/get_status` and knowledge queries that indexing count grows.
+
+Principle:
+
+- Runtime memory stays stable.
+- Training/overlay data stays separate.
+- Historical knowledge is additive, not destructive.
 
 ## Source Of Truth
 
@@ -95,7 +114,7 @@ cmd /c n8n
 
 There is no magic plugin that perfectly translates all Mac and Windows code. The reliable method is an adapter layer:
 
-- Use `pathlib` and `ProjectPaths` in Python instead of hard-coded `/Volumes/...` or `G:\...`.
+- Use `pathlib` and `ProjectPaths` in Python instead of hard-coded `/Volumes/...` or `E:\...`.
 - Keep Mac shell scripts in `.sh`.
 - Keep Windows launch/sync scripts in `.cmd` or `.ps1`.
 - Tag sync channels clearly:
@@ -133,6 +152,18 @@ Expected:
 - `total_items` greater than 0
 - `/status` returns `ok: true`
 
+## Safe Git Upload Checklist
+
+Before pushing from Windows:
+
+1. Confirm repo path is `E:\智能體\城城城程式`.
+2. Use targeted commit scope for this round (avoid accidental mass commit).
+3. Keep `.venv`, temporary backups, and machine-specific cache out of commits.
+4. Push branch, then verify with:
+   - `git status -sb` (should be clean for committed scope)
+   - `git log --oneline -n 5`
+   - remote branch page on GitHub
+
 ## Git Integrity Check
 
 ```bash
@@ -161,5 +192,4 @@ Notes:
 
 - Cursor: optional editor integration.
 - Docker Desktop: only needed if the workflow uses containers.
-- FFmpeg: needed for MP4 export. Current environment reached the GitHub release source, but download speed was too low to finish during this run.
-
+- FFmpeg: needed for MP4 export only.
