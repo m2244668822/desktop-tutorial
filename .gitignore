@@ -111,6 +111,7 @@ config/gemini_config.json
 
 # Local development certificates
 certs/*.crt
+certs/*.cnf
 certs/local-*.*
 
 # Generated uploads and media artifacts

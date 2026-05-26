@@ -3,12 +3,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SERVER_PATH = ROOT / 'desktop_chat_app.py'
+WEB_SERVER_PATH = ROOT / 'core' / 'web_server.py'
 CHAT_TEMPLATE_PATH = ROOT / 'templates' / 'chat.html'
 
 
 class DesktopWebCompatRoutesTests(unittest.TestCase):
     def setUp(self):
         self.server = SERVER_PATH.read_text(encoding='utf-8')
+        self.web_server = WEB_SERVER_PATH.read_text(encoding='utf-8')
         self.chat = CHAT_TEMPLATE_PATH.read_text(encoding='utf-8')
 
     def test_frontend_calls_compat_routes(self):
@@ -32,23 +34,21 @@ class DesktopWebCompatRoutesTests(unittest.TestCase):
             '/archive/export',
             '/archive/cleanup',
             '/archive/list',
-            '/agent/xiaobian/video-task',
-            '/system/communication/status',
+            '/api/orchestrator/status',
+            '/trace/learning-status',
         ]:
-            self.assertIn(route, self.server)
+            self.assertIn(route, self.web_server)
 
     def test_backend_has_compatibility_helpers(self):
         for token in [
-            'def _provider_status_payload()',
-            'def _conversation_records(',
-            'def _tasks_summary_payload()',
-            'def _tasks_items_payload(',
-            'def _chat_agent_payload(',
-            'def _video_task_payload(',
+            'task_summary_payload(server_instance.workspace_path)',
+            'task_items_payload(',
+            'server_instance.bridge.send_message(',
+            'server_instance.bridge.get_api_onboarding_info()',
             'provider_catalog',
             'chat_preferred_provider',
         ]:
-            self.assertIn(token, self.server)
+            self.assertIn(token, self.web_server)
 
 
 if __name__ == '__main__':

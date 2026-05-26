@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""LLM 中樞神經系統（CNS）：
+"""LLM CNS routing and provider configuration helpers.
 
-- 統一載入多來源 .env
-- 統一供應商狀態快照
-- 統一聊天後端調度規則
+- Load and merge provider settings from environment files.
+- Report provider/key readiness without exposing secrets.
+- Classify conversation purpose for backend routing.
 """
-
 from __future__ import annotations
 
 import os
@@ -35,12 +34,12 @@ class ProviderRuntimeConfig:
 
 
 PROVIDER_PROFILES: tuple[ProviderProfile, ...] = (
-    ProviderProfile("NVIDIA", "NVAPI_API_KEY", "免費額度/主處理"),
-    ProviderProfile("Groq", "GROQ_API_KEY", "免費額度"),
-    ProviderProfile("Gemini", "GEMINI_API_KEY", "免費額度"),
-    ProviderProfile("Google", "GOOGLE_API_KEY", "雲端API/付費或試用"),
-    ProviderProfile("OpenAI", "OPENAI_API_KEY", "付費"),
-    ProviderProfile("xAI", "XAI_API_KEY", "付費"),
+    ProviderProfile("NVIDIA", "NVAPI_API_KEY", "free/primary"),
+    ProviderProfile("Groq", "GROQ_API_KEY", "free"),
+    ProviderProfile("Gemini", "GEMINI_API_KEY", "free"),
+    ProviderProfile("Google", "GOOGLE_API_KEY", "google-api"),
+    ProviderProfile("OpenAI", "OPENAI_API_KEY", "paid"),
+    ProviderProfile("xAI", "XAI_API_KEY", "paid"),
 )
 
 RUNTIME_PROVIDER_PROFILES: dict[str, dict[str, Any]] = {
@@ -80,13 +79,17 @@ RUNTIME_PROVIDER_PROFILES: dict[str, dict[str, Any]] = {
 
 EXECUTION_KEYWORDS = (
     "建立",
-    "執行",
+    "新增",
     "修復",
-    "整理",
-    "報告",
-    "導入",
+    "處理",
+    "更新",
+    "匯入",
     "知識庫",
-    "索引",
+    "工作流",
+    "啟動",
+    "執行",
+    "提交",
+    "上傳",
     "save",
     "write",
     "build",
@@ -112,10 +115,10 @@ def is_placeholder_value(value: str) -> bool:
 def describe_key_state(key: str) -> str:
     clean = str(key or "").strip()
     if not clean:
-        return "未設定"
+        return "not_configured"
     if is_placeholder_value(clean):
         return "placeholder"
-    return f"已設定（長度 {len(clean)}，已遮罩）"
+    return f"configured(len={len(clean)}, masked)"
 
 
 def load_env(path: Path) -> dict[str, str]:
@@ -233,8 +236,8 @@ def llm_snapshot(workspace: Path) -> dict[str, Any]:
         "key_source": str(nvidia.get("key_name", "NVAPI_API_KEY")),
         "key_state": describe_key_state(chosen_key),
         "base_url": str(nvidia.get("base_url", "")),
-        "model": model or "未設定",
-        "open_source_model": open_source_model or "未設定",
+        "model": model or "not_configured",
+        "open_source_model": open_source_model or "not_configured",
         "providers": provider_matrix(env),
     }
 
@@ -307,13 +310,13 @@ def classify_purpose(user_message: str, completed_steps: int = 0, overall_status
 
 
 def select_backend(purpose: str, snapshot: dict[str, Any]) -> str:
-    # 中樞規則：
-    # - execution 優先 cloud（若有啟用供應商）
-    # - discussion 優先 open_source（若有本地模型）
-    # - 否則回 cloud / open_source 的可用方
+    # Routing rule:
+    # - execution prefers cloud providers when available.
+    # - discussion prefers the local open-source model when configured.
+    # - otherwise fall back to any ready backend before degrading.
     providers = snapshot.get("providers", [])
     cloud_ready = any(bool(item.get("enabled")) for item in providers)
-    local_ready = str(snapshot.get("open_source_model", "未設定")) not in {"", "未設定"}
+    local_ready = str(snapshot.get("open_source_model", "not_configured")) not in {"", "not_configured"}
     normalized = (purpose or "").strip().lower()
     if normalized == "execution":
         if cloud_ready:

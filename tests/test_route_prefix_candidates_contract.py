@@ -11,18 +11,25 @@ class RoutePrefixCandidatesContractTests(unittest.TestCase):
         text = CHAT_TEMPLATE.read_text(encoding='utf-8')
         for token in [
             'function _buildRouteCandidates(url)',
-            'candidates.push(url.startsWith("/Perob/") ? url.slice(6) : `/Perob${url}`);',
+            'const hasPerobBase = /\\/perob\\/?$/i.test(base);',
+            'const withPerob = (path) =>',
+            'const withoutPerob = (path) =>',
             'const routeCandidates = _buildRouteCandidates(url);',
         ]:
             self.assertIn(token, text)
 
     def test_backend_has_chat_agent_compat_routes(self):
         text = WEB_SERVER.read_text(encoding='utf-8')
-        for token in [
-            'if route_path in {"/api/send_message", "/chat/agent", "/chat/agent/"}:',
-            'if route_path in {"/chat/agent", "/chat/agent/"}:',
+        route_block_start = text.index('if route_path in {"/api/send_message"')
+        route_block = text[route_block_start: route_block_start + 240]
+        for route in [
+            '"/api/send_message"',
+            '"/api/send_message/"',
+            '"/chat/agent"',
+            '"/chat/agent/"',
         ]:
-            self.assertIn(token, text)
+            self.assertIn(route, route_block)
+        self.assertIn('if route_path in {"/chat/agent", "/chat/agent/"}:', text)
 
 
 if __name__ == '__main__':
