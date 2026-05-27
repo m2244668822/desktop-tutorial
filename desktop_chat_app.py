@@ -97,6 +97,19 @@ except Exception:
     KnowledgeHub = None
 
 try:
+    from core.prophet_engineer_bridge import (
+        build_prophet_engineer_handoff,
+        is_prophet_engineer_request,
+        render_prophet_engineer_base_reply,
+        render_prophet_engineer_reply,
+    )
+except Exception:
+    build_prophet_engineer_handoff = None
+    is_prophet_engineer_request = None
+    render_prophet_engineer_base_reply = None
+    render_prophet_engineer_reply = None
+
+try:
     from core.llm_cns import (
         describe_key_state as cns_describe_key_state,
         frontend_provider_status as cns_frontend_provider_status,
@@ -310,6 +323,7 @@ class DesktopBridge:
         self.interaction_graph_dir = self.paths.data / "interaction_graph"
         self.interaction_turn_log = self.interaction_graph_dir / "turn_index.jsonl"
         self.interaction_edge_log = self.interaction_graph_dir / "edges.jsonl"
+        self.engineering_handoff_log = self.interaction_graph_dir / "engineer_handoffs.jsonl"
         self.training_overlay_dir = self.paths.data / "training_overlay"
         self.training_turn_log = self.training_overlay_dir / "dialog_turns.jsonl"
         
@@ -500,6 +514,74 @@ class DesktopBridge:
             "manifest_exists": bool(status.get("manifest_exists")),
             "last_rebuild_at": status.get("last_rebuild_at", ""),
             "last_error": status.get("last_error", ""),
+        }
+
+    def get_agent_memory_aeg_status(self) -> dict:
+        """Report whether every visible agent shares memory and AEG search paths."""
+        roles = list(getattr(self, "agent_language_enabled", {}) or {})
+        if not roles:
+            roles = list(ONLY_AGENT_ROLES)
+        knowledge = self._knowledge_status_summary()
+        aeg_path = self.paths.data / "knowledge_hub" / "aeg_keyword_graph.json"
+        aeg_payload: dict[str, Any] = {}
+        if aeg_path.exists():
+            try:
+                aeg_payload = json.loads(aeg_path.read_text(encoding="utf-8"))
+            except Exception:
+                aeg_payload = {}
+        aeg_ready = bool(
+            aeg_payload
+            and int(aeg_payload.get("keywords_count", 0) or 0) > 0
+            and int(aeg_payload.get("text_items", 0) or 0) > 0
+        )
+        memory_ready = bool(self.memory_manager or self.long_term_memory_api)
+        search_ready = bool(knowledge.get("ok") and int(knowledge.get("total_items", 0) or 0) > 0)
+
+        per_agent = []
+        for role in roles:
+            history_count = 0
+            if self.memory_manager:
+                try:
+                    history_count = len(
+                        self.memory_manager.get_conversation_history(
+                            agent_name=role, limit=20
+                        )
+                        or []
+                    )
+                except Exception:
+                    history_count = 0
+            per_agent.append(
+                {
+                    "role": role,
+                    "long_term_memory": memory_ready,
+                    "knowledge_search": search_ready,
+                    "aeg_search": aeg_ready,
+                    "shared_memory_layer": bool(self.memory_manager),
+                    "shared_knowledge_hub": bool(self.knowledge_hub),
+                    "history_sample_count": history_count,
+                }
+            )
+
+        return {
+            "ok": bool(per_agent) and all(
+                item["long_term_memory"] and item["knowledge_search"] and item["aeg_search"]
+                for item in per_agent
+            ),
+            "capability_model": "shared_layer_per_role",
+            "roles": per_agent,
+            "knowledge_hub": knowledge,
+            "aeg": {
+                "ready": aeg_ready,
+                "path": str(aeg_path),
+                "sources_seen": int(aeg_payload.get("sources_seen", 0) or 0),
+                "text_items": int(aeg_payload.get("text_items", 0) or 0),
+                "keywords_count": int(aeg_payload.get("keywords_count", 0) or 0),
+            },
+            "notes": [
+                "所有角色共用同一個 KnowledgeHub/AEG 搜尋層。",
+                "永久對話記憶以 role/agent_name 分流保存，不是各自孤立資料庫。",
+                "工程語譯 handoff 是附加能力，不覆蓋申言者原本治理能力。",
+            ],
         }
 
     def _knowledge_search(self, query: str, top_k: int = 5) -> dict:
@@ -924,6 +1006,62 @@ class DesktopBridge:
                         "keyword": item.get("keyword", ""),
                     },
                 )
+
+    def _record_prophet_engineer_handoff(
+        self,
+        session_id: str,
+        turn_id: str,
+        handoff: dict[str, Any],
+    ) -> None:
+        if not isinstance(handoff, dict) or not handoff:
+            return
+        payload = dict(handoff)
+        payload["session_id"] = str(session_id or "default")
+        payload["turn_id"] = str(turn_id or "")
+        self._append_jsonl(self.engineering_handoff_log, payload)
+
+        links = payload.get("doc_links", {})
+        if not isinstance(links, dict):
+            links = {}
+        for key, target in links.items():
+            target_text = str(target or "").strip()
+            if not target_text:
+                continue
+            self._append_jsonl(
+                self.interaction_edge_log,
+                {
+                    "timestamp": datetime.now().isoformat(),
+                    "from": str(turn_id or ""),
+                    "to": f"doc:{target_text}",
+                    "type": f"handoff_{key}",
+                    "weight": 1.2,
+                    "positive_edge": True,
+                    "capability_scope": "additive_only",
+                },
+            )
+
+    def _maybe_build_prophet_engineer_handoff(
+        self,
+        message: str,
+        role: str,
+        analysis: dict,
+        keywords: list[str],
+        retrieval_brief: str,
+    ) -> dict[str, Any]:
+        if not (is_prophet_engineer_request and build_prophet_engineer_handoff):
+            return {}
+        try:
+            if not is_prophet_engineer_request(message, role):
+                return {}
+            return build_prophet_engineer_handoff(
+                message=message,
+                role=role,
+                analysis=analysis if isinstance(analysis, dict) else {},
+                keywords=keywords,
+                retrieval_brief=retrieval_brief,
+            )
+        except Exception:
+            return {}
 
     def _persist_training_overlay_sample(
         self,
@@ -1926,6 +2064,13 @@ class DesktopBridge:
         turn_keywords = self._derive_turn_keywords(message, analysis)
         retrieval_payload = self._run_keyword_retrieval(turn_keywords, per_keyword=2)
         retrieval_brief = self._build_retrieval_brief(retrieval_payload)
+        prophet_engineer_handoff = self._maybe_build_prophet_engineer_handoff(
+            message=message,
+            role=role,
+            analysis=analysis,
+            keywords=turn_keywords,
+            retrieval_brief=retrieval_brief,
+        )
         
         # 決定後端
         interaction_mode = self._normalize_interaction_mode(interaction_mode)
@@ -1970,6 +2115,22 @@ class DesktopBridge:
                 "fallback_used": True,
                 "provider": requested_backend,
                 "fallback_reason": "langgraph_status_guard",
+            }
+            workflow_payload["llm_live"] = dict(live_llm_meta)
+
+        if (
+            (not should_run_workflow)
+            and prophet_engineer_handoff
+            and render_prophet_engineer_base_reply
+            and not reply.strip()
+        ):
+            reply = render_prophet_engineer_base_reply(prophet_engineer_handoff)
+            live_llm_meta = {
+                "ok": False,
+                "attempted": False,
+                "fallback_used": True,
+                "provider": requested_backend,
+                "fallback_reason": "prophet_engineer_deterministic_handoff",
             }
             workflow_payload["llm_live"] = dict(live_llm_meta)
 
@@ -2088,6 +2249,11 @@ class DesktopBridge:
             completion["state"] = "escalated"
             completion["done"] = False
             reply += "\n\n[人工覆核]\n" + self._build_human_escalation_reply(escalation_reason)
+        elif prophet_engineer_handoff and render_prophet_engineer_reply:
+            try:
+                reply = render_prophet_engineer_reply(reply, prophet_engineer_handoff)
+            except Exception:
+                pass
 
         self._remember_dialog_turn(
             user_message=message,
@@ -2108,6 +2274,13 @@ class DesktopBridge:
             purpose=purpose,
             interaction_mode=interaction_mode,
         )
+        turn_id = f"{session_id or 'default'}#turn:{self.reply_counter}"
+        if prophet_engineer_handoff:
+            self._record_prophet_engineer_handoff(
+                session_id=session_id,
+                turn_id=turn_id,
+                handoff=prophet_engineer_handoff,
+            )
         self._persist_training_overlay_sample(
             session_id=session_id,
             role=role,
@@ -2165,6 +2338,7 @@ class DesktopBridge:
             "completion": completion,
             "escalation": escalation,
             "react": react_loop,
+            "prophet_engineer_handoff": prophet_engineer_handoff,
         }
 
     def _system_profile(self) -> dict:

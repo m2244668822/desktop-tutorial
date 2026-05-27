@@ -13,8 +13,10 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import shutil
 import re
 import sqlite3
+import tempfile
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
@@ -247,7 +249,7 @@ class ThreeLayerMemory:
     def _load_index(self):
         if faiss is None or not self.paths.faiss_path.exists():
             return None
-        index = faiss.read_index(str(self.paths.faiss_path))
+        index = self._read_faiss_index(self.paths.faiss_path)
         if getattr(index, "d", EMBED_DIM) != EMBED_DIM:
             return None
         return index
@@ -255,7 +257,31 @@ class ThreeLayerMemory:
     def _save_index(self, index) -> None:
         if faiss is None:
             return
-        faiss.write_index(index, str(self.paths.faiss_path))
+        self.paths.faiss_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            faiss.write_index(index, str(self.paths.faiss_path))
+        except Exception:
+            shadow = self._faiss_shadow_path(self.paths.faiss_path)
+            shadow.parent.mkdir(parents=True, exist_ok=True)
+            faiss.write_index(index, str(shadow))
+            shutil.copyfile(shadow, self.paths.faiss_path)
+
+    def _faiss_shadow_path(self, source: Path) -> Path:
+        digest = hashlib.blake2b(str(source).encode("utf-8"), digest_size=8).hexdigest()
+        return Path(tempfile.gettempdir()) / "cheng_agent_faiss" / f"{digest}.faiss"
+
+    def _read_faiss_index(self, source: Path):
+        try:
+            return faiss.read_index(str(source))
+        except Exception:
+            # FAISS on Windows can fail on non-ASCII project paths even when
+            # Python itself can see the file. Copy to an ASCII temp path and
+            # read from there so Chinese workspace paths remain supported.
+            shadow = self._faiss_shadow_path(source)
+            shadow.parent.mkdir(parents=True, exist_ok=True)
+            if (not shadow.exists()) or shadow.stat().st_mtime < source.stat().st_mtime:
+                shutil.copyfile(source, shadow)
+            return faiss.read_index(str(shadow))
 
     def _rank_memory_row(
         self,

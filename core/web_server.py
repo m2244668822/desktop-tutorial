@@ -203,6 +203,7 @@ class WebServerMode:
                             "monitor_active": bool(getattr(server_instance.bridge, "monitor_active", False)),
                             "history_threads": len(conversations) if isinstance(conversations, dict) else 0,
                             "knowledge_hub": server_instance.bridge._knowledge_status_summary(),
+                            "agent_memory_aeg": server_instance.bridge.get_agent_memory_aeg_status(),
                             "templates_dir": str(server_instance.paths.templates),
                             "data_dir": str(server_instance.paths.data),
                         }
@@ -272,6 +273,7 @@ class WebServerMode:
                             "communication": {"ok": True},
                             "monitor": status_payload,
                             "knowledge_hub": server_instance.bridge._knowledge_status_summary(),
+                            "agent_memory_aeg": server_instance.bridge.get_agent_memory_aeg_status(),
                             "history_count": len(
                                 getattr(getattr(server_instance.bridge, "memory_manager", None), "_conversations", {}) or {}
                             ),
