@@ -1,0 +1,1483 @@
+<!DOCTYPE html>
+<html lang="zh-tw">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 聊天助手</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Noto+Sans+TC:wght@400;500;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/visual_template_clean.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <button class="new-chat-btn" id="new-chat-btn">
+                <i class="fas fa-plus"></i>
+                新對話
+            </button>
+        </div>
+
+        <div class="sidebar-content">
+            <div class="model-selector-sidebar">
+                <label>AI 模型</label>
+                <select id="model-select">
+                    <option value="auto" selected>🤖 自動選擇（雲端優先）</option>
+                    <option value="tinyllama">🏠 TinyLlama（本地備援）</option>
+                    <option value="openai">☁️ OpenAI</option>
+                    <option value="openrouter">☁️ OpenRouter (Free)</option>
+                    <option value="groq">☁️ Groq</option>
+                    <option value="gemini">☁️ Gemini</option>
+                    <option value="zhizengzeng">☁️ 智增增 ZZZ API</option>
+                    <option value="gpt2">🏠 GPT-2</option>
+                    <option value="huggingface">☁️ Hugging Face</option>
+                    <option value="together">☁️ Together AI</option>
+                </select>
+            </div>
+
+            <div class="sidebar-section">
+                <h3>功能</h3>
+                <button class="sidebar-btn" id="status-btn">
+                    <i class="fas fa-satellite-dish"></i>
+                    即時監控
+                </button>
+                <button class="sidebar-btn" id="learn-btn">
+                    <i class="fas fa-brain"></i>
+                    自主學習
+                </button>
+                <button class="sidebar-btn" id="history-btn">
+                    <i class="fas fa-history"></i>
+                    聊天歷史
+                </button>
+            </div>
+
+            <div class="sidebar-section">
+                <h3>智能體概覽</h3>
+                <div class="agent-quick-list" id="agent-quick-list"></div>
+            </div>
+
+            <div class="status-info" id="status-info"></div>
+        </div>
+    </div>
+
+    <div class="main-chat">
+        <div class="chat-header">
+            <div class="chat-title-block">
+                <span class="chat-kicker">小編 UI 實驗室</span>
+                <div class="title-row">
+                    <h1>AI 智能體中樞</h1>
+                    <span class="live-pill"><span class="live-dot"></span>桌面指揮中心</span>
+                </div>
+            </div>
+            <div class="chat-controls">
+                <button class="control-btn notification-btn" id="notification-btn" title="通知中心">
+                    <i class="fas fa-bell"></i>
+                    <span class="notification-badge" id="notification-badge">0</span>
+                </button>
+                <button class="control-btn" id="monitor-btn" title="開啟監控面板">
+                    <i class="fas fa-chart-line"></i>
+                </button>
+                <button class="control-btn" id="clear-chat-btn" title="清除聊天">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+        </div>
+
+        <div class="notification-strip" id="notification-strip"></div>
+
+        <div class="chat-messages" id="chat-box">
+            <div class="welcome-message">
+                <div class="welcome-content">
+                    <div class="welcome-grid">
+                        <section class="welcome-copy">
+                            <div class="hero-badge">銀玻璃核心</div>
+                            <h2>您好，歡迎使用智能體中樞。</h2>
+                            <p>主視覺延續銀灰玻璃與中樞感介面，左側保留 ChatGPT 習慣，首頁則改成更完整的產品入口，讓你先選模型、任務與監控節點，再進入對話流。</p>
+                            <div class="hero-stat-row">
+                                <div class="hero-stat">
+                                    <span>主控模式</span>
+                                    <strong>總管分派</strong>
+                                </div>
+                                <div class="hero-stat">
+                                    <span>視覺語言</span>
+                                    <strong>銀白玻璃艙體</strong>
+                                </div>
+                                <div class="hero-stat">
+                                    <span>工作節奏</span>
+                                    <strong>聊天 + 監控並行</strong>
+                                </div>
+                            </div>
+                            <div class="prompt-cluster">
+                                <button class="prompt-chip" data-prompt="請幫我整理今天的工作優先順序與執行清單">整理工作清單</button>
+                                <button class="prompt-chip" data-prompt="幫我檢查目前系統狀態，摘要模型、CNS 與訊號記憶的重點">檢查系統狀態</button>
+                                <button class="prompt-chip" data-prompt="請以設計總監角度，優化這個前端的版面、配色與互動">優化前端設計</button>
+                            </div>
+                        </section>
+
+                        <aside class="welcome-stage">
+                            <div class="stage-shell">
+                                <div class="stage-head">
+                                    <span class="section-kicker">主前端設計基因</span>
+                                    <strong>主前端設計已植入</strong>
+                                </div>
+                                <div class="stage-highlight">
+                                    <div class="highlight-line">
+                                        <span>字體組合</span>
+                                        <strong>Manrope + Noto Sans TC</strong>
+                                    </div>
+                                    <div class="highlight-line">
+                                        <span>色彩重心</span>
+                                        <strong>深海黑 / 銀霧 / 冰藍</strong>
+                                    </div>
+                                    <div class="highlight-line">
+                                        <span>主頁結構</span>
+                                        <strong>聊天區 + 戰情側艙</strong>
+                                    </div>
+                                </div>
+                                <div class="feature-grid">
+                                    <article class="feature-card">
+                                        <span>版面</span>
+                                        <strong>雙層入口</strong>
+                                        <small>首頁導覽與聊天場景分層清楚。</small>
+                                    </article>
+                                    <article class="feature-card">
+                                        <span>視覺</span>
+                                        <strong>玻璃艙風格</strong>
+                                        <small>強化卡片、光澤與霧面層次。</small>
+                                    </article>
+                                    <article class="feature-card">
+                                        <span>功能</span>
+                                        <strong>快捷任務</strong>
+                                        <small>點一下就能帶入常用指令與監控流程。</small>
+                                    </article>
+                                    <article class="feature-card">
+                                        <span>訊號</span>
+                                        <strong>即時監控</strong>
+                                        <small>把模型、通知與 CNS 摘要留在首頁視野內。</small>
+                                    </article>
+                                </div>
+                            </div>
+                        </aside>
+                    </div>
+                    <div class="model-suggestions">
+                        <div class="model-card active" data-model="auto">
+                            <i class="fas fa-magic"></i>
+                            <span>自動選擇（雲端優先）</span>
+                            <small>一般對話走雲端，執行任務優先 NVIDIA</small>
+                        </div>
+                        <div class="model-card" data-model="tinyllama">
+                            <i class="fas fa-home"></i>
+                            <span>本地 TinyLlama</span>
+                            <small>僅作本地備援路徑</small>
+                        </div>
+                        <div class="model-card" data-model="gpt2">
+                            <i class="fas fa-robot"></i>
+                            <span>GPT-2 / 副程序</span>
+                            <small>本地後備生成路徑</small>
+                        </div>
+                        <div class="model-card" data-model="openrouter">
+                            <i class="fas fa-cloud"></i>
+                            <span>OpenRouter</span>
+                            <small>雲端免費路由（需 API Key）</small>
+                        </div>
+                        <div class="model-card" data-model="groq">
+                            <i class="fas fa-cloud"></i>
+                            <span>Groq</span>
+                            <small>高速雲端推理（需 API Key）</small>
+                        </div>
+                        <div class="model-card" data-model="gemini">
+                            <i class="fas fa-cloud"></i>
+                            <span>Gemini</span>
+                            <small>Google 雲端模型（需 API Key）</small>
+                        </div>
+                        <div class="model-card" data-model="zhizengzeng">
+                            <i class="fas fa-cloud"></i>
+                            <span>智增增 ZZZ API</span>
+                            <small>OpenAI 相容聚合通道（需 API Key）</small>
+                        </div>
+                        <div class="model-card" data-model="openai">
+                            <i class="fas fa-cloud"></i>
+                            <span>OpenAI</span>
+                            <small>雲端高品質模型（需 API Key）</small>
+                        </div>
+                        <div class="model-card" data-model="huggingface">
+                            <i class="fas fa-cloud"></i>
+                            <span>Hugging Face</span>
+                            <small>雲端推理（需 API Key）</small>
+                        </div>
+                        <div class="model-card" data-model="together">
+                            <i class="fas fa-cloud"></i>
+                            <span>Together AI</span>
+                            <small>雲端模型平台（需 API Key）</small>
+                        </div>
+                        <button class="action-card" data-action="open-monitor">
+                            <i class="fas fa-chart-line"></i>
+                            <span>打開戰情監控</span>
+                            <small>直接檢視模型、訊號與 CNS 狀態</small>
+                        </button>
+                        <button class="action-card" data-action="open-history">
+                            <i class="fas fa-clock-rotate-left"></i>
+                            <span>回看對話歷史</span>
+                            <small>把過去紀錄快速帶回主視野</small>
+                        </button>
+                        <button class="action-card" data-action="run-cycle">
+                            <i class="fas fa-wave-square"></i>
+                            <span>執行一輪 CNS</span>
+                            <small>主動巡檢目前中樞運作節點</small>
+                        </button>
+                    </div>
+                    <div class="welcome-tip">
+                        這個版本把設計稿真正植入主前端，現在風格、字體、配色、版面與操作捷徑都會直接服務聊天流程，而不是停在靜態模板。
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="chat-input-container">
+            <div class="input-wrapper">
+                <textarea
+                    id="user-input"
+                    placeholder="輸入您的訊息..."
+                    rows="1"
+                    maxlength="2000"
+                ></textarea>
+                <button id="send-btn" class="send-btn" disabled>
+                    <i class="fas fa-paper-plane"></i>
+                </button>
+            </div>
+            <div class="input-footer">
+                <span class="char-count">0/2000</span>
+                <span class="input-hint">總管會依關鍵詞與已學習訊號自動分派。</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="history-sidebar" id="history-sidebar">
+        <div class="history-header">
+            <h3>聊天歷史</h3>
+            <button class="close-history-btn" id="close-history-btn">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="history-content" id="history-display"></div>
+    </div>
+
+    <div class="monitor-sidebar" id="monitor-sidebar">
+        <div class="monitor-header">
+            <div>
+                <h3>即時監控面板</h3>
+                <small id="monitor-updated-at">尚未更新</small>
+            </div>
+            <button class="close-history-btn" id="close-monitor-btn">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="monitor-content">
+            <div class="monitor-tabs" id="monitor-tabs">
+                <button class="monitor-tab active" data-tab="overview">總覽</button>
+                <button class="monitor-tab" data-tab="agents">智能體</button>
+                <button class="monitor-tab" data-tab="signals">訊號</button>
+                <button class="monitor-tab" data-tab="cns">CNS</button>
+                <button class="monitor-tab" data-tab="security">安全</button>
+                <button class="monitor-tab" data-tab="framework">資料框架</button>
+            </div>
+            <div class="monitor-panels">
+                <section class="monitor-tab-panel active" data-panel="overview">
+                    <div class="overview-hero">
+                        <div class="overview-hero-copy">
+                            <span class="section-kicker">系統即時狀態</span>
+                            <h4>系統總覽</h4>
+                            <p>這裡集中顯示模型、心跳、訊號與資料結構的即時摘要，適合第一時間判斷整體系統狀態。</p>
+                        </div>
+                        <div class="overview-actions">
+                            <button class="mini-btn" id="refresh-monitor-btn">刷新</button>
+                            <button class="mini-btn" id="run-cycle-btn">執行一輪</button>
+                        </div>
+                    </div>
+                    <div id="overview-metrics-panel" class="overview-metrics"></div>
+                    <div class="overview-grid">
+                        <section class="monitor-card">
+                            <div class="monitor-card-header">
+                                <h4>模型狀態</h4>
+                            </div>
+                            <div id="model-status-panel" class="monitor-stack"></div>
+                        </section>
+                        <section class="monitor-card">
+                            <div class="monitor-card-header">
+                                <h4>CNS 心跳</h4>
+                            </div>
+                            <div id="cns-status-panel" class="monitor-stack"></div>
+                        </section>
+                    </div>
+                </section>
+
+                <section class="monitor-tab-panel" data-panel="agents">
+                    <section class="monitor-card monitor-card-wide">
+                        <div class="monitor-card-header">
+                            <h4>智能體關係</h4>
+                        </div>
+                        <div id="agents-panel" class="agents-panel"></div>
+                    </section>
+                </section>
+
+                <section class="monitor-tab-panel" data-panel="signals">
+                    <section class="monitor-card monitor-card-wide">
+                        <div class="monitor-card-header">
+                            <h4>高頻訊號標籤</h4>
+                        </div>
+                        <div id="signal-panel" class="signal-panel"></div>
+                    </section>
+                </section>
+
+                <section class="monitor-tab-panel" data-panel="cns">
+                    <section class="monitor-card monitor-card-wide">
+                        <div class="monitor-card-header">
+                            <h4>CNS 詳細資訊</h4>
+                            <button class="mini-btn" id="run-cycle-btn-secondary">執行一輪</button>
+                        </div>
+                        <div id="cns-detail-panel" class="monitor-stack"></div>
+                    </section>
+                </section>
+
+                <section class="monitor-tab-panel" data-panel="security">
+                    <section class="monitor-card monitor-card-wide">
+                        <div class="monitor-card-header">
+                            <h4>申言者安全守門</h4>
+                        </div>
+                        <div id="security-status-panel" class="monitor-stack"></div>
+                    </section>
+                </section>
+
+                <section class="monitor-tab-panel" data-panel="framework">
+                    <section class="monitor-card monitor-card-wide">
+                        <div class="monitor-card-header">
+                            <h4>資料框架</h4>
+                        </div>
+                        <div id="data-framework-panel" class="monitor-stack"></div>
+                    </section>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <div class="overlay" id="overlay"></div>
+
+    <script>
+        const chatBox = document.getElementById('chat-box');
+        const userInput = document.getElementById('user-input');
+        const sendBtn = document.getElementById('send-btn');
+        const modelSelect = document.getElementById('model-select');
+        const historyBtn = document.getElementById('history-btn');
+        const historySidebar = document.getElementById('history-sidebar');
+        const closeHistoryBtn = document.getElementById('close-history-btn');
+        const monitorSidebar = document.getElementById('monitor-sidebar');
+        const closeMonitorBtn = document.getElementById('close-monitor-btn');
+        const overlay = document.getElementById('overlay');
+        const statusBtn = document.getElementById('status-btn');
+        const statusInfo = document.getElementById('status-info');
+        const newChatBtn = document.getElementById('new-chat-btn');
+        const clearChatBtn = document.getElementById('clear-chat-btn');
+        const monitorBtn = document.getElementById('monitor-btn');
+        const notificationBtn = document.getElementById('notification-btn');
+        const notificationBadge = document.getElementById('notification-badge');
+        const notificationStrip = document.getElementById('notification-strip');
+        const charCount = document.querySelector('.char-count');
+        const learnBtn = document.getElementById('learn-btn');
+        const agentQuickList = document.getElementById('agent-quick-list');
+        const modelStatusPanel = document.getElementById('model-status-panel');
+        const cnsStatusPanel = document.getElementById('cns-status-panel');
+        const securityStatusPanel = document.getElementById('security-status-panel');
+        const agentsPanel = document.getElementById('agents-panel');
+        const signalPanel = document.getElementById('signal-panel');
+        const dataFrameworkPanel = document.getElementById('data-framework-panel');
+        const refreshMonitorBtn = document.getElementById('refresh-monitor-btn');
+        const runCycleBtn = document.getElementById('run-cycle-btn');
+        const runCycleBtnSecondary = document.getElementById('run-cycle-btn-secondary');
+        const monitorUpdatedAt = document.getElementById('monitor-updated-at');
+        const monitorTabs = document.querySelectorAll('.monitor-tab');
+        const monitorPanels = document.querySelectorAll('.monitor-tab-panel');
+        const overviewMetricsPanel = document.getElementById('overview-metrics-panel');
+        const cnsDetailPanel = document.getElementById('cns-detail-panel');
+        let latestNotificationId = 0;
+        let latestTaskAnnouncementId = 0;
+        let isSending = false;
+        let activeMessageController = null;
+        const CHAT_REQUEST_TIMEOUT_MS = 120000;
+        const INPUT_DRAFT_STORAGE_KEY = 'chat.input_draft.v2';
+        let MODEL_AVAILABILITY = {
+            auto: true,
+            tinyllama: true,
+            gpt2: true,
+            openai: true,
+            openrouter: true,
+            groq: true,
+            gemini: true,
+            zhizengzeng: true,
+            huggingface: true,
+            together: true,
+        };
+        let MODEL_UNAVAILABLE_REASONS = {};
+        const REQUIRED_AGENTS = [
+            { key: 'dispatcher', label: '總管中樞' },
+            { key: 'general', label: '通用助理' },
+            { key: 'xiaobian', label: '小編設計師' },
+            { key: 'engineer', label: '工程師' },
+            { key: 'researcher', label: '研究員' },
+            { key: 'proclaimer', label: '申言者' },
+            { key: 'learner', label: '學習器' },
+        ];
+
+        function getWelcomeMarkup() {
+            return `
+                <div class="welcome-message">
+                    <div class="welcome-content">
+                        <div class="welcome-grid">
+                            <section class="welcome-copy">
+                                <div class="hero-badge">銀玻璃核心</div>
+                                <h2>您好，歡迎使用智能體中樞。</h2>
+                                <p>主視覺延續銀灰玻璃與中樞感介面，左側保留 ChatGPT 習慣，首頁則改成更完整的產品入口，讓你先選模型、任務與監控節點，再進入對話流。</p>
+                                <div class="hero-stat-row">
+                                    <div class="hero-stat"><span>主控模式</span><strong>總管分派</strong></div>
+                                    <div class="hero-stat"><span>視覺語言</span><strong>銀白玻璃艙體</strong></div>
+                                    <div class="hero-stat"><span>工作節奏</span><strong>聊天 + 監控並行</strong></div>
+                                </div>
+                                <div class="prompt-cluster">
+                                    <button class="prompt-chip" data-prompt="請幫我整理今天的工作優先順序與執行清單">整理工作清單</button>
+                                    <button class="prompt-chip" data-prompt="幫我檢查目前系統狀態，摘要模型、CNS 與訊號記憶的重點">檢查系統狀態</button>
+                                    <button class="prompt-chip" data-prompt="請以設計總監角度，優化這個前端的版面、配色與互動">優化前端設計</button>
+                                </div>
+                            </section>
+                            <aside class="welcome-stage">
+                                <div class="stage-shell">
+                                    <div class="stage-head">
+                                        <span class="section-kicker">主前端設計基因</span>
+                                        <strong>主前端設計已植入</strong>
+                                    </div>
+                                    <div class="stage-highlight">
+                                        <div class="highlight-line"><span>字體組合</span><strong>Manrope + Noto Sans TC</strong></div>
+                                        <div class="highlight-line"><span>色彩重心</span><strong>深海黑 / 銀霧 / 冰藍</strong></div>
+                                        <div class="highlight-line"><span>主頁結構</span><strong>聊天區 + 戰情側艙</strong></div>
+                                    </div>
+                                    <div class="feature-grid">
+                                        <article class="feature-card"><span>版面</span><strong>雙層入口</strong><small>首頁導覽與聊天場景分層清楚。</small></article>
+                                        <article class="feature-card"><span>視覺</span><strong>玻璃艙風格</strong><small>強化卡片、光澤與霧面層次。</small></article>
+                                        <article class="feature-card"><span>功能</span><strong>快捷任務</strong><small>點一下就能帶入常用指令與監控流程。</small></article>
+                                        <article class="feature-card"><span>訊號</span><strong>即時監控</strong><small>把模型、通知與 CNS 摘要留在首頁視野內。</small></article>
+                                    </div>
+                                </div>
+                            </aside>
+                        </div>
+                        <div class="model-suggestions">
+                            <div class="model-card" data-model="auto"><i class="fas fa-magic"></i><span>自動選擇（雲端優先）</span><small>一般對話走雲端，執行任務優先 NVIDIA</small></div>
+                            <div class="model-card" data-model="tinyllama"><i class="fas fa-home"></i><span>本地 TinyLlama</span><small>僅作本地備援路徑</small></div>
+                            <div class="model-card" data-model="gpt2"><i class="fas fa-robot"></i><span>GPT-2 / 副程序</span><small>本地後備生成路徑</small></div>
+                            <div class="model-card" data-model="openrouter"><i class="fas fa-cloud"></i><span>OpenRouter</span><small>雲端免費路由（需 API Key）</small></div>
+                            <div class="model-card" data-model="groq"><i class="fas fa-cloud"></i><span>Groq</span><small>高速雲端推理（需 API Key）</small></div>
+                            <div class="model-card" data-model="gemini"><i class="fas fa-cloud"></i><span>Gemini</span><small>Google 雲端模型（需 API Key）</small></div>
+                                                        <div class="model-card" data-model="zhizengzeng"><i class="fas fa-cloud"></i><span>智增增 ZZZ API</span><small>OpenAI 相容聚合通道（需 API Key）</small></div>
+                            <div class="model-card" data-model="openai"><i class="fas fa-cloud"></i><span>OpenAI</span><small>雲端高品質模型（需 API Key）</small></div>
+                            <div class="model-card" data-model="huggingface"><i class="fas fa-cloud"></i><span>Hugging Face</span><small>雲端推理（需 API Key）</small></div>
+                            <div class="model-card" data-model="together"><i class="fas fa-cloud"></i><span>Together AI</span><small>雲端模型平台（需 API Key）</small></div>
+                            <button class="action-card" data-action="open-monitor"><i class="fas fa-chart-line"></i><span>打開戰情監控</span><small>直接檢視模型、訊號與 CNS 狀態</small></button>
+                            <button class="action-card" data-action="open-history"><i class="fas fa-clock-rotate-left"></i><span>回看對話歷史</span><small>把過去紀錄快速帶回主視野</small></button>
+                            <button class="action-card" data-action="run-cycle"><i class="fas fa-wave-square"></i><span>執行一輪 CNS</span><small>主動巡檢目前中樞運作節點</small></button>
+                        </div>
+                        <div class="welcome-tip">
+                            這個版本把設計稿真正植入主前端，現在風格、字體、配色、版面與操作捷徑都會直接服務聊天流程，而不是停在靜態模板。
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function formatList(items) {
+            if (!items || items.length === 0) return '<span class="empty-text">無</span>';
+            return items.map(item => `<span class="tag">${escapeHtml(item)}</span>`).join('');
+        }
+
+        function formatCapabilities(items) {
+            if (!items || items.length === 0) return '<span class="empty-text">無</span>';
+            const capabilityMap = {
+                routing: '任務分派',
+                triage: '需求分流',
+                signal_learning: '訊號學習',
+                coordination: '協作協調',
+                general_chat: '一般對話',
+                summarization: '重點摘要',
+                diagnosis: '問題診斷',
+                design_review: '設計審查',
+                visual_system: '視覺系統',
+                content_style: '內容風格',
+                ux_review: '體驗審查',
+                debugging: '除錯',
+                coding: '程式開發',
+                architecture: '架構設計',
+                database: '資料庫',
+                api: 'API 開發',
+                research: '研究分析',
+                comparison: '方案比較',
+                knowledge_summary: '知識整理',
+                trend_scan: '趨勢掃描',
+                scripture_interpretation: '經文解析',
+                message_structuring: '信息架構',
+                pastoral_care: '關懷對談',
+                faith_qna: '信仰問答',
+                api_security_audit: 'API 安全稽核',
+                threat_detection: '威脅偵測',
+                config_hardening: '配置強化',
+                anomaly_watch: '異常監測',
+                rule_update: '規則更新',
+                memory_refresh: '記憶刷新',
+            };
+            return items.map(item => {
+                const key = String(item || '').trim();
+                const zh = capabilityMap[key] || key;
+                return `<span class="tag">${escapeHtml(zh)}</span>`;
+            }).join('');
+        }
+
+        function formatModelLabel(modelValue) {
+            const value = String(modelValue || '').trim();
+            const lower = value.toLowerCase();
+            if (!value) return '模型：未知';
+            if (lower.startsWith('local (')) return `模型：本地 ${value}`;
+            if (lower.startsWith('openai')) return `模型：雲端 OpenAI（${value}）`;
+            if (lower.startsWith('openrouter')) return `模型：雲端 OpenRouter（${value}）`;
+            if (lower.startsWith('groq')) return `模型：雲端 Groq（${value}）`;
+            if (lower.startsWith('gemini')) return `模型：雲端 Gemini（${value}）`;
+            if (lower.startsWith('nvidia')) return `模型：雲端 NVIDIA（${value}）`;
+            if (lower.startsWith('zhizengzeng') || lower.includes('智增增')) return `模型：雲端 智增增 ZZZ API（${value}）`;
+            if (lower.includes('hugging face')) return `模型：雲端 Hugging Face（${value}）`;
+            if (lower.includes('together')) return `模型：雲端 Together AI（${value}）`;
+            if (lower.includes('gpt-2')) return `模型：本地 GPT-2（${value}）`;
+            return `模型：${value}`;
+        }
+
+        function normalizeAgentKey(agentKey) {
+            const key = String(agentKey || '').trim().toLowerCase();
+            if (key === 'whitehat') return 'proclaimer';
+            return key;
+        }
+
+        function formatAgentLabel(agentKey) {
+            const key = normalizeAgentKey(agentKey);
+            const map = {
+                dispatcher: '總管中樞',
+                general: '通用助理',
+                xiaobian: '小編設計師',
+                engineer: '工程師',
+                researcher: '研究員',
+                proclaimer: '申言者',
+                learner: '學習器',
+            };
+            const zh = map[key] || key || '未分類';
+            return `智能體：${zh}`;
+        }
+
+        function formatTimestamp(value) {
+            if (!value) return '未知時間';
+            const dt = new Date(value);
+            if (Number.isNaN(dt.getTime())) return String(value);
+            return dt.toLocaleString('zh-TW');
+        }
+
+        function saveInputDraft() {
+            try {
+                localStorage.setItem(INPUT_DRAFT_STORAGE_KEY, userInput.value || '');
+            } catch (error) {
+                // ignore storage failures
+            }
+        }
+
+        function clearInputDraft() {
+            try {
+                localStorage.removeItem(INPUT_DRAFT_STORAGE_KEY);
+            } catch (error) {
+                // ignore storage failures
+            }
+        }
+
+        function restoreInputDraft() {
+            try {
+                const draft = localStorage.getItem(INPUT_DRAFT_STORAGE_KEY) || '';
+                if (draft && !userInput.value) {
+                    userInput.value = draft;
+                }
+            } catch (error) {
+                // ignore storage failures
+            }
+        }
+
+        function autoResizeInput() {
+            userInput.style.height = 'auto';
+            const nextHeight = Math.min(userInput.scrollHeight, 220);
+            userInput.style.height = `${Math.max(nextHeight, 44)}px`;
+        }
+
+        function setInputHint(message) {
+            const hint = document.querySelector('.input-hint');
+            if (!hint) return;
+            hint.textContent = String(message || '');
+        }
+
+        function setSendInFlight(inFlight) {
+            isSending = Boolean(inFlight);
+            sendBtn.disabled = isSending || userInput.value.trim().length === 0;
+            const icon = sendBtn.querySelector('i');
+            if (icon) {
+                icon.className = isSending ? 'fas fa-spinner fa-spin' : 'fas fa-paper-plane';
+            }
+            if (!isSending) {
+                activeMessageController = null;
+            }
+        }
+
+        async function fetchWithTimeout(url, options = {}, timeoutMs = CHAT_REQUEST_TIMEOUT_MS) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), timeoutMs);
+            try {
+                activeMessageController = controller;
+                const response = await fetch(url, { ...options, signal: controller.signal });
+                return response;
+            } finally {
+                clearTimeout(timer);
+            }
+        }
+
+        function syncModelCards() {
+            document.querySelectorAll('.model-card').forEach(card => {
+                card.classList.toggle('active', card.dataset.model === modelSelect.value);
+                const available = MODEL_AVAILABILITY[card.dataset.model] !== false;
+                card.classList.toggle('unavailable', !available);
+                card.setAttribute('aria-disabled', String(!available));
+            });
+        }
+
+        function hideWelcome() {
+            const welcomeMsg = document.querySelector('.welcome-message');
+            if (welcomeMsg) {
+                welcomeMsg.style.display = 'none';
+            }
+        }
+
+        function isWelcomeVisible() {
+            const welcomeMsg = document.querySelector('.welcome-message');
+            return Boolean(welcomeMsg && welcomeMsg.style.display !== 'none');
+        }
+
+        function enterConversationMode() {
+            hideWelcome();
+            closePanels();
+            userInput.focus();
+            userInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+
+        function updateCharCount() {
+            charCount.textContent = `${userInput.value.length}/2000`;
+        }
+
+        function toggleSendButton() {
+            sendBtn.disabled = isSending || userInput.value.trim().length === 0;
+        }
+
+        function openHistorySidebar() {
+            historySidebar.classList.add('active');
+            overlay.classList.add('active');
+            monitorSidebar.classList.remove('active');
+        }
+
+        function openMonitorSidebar() {
+            monitorSidebar.classList.add('active');
+            overlay.classList.add('active');
+            historySidebar.classList.remove('active');
+        }
+
+        function setActiveMonitorTab(tabName) {
+            monitorTabs.forEach(tab => {
+                tab.classList.toggle('active', tab.dataset.tab === tabName);
+            });
+            monitorPanels.forEach(panel => {
+                panel.classList.toggle('active', panel.dataset.panel === tabName);
+            });
+        }
+
+        function closePanels() {
+            historySidebar.classList.remove('active');
+            monitorSidebar.classList.remove('active');
+            overlay.classList.remove('active');
+        }
+
+        function bindModelCards() {
+            document.querySelectorAll('.model-card').forEach(card => {
+                card.addEventListener('click', () => {
+                    if (MODEL_AVAILABILITY[card.dataset.model] === false) {
+                        addMessage('ai', `目前模型 ${card.dataset.model} 暫不可用，已保留現有可用模型。`);
+                        return;
+                    }
+                    modelSelect.value = card.dataset.model;
+                    syncModelCards();
+                    hideWelcome();
+                });
+            });
+        }
+
+        function applyModelAvailability(modelStatus) {
+            const choices = modelStatus?.model_choices || {};
+            MODEL_AVAILABILITY = {
+                auto: true,
+                tinyllama: choices.tinyllama !== false,
+                gpt2: choices.gpt2 !== false,
+                openai: choices.openai !== false,
+                openrouter: choices.openrouter !== false,
+                groq: choices.groq !== false,
+                gemini: choices.gemini !== false,
+                zhizengzeng: choices.zhizengzeng !== false,
+                huggingface: choices.huggingface !== false,
+                together: choices.together !== false,
+            };
+            MODEL_UNAVAILABLE_REASONS = modelStatus?.model_unavailable_reasons || {};
+
+            Array.from(modelSelect.options).forEach(option => {
+                const value = option.value;
+                const available = MODEL_AVAILABILITY[value] !== false;
+                option.disabled = !available;
+                option.title = available ? '' : (MODEL_UNAVAILABLE_REASONS[value] || '目前不可用');
+            });
+
+            if (MODEL_AVAILABILITY[modelSelect.value] === false) {
+                modelSelect.value = 'auto';
+            }
+            syncModelCards();
+        }
+
+        function bindPromptChips() {
+            document.querySelectorAll('.prompt-chip').forEach(chip => {
+                chip.addEventListener('click', () => {
+                    userInput.value = chip.dataset.prompt || '';
+                    updateCharCount();
+                    toggleSendButton();
+                    userInput.focus();
+                });
+            });
+        }
+
+        function bindActionCards() {
+            document.querySelectorAll('.action-card').forEach(card => {
+                card.addEventListener('click', () => {
+                    const action = card.dataset.action;
+                    if (action === 'open-monitor') {
+                        loadMonitorData(true);
+                    } else if (action === 'open-history') {
+                        openHistorySidebar();
+                        showHistory();
+                    } else if (action === 'run-cycle') {
+                        runCycleNow();
+                    }
+                });
+            });
+        }
+
+        function getAgentMap(agents) {
+            const map = new Map();
+            (agents || []).forEach(agent => {
+                if (agent && agent.key) {
+                    map.set(agent.key, agent);
+                }
+            });
+            return map;
+        }
+
+        function normalizeQuickAgents(agents) {
+            const mergedIncoming = new Map();
+            (agents || []).forEach(agent => {
+                const normalizedKey = normalizeAgentKey(agent?.key || '');
+                if (!normalizedKey) return;
+                if (!mergedIncoming.has(normalizedKey)) {
+                    mergedIncoming.set(normalizedKey, agent);
+                }
+            });
+            return REQUIRED_AGENTS.map(agent => ({
+                key: agent.key,
+                label: mergedIncoming.get(agent.key)?.label || agent.label,
+            }));
+        }
+
+        function renderQuickAgents(agents) {
+            const normalizedAgents = normalizeQuickAgents(agents);
+            agentQuickList.innerHTML = normalizedAgents.map(agent => `
+                <div class="agent-mini-card">
+                    <strong>${escapeHtml(agent.label)}</strong>
+                    <small>${escapeHtml(agent.key)}</small>
+                </div>
+            `).join('');
+        }
+
+        function addMessage(sender, text, meta = {}) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${sender}`;
+
+            const messageContent = document.createElement('div');
+            messageContent.className = 'message-content';
+            messageContent.textContent = text;
+            messageDiv.appendChild(messageContent);
+
+            const metaItems = [];
+            if (meta.model) metaItems.push(`<span class="message-model">${escapeHtml(formatModelLabel(meta.model))}</span>`);
+            if (meta.agent) metaItems.push(`<span class="message-agent">${escapeHtml(formatAgentLabel(meta.agent))}</span>`);
+            if (meta.responseTime !== undefined && meta.responseTime !== null) {
+                metaItems.push(`<span class="message-time">回應時間：${Number(meta.responseTime).toFixed(2)}s</span>`);
+            }
+            if (meta.signalTags && meta.signalTags.length) {
+                metaItems.push(`<span class="message-tags">訊號標籤：${escapeHtml(meta.signalTags.join(', '))}</span>`);
+            }
+
+            if (metaItems.length) {
+                const messageMeta = document.createElement('div');
+                messageMeta.className = 'message-meta';
+                messageMeta.innerHTML = metaItems.join('');
+                messageDiv.appendChild(messageMeta);
+            }
+
+            chatBox.appendChild(messageDiv);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        function isTaskProgressNotification(item) {
+            const category = String(item?.category || '').toLowerCase();
+            const title = String(item?.title || '');
+            return category === 'task' || category === 'sync' || /任務|同步|完成|失敗/.test(title);
+        }
+
+        function announceTaskProgressInChat(items) {
+            if (!Array.isArray(items) || !items.length) return;
+            const sorted = items
+                .map(item => ({ ...item, _id: Number(item.notification_id || 0) }))
+                .filter(item => item._id > latestTaskAnnouncementId)
+                .sort((a, b) => a._id - b._id);
+
+            sorted.forEach(item => {
+                latestTaskAnnouncementId = Math.max(latestTaskAnnouncementId, item._id);
+                if (!isTaskProgressNotification(item)) return;
+                const agentKey = normalizeAgentKey(item.agent_key || 'general');
+                const shortLabel = formatAgentLabel(agentKey).replace('智能體：', '');
+                const status = item.level === 'error' ? '失敗' : (item.level === 'warning' ? '警示' : '更新');
+                const line = `任務進度 [${shortLabel}] (${status}) ${item.title}：${item.message}`;
+                addMessage('ai', line, { agent: agentKey });
+            });
+        }
+
+        function renderNotifications(items, options = {}) {
+            if (!items || !items.length) return;
+            const announceToChat = Boolean(options.announceToChat);
+            latestNotificationId = Math.max(latestNotificationId, ...items.map(item => Number(item.notification_id || 0)));
+            const unreadCount = items.filter(item => !item.is_read).length;
+            notificationBadge.textContent = String(unreadCount);
+            notificationBadge.style.display = unreadCount > 0 ? 'inline-flex' : 'none';
+
+            const cards = items.slice(-8).reverse().map(item => {
+                const agentKey = normalizeAgentKey(item.agent_key || '');
+                const shortLabel = formatAgentLabel(agentKey).replace('智能體：', '');
+                return `
+                <div class="notification-item ${escapeHtml(item.level || 'info')}">
+                    <strong>[${escapeHtml(shortLabel)}] ${escapeHtml(item.title)}</strong>
+                    <span>${escapeHtml(item.message)}</span>
+                    <small>${escapeHtml(new Date(item.created_at).toLocaleTimeString('zh-TW'))}</small>
+                </div>
+            `;
+            }).join('');
+            notificationStrip.innerHTML = cards;
+            if (announceToChat) {
+                announceTaskProgressInChat(items);
+            }
+        }
+
+        async function pullNotifications(showAll = false) {
+            try {
+                const query = showAll
+                    ? `?limit=30`
+                    : `?since_id=${encodeURIComponent(latestNotificationId)}&limit=30`;
+                const response = await fetch(`/agent/notifications${query}`);
+                const notifications = await response.json();
+                if (Array.isArray(notifications) && notifications.length) {
+                    renderNotifications(notifications, { announceToChat: !showAll });
+                } else if (!notificationStrip.innerHTML) {
+                    notificationStrip.innerHTML = '<div class="notification-empty">尚無即時通知</div>';
+                }
+            } catch (error) {
+                if (!notificationStrip.innerHTML) {
+                    notificationStrip.innerHTML = '<div class="notification-empty">通知服務暫時不可用</div>';
+                }
+            }
+        }
+
+        async function markAllNotificationsRead() {
+            try {
+                await fetch('/agent/notifications/read', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mark_all: true }),
+                });
+                notificationBadge.style.display = 'none';
+            } catch (error) {
+                // silent fail
+            }
+        }
+
+        function addTypingIndicator() {
+            const indicator = document.createElement('div');
+            indicator.className = 'message ai typing';
+            indicator.id = 'typing-indicator';
+            indicator.innerHTML = `
+                <div class="message-content">
+                    <div class="typing-dots">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </div>
+                </div>
+            `;
+            chatBox.appendChild(indicator);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        function removeTypingIndicator() {
+            document.getElementById('typing-indicator')?.remove();
+        }
+
+        async function sendMessage() {
+            const message = userInput.value.trim();
+            if (!message || isSending) return;
+
+            hideWelcome();
+            addMessage('user', message);
+            userInput.value = '';
+            clearInputDraft();
+            updateCharCount();
+            autoResizeInput();
+            toggleSendButton();
+            setSendInFlight(true);
+            setInputHint('訊息送出中，系統正在分派智能體與等待回覆...');
+            addTypingIndicator();
+
+            try {
+                const response = await fetchWithTimeout('/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message, model: modelSelect.value })
+                });
+                const data = await response.json().catch(() => ({}));
+                removeTypingIndicator();
+
+                if (!response.ok) {
+                    const errorMessage = data.error || `HTTP ${response.status}`;
+                    addMessage('ai', `錯誤: ${errorMessage}`);
+                    return;
+                }
+
+                if (data.error) {
+                    addMessage('ai', `錯誤: ${data.error}`);
+                    return;
+                }
+
+                const aiText = String(data.response || '').trim();
+                if (!aiText) {
+                    addMessage('ai', '系統已接收請求，但目前沒有有效回覆內容，請再送一次。');
+                    return;
+                }
+
+                addMessage('ai', aiText, {
+                    model: data.model,
+                    agent: data.agent,
+                    responseTime: data.response_time,
+                    signalTags: data.signal_tags || []
+                });
+                setInputHint('總管會依關鍵詞與已學習訊號自動分派。');
+                loadMonitorData(false);
+            } catch (error) {
+                removeTypingIndicator();
+                if (error?.name === 'AbortError') {
+                    addMessage('ai', '請求逾時（120 秒），你可以重送或拆小任務再試一次。');
+                } else {
+                    addMessage('ai', '網路錯誤，請重試。');
+                }
+            } finally {
+                setSendInFlight(false);
+                toggleSendButton();
+            }
+        }
+
+        async function showHistory() {
+            try {
+                const response = await fetch('/history');
+                const data = await response.json();
+                const historyContent = document.getElementById('history-display');
+
+                if (!data.length) {
+                    historyContent.innerHTML = '<p class="no-history">還沒有聊天記錄</p>';
+                    return;
+                }
+
+                historyContent.innerHTML = data.map(chat => `
+                    <div class="history-item" data-user="${escapeHtml(chat.user)}" data-ai="${escapeHtml(chat.ai)}">
+                        <div class="history-preview">
+                            <strong>${escapeHtml(chat.user.substring(0, 50))}${chat.user.length > 50 ? '...' : ''}</strong>
+                            <small>${escapeHtml(normalizeAgentKey(chat.agent || 'general'))} • ${escapeHtml(chat.model)} • ${escapeHtml(chat.time)}</small>
+                        </div>
+                    </div>
+                `).join('');
+
+                historyContent.querySelectorAll('.history-item').forEach(item => {
+                    item.addEventListener('click', () => {
+                        hideWelcome();
+                        chatBox.querySelectorAll('.message').forEach(message => message.remove());
+                        addMessage('user', item.dataset.user);
+                        addMessage('ai', item.dataset.ai);
+                        closePanels();
+                    });
+                });
+            } catch (error) {
+                document.getElementById('history-display').innerHTML = '<p class="error">無法載入歷史記錄</p>';
+            }
+        }
+
+        async function checkStatus() {
+            try {
+                const response = await fetch('/status');
+                const data = await response.json();
+                statusInfo.innerHTML = `
+                    <div class="status-item ${data.ollama ? 'active' : 'inactive'}"><i class="fas fa-home"></i><span>Ollama</span></div>
+                    <div class="status-item ${data.gpt2 ? 'active' : 'inactive'}"><i class="fas fa-robot"></i><span>GPT-2</span></div>
+                    <div class="status-item ${data.openai ? 'active' : 'inactive'}"><i class="fas fa-cloud"></i><span>OpenAI</span></div>
+                    <div class="status-item ${data.openrouter ? 'active' : 'inactive'}"><i class="fas fa-cloud"></i><span>OpenRouter</span></div>
+                    <div class="status-item ${data.groq ? 'active' : 'inactive'}"><i class="fas fa-cloud"></i><span>Groq</span></div>
+                    <div class="status-item ${data.gemini ? 'active' : 'inactive'}"><i class="fas fa-cloud"></i><span>Gemini</span></div>
+                    <div class="status-item ${data.nvidia ? 'active' : 'inactive'}"><i class="fas fa-microchip"></i><span>NVIDIA</span></div>
+                    <div class="status-item ${data.zhizengzeng ? 'active' : 'inactive'}"><i class="fas fa-cloud"></i><span>智增增 ZZZ API</span></div>
+                    <div class="status-item ${data.huggingface ? 'active' : 'inactive'}"><i class="fas fa-cloud"></i><span>Hugging Face</span></div>
+                    <div class="status-item ${data.together ? 'active' : 'inactive'}"><i class="fas fa-cloud"></i><span>Together AI</span></div>
+                `;
+                MODEL_AVAILABILITY = {
+                    auto: true,
+                    tinyllama: Boolean(data.ollama),
+                    gpt2: Boolean(data.gpt2),
+                    openai: Boolean(data.openai),
+                    openrouter: Boolean(data.openrouter),
+                    groq: Boolean(data.groq),
+                    gemini: Boolean(data.gemini),
+                    zhizengzeng: Boolean(data.zhizengzeng),
+                    huggingface: Boolean(data.huggingface),
+                    together: Boolean(data.together),
+                };
+                if (MODEL_AVAILABILITY[modelSelect.value] === false) {
+                    modelSelect.value = 'auto';
+                }
+                syncModelCards();
+            } catch (error) {
+                statusInfo.innerHTML = '<p class="error">無法檢查狀態</p>';
+            }
+        }
+
+        async function startLearning() {
+            learnBtn.disabled = true;
+            learnBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 學習中...';
+
+            try {
+                const response = await fetch('/learn', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await response.json();
+                if (data.error) {
+                    addMessage('ai', `學習錯誤: ${data.error}`);
+                } else {
+                    addMessage('ai', '自主學習完成，總管與學習器已更新訊號記憶。');
+                    loadMonitorData(false);
+                }
+            } catch (error) {
+                addMessage('ai', '學習失敗，請檢查網路連接。');
+            } finally {
+                learnBtn.disabled = false;
+                learnBtn.innerHTML = '<i class="fas fa-brain"></i> 自主學習';
+            }
+        }
+
+        async function loadMonitorData(showPanel = true) {
+            if (showPanel) {
+                openMonitorSidebar();
+            }
+
+            try {
+                const [agentsRes, cnsRes, modelRes, signalRes, frameworkRes, securityRes] = await Promise.all([
+                    fetch('/agents'),
+                    fetch('/system/cns/status'),
+                    fetch('/system/model-status'),
+                    fetch('/agent/signals'),
+                    fetch('/system/data-framework'),
+                    fetch('/system/security-status')
+                ]);
+
+                const agents = await agentsRes.json();
+                const cns = await cnsRes.json();
+                const modelStatus = await modelRes.json();
+                const signals = await signalRes.json();
+                const framework = await frameworkRes.json();
+                const security = await securityRes.json();
+
+                renderQuickAgents(agents);
+                applyModelAvailability(modelStatus);
+                renderModelStatus(modelStatus);
+                renderCnsStatus(cns);
+                renderSecurityStatus(security);
+                renderAgents(agents);
+                renderSignals(signals);
+                renderFramework(framework);
+                renderOverview(modelStatus, cns, agents, signals, framework, security);
+                monitorUpdatedAt.textContent = `更新時間 ${new Date().toLocaleTimeString('zh-TW')}`;
+            } catch (error) {
+                modelStatusPanel.innerHTML = '<div class="monitor-empty">無法載入監控資料</div>';
+                securityStatusPanel.innerHTML = '<div class="monitor-empty">無法載入申言者安全守門資料</div>';
+            }
+        }
+
+        function renderOverview(modelStatus, cns, agents, signals, framework, security) {
+            const database = framework.database || {};
+            const availableModels = [
+                modelStatus.ollama_available,
+                modelStatus.openai_key_configured,
+                modelStatus.openrouter_key_configured,
+                modelStatus.groq_key_configured,
+                modelStatus.zhizengzeng_key_configured,
+                modelStatus.huggingface_key_configured,
+                modelStatus.together_key_configured,
+                modelStatus.gpt2?.ml_runtime_available || modelStatus.gpt2?.sidecar_url
+            ].filter(Boolean).length;
+            const securityIndex = Number(security?.security_index ?? 0);
+            const securityFindings = Number(security?.summary?.finding_count ?? 0);
+
+            overviewMetricsPanel.innerHTML = `
+                <article class="overview-metric-card">
+                    <span>啟用智能體</span>
+                    <strong>${escapeHtml(agents.length || 0)}</strong>
+                    <small>中樞可分派節點</small>
+                </article>
+                <article class="overview-metric-card">
+                    <span>模型通道</span>
+                    <strong>${escapeHtml(availableModels)}</strong>
+                    <small>可用或已設定的推理路徑</small>
+                </article>
+                <article class="overview-metric-card">
+                    <span>訊號記憶</span>
+                    <strong>${escapeHtml(signals.length || 0)}</strong>
+                    <small>學習後的標籤詞條</small>
+                </article>
+                <article class="overview-metric-card">
+                    <span>待追蹤資料</span>
+                    <strong>${escapeHtml(database.chat_history_count || 0)}</strong>
+                    <small>聊天歷史可供學習</small>
+                </article>
+                <article class="overview-metric-card">
+                    <span>CNS 狀態</span>
+                    <strong>${cns.enabled ? '啟用' : '停用'}</strong>
+                    <small>${escapeHtml(cns.runtime?.last_cycle_summary || '尚無摘要')}</small>
+                </article>
+                <article class="overview-metric-card">
+                    <span>API 安全指數</span>
+                    <strong>${escapeHtml(`${securityIndex}/100`)}</strong>
+                    <small>${escapeHtml(`${securityFindings} 項待追蹤問題`)}</small>
+                </article>
+                <article class="overview-metric-card">
+                    <span>資料根目錄</span>
+                    <strong>${framework.storage?.data_root?.exists ? '已掛載' : '待確認'}</strong>
+                    <small>${escapeHtml(framework.storage?.data_root?.path || '')}</small>
+                </article>
+            `;
+        }
+
+        function renderModelStatus(data) {
+            const gpt2 = data.gpt2 || {};
+            const reasonRows = Object.entries(data.model_unavailable_reasons || {})
+                .filter(([, reason]) => Boolean(reason))
+                .map(([modelKey, reason]) => `<div class="metric-row"><span>${escapeHtml(modelKey)} 不可用原因</span><strong>${escapeHtml(reason)}</strong></div>`)
+                .join('');
+            modelStatusPanel.innerHTML = `
+                <div class="metric-row"><span>Ollama</span><strong>${data.ollama_available ? '可用' : '不可用'}</strong></div>
+                <div class="metric-row"><span>本地預設模型</span><strong>${escapeHtml(data.local_ollama_model || 'tinyllama')}</strong></div>
+                <div class="metric-row"><span>GPT-2 後端</span><strong>${escapeHtml(gpt2.backend || '未知')}</strong></div>
+                <div class="metric-row"><span>GPT-2 本地執行環境</span><strong>${gpt2.ml_runtime_available ? '可用' : '不可用'}</strong></div>
+                <div class="metric-row"><span>GPT-2 副程序</span><strong>${escapeHtml(gpt2.sidecar_url || '未設定')}</strong></div>
+                <div class="metric-row"><span>OpenAI 金鑰</span><strong>${data.openai_key_configured ? '已設定' : '未設定'}</strong></div>
+                <div class="metric-row"><span>OpenAI 模型</span><strong>${escapeHtml(data.openai_model || '未設定')}</strong></div>
+                <div class="metric-row"><span>OpenRouter 金鑰</span><strong>${data.openrouter_key_configured ? '已設定' : '未設定'}</strong></div>
+                <div class="metric-row"><span>OpenRouter 金鑰槽</span><strong>${data.openrouter_key_configured ? escapeHtml(String(data.openrouter_key_slot || 1)) : '0'}</strong></div>
+                <div class="metric-row"><span>OpenRouter 模型</span><strong>${escapeHtml(data.openrouter_model || '未設定')}</strong></div>
+                <div class="metric-row"><span>Groq 金鑰</span><strong>${data.groq_key_configured ? '已設定' : '未設定'}</strong></div>
+                <div class="metric-row"><span>Groq 模型</span><strong>${escapeHtml(data.groq_model || '未設定')}</strong></div>
+                <div class="metric-row"><span>Gemini 金鑰</span><strong>${data.gemini_key_configured ? '已設定' : '未設定'}</strong></div>
+                <div class="metric-row"><span>Gemini 模型</span><strong>${escapeHtml(data.gemini_model || '未設定')}</strong></div>
+                <div class="metric-row"><span>NVIDIA 金鑰</span><strong>${data.nvidia_key_configured ? '已設定' : '未設定'}</strong></div>
+                <div class="metric-row"><span>NVIDIA 模型</span><strong>${escapeHtml(data.nvidia_model || '未設定')}</strong></div>
+                <div class="metric-row"><span>智增增 金鑰</span><strong>${data.zhizengzeng_key_configured ? '已設定' : '未設定'}</strong></div>
+                <div class="metric-row"><span>智增增 模型</span><strong>${escapeHtml(data.zhizengzeng_model || '未設定')}</strong></div>
+                <div class="metric-row"><span>Hugging Face 金鑰</span><strong>${data.huggingface_key_configured ? '已設定' : '未設定'}</strong></div>
+                <div class="metric-row"><span>Together AI 金鑰</span><strong>${data.together_key_configured ? '已設定' : '未設定'}</strong></div>
+                <div class="metric-row"><span>NotebookLM 連接器</span><strong>${data.notebooklm_enabled ? '啟用' : '停用'}</strong></div>
+                <div class="metric-row"><span>NotebookLM 狀態</span><strong>${data.notebooklm_configured ? '可連線' : '待設定'}</strong></div>
+                <div class="metric-row"><span>NotebookLM 專案/區域</span><strong>${escapeHtml(`${data.notebooklm_project_number || '未設定'} / ${data.notebooklm_location || 'global'}`)}</strong></div>
+                ${reasonRows}
+            `;
+        }
+
+        function renderSecurityStatus(data) {
+            const summary = data.summary || {};
+            const providerChecks = data.provider_checks || [];
+            const findings = data.findings || [];
+
+            const providerHtml = providerChecks.map(item => `
+                <div class="metric-row">
+                    <span>${escapeHtml(item.label)} (${escapeHtml(item.key)})</span>
+                    <strong>${item.enabled ? (item.secure_transport ? '啟用且安全' : '啟用但有風險') : '未啟用'}</strong>
+                </div>
+            `).join('');
+
+            const findingsHtml = findings.length
+                ? findings.map(item => `
+                    <div class="heartbeat-item">
+                        <strong>${escapeHtml((item.severity || 'low').toUpperCase())} • ${escapeHtml(item.type || 'issue')}</strong>
+                        <span>${escapeHtml(item.provider || 'system')}</span>
+                        <small>${escapeHtml(item.message || '')}</small>
+                    </div>
+                `).join('')
+                : '<div class="monitor-empty">目前未偵測到安全風險項目</div>';
+
+            securityStatusPanel.innerHTML = `
+                <div class="metric-row"><span>安全指數</span><strong>${escapeHtml(data.security_index || 0)}/100</strong></div>
+                <div class="metric-row"><span>風險等級</span><strong>${escapeHtml(data.risk_level || '未知')}</strong></div>
+                <div class="metric-row"><span>總問題數</span><strong>${escapeHtml(summary.finding_count || 0)}</strong></div>
+                <div class="metric-row"><span>高風險問題</span><strong>${escapeHtml(summary.high_severity_count || 0)}</strong></div>
+                <div class="metric-row"><span>中風險問題</span><strong>${escapeHtml(summary.medium_severity_count || 0)}</strong></div>
+                <div class="metric-row"><span>檢查時間</span><strong>${escapeHtml(data.checked_at || '未知')}</strong></div>
+                ${providerHtml}
+                <div class="heartbeat-list">${findingsHtml}</div>
+            `;
+        }
+
+        function renderCnsStatus(data) {
+            const recentTasks = Array.isArray(data.recent_tasks) ? data.recent_tasks : [];
+            const recentTaskNotifications = Array.isArray(data.recent_task_notifications) ? data.recent_task_notifications : [];
+            const statusCount = recentTasks.reduce((acc, item) => {
+                const key = String(item.status || 'pending').toLowerCase();
+                acc[key] = (acc[key] || 0) + 1;
+                return acc;
+            }, {});
+
+            const taskHtml = recentTasks.map(task => `
+                <div class="heartbeat-item">
+                    <strong>任務 #${escapeHtml(task.task_id)} • ${escapeHtml(task.title || '未命名任務')}</strong>
+                    <span>${escapeHtml(task.status)} • ${escapeHtml(normalizeAgentKey(task.assigned_agent || 'general'))}</span>
+                    <small>更新時間 ${escapeHtml(formatTimestamp(task.updated_at))}</small>
+                </div>
+            `).join('');
+
+            const taskEventHtml = recentTaskNotifications.map(item => `
+                <div class="heartbeat-item">
+                    <strong>${escapeHtml(item.title || '任務更新')}</strong>
+                    <span>${escapeHtml(normalizeAgentKey(item.agent_key || 'general'))} • ${escapeHtml(item.level || 'info')}</span>
+                    <small>${escapeHtml(item.message || '')}</small>
+                </div>
+            `).join('');
+
+            const heartbeatEnabled = Boolean(data.heartbeat_enabled);
+            const heartbeatRows = (data.recent_heartbeats || []).map(beat => `
+                <div class="heartbeat-item">
+                    <strong>${escapeHtml(beat.cycle_type)}</strong>
+                    <span>${escapeHtml(beat.status)}</span>
+                    <small>${escapeHtml(beat.summary)}</small>
+                </div>
+            `).join('');
+
+            cnsStatusPanel.innerHTML = `
+                <div class="metric-row"><span>啟用狀態</span><strong>${data.enabled ? '啟用' : '停用'}</strong></div>
+                <div class="metric-row"><span>巡檢間隔</span><strong>${escapeHtml(data.interval_seconds)}s</strong></div>
+                <div class="metric-row"><span>背景執行緒</span><strong>${data.runtime.thread_started ? '已啟動' : '未啟動'}</strong></div>
+                <div class="metric-row"><span>最後摘要</span><strong>${escapeHtml(data.runtime.last_cycle_summary || '無')}</strong></div>
+                <div class="metric-row"><span>任務完成</span><strong>${escapeHtml(statusCount.completed || 0)}</strong></div>
+                <div class="metric-row"><span>任務失敗</span><strong>${escapeHtml(statusCount.failed || 0)}</strong></div>
+                <div class="heartbeat-list">${taskHtml || '<div class="monitor-empty">尚無任務紀錄</div>'}</div>
+            `;
+            cnsDetailPanel.innerHTML = `
+                <div class="metric-row"><span>啟用狀態</span><strong>${data.enabled ? '啟用' : '停用'}</strong></div>
+                <div class="metric-row"><span>巡檢間隔</span><strong>${escapeHtml(data.interval_seconds)} 秒</strong></div>
+                <div class="metric-row"><span>背景執行緒</span><strong>${data.runtime.thread_started ? '已啟動' : '未啟動'}</strong></div>
+                <div class="metric-row"><span>最後學習摘要</span><strong>${escapeHtml(data.runtime.last_cycle_summary || '無')}</strong></div>
+                <div class="metric-row"><span>心跳記錄</span><strong>${heartbeatEnabled ? '啟用' : '停用'}</strong></div>
+                <div class="metric-row"><span>最近任務數</span><strong>${escapeHtml(recentTasks.length)}</strong></div>
+                <div class="heartbeat-list">${taskEventHtml || '<div class="monitor-empty">尚無任務事件</div>'}</div>
+                ${heartbeatEnabled ? `<div class="heartbeat-list">${heartbeatRows}</div>` : ''}
+            `;
+        }
+
+        function renderAgents(agents) {
+            agentsPanel.innerHTML = agents.map(agent => `
+                <article class="agent-card">
+                    <div class="agent-card-head">
+                        <h5>${escapeHtml(agent.label)}</h5>
+                        <span>${escapeHtml(agent.key)}</span>
+                    </div>
+                    <p>${escapeHtml(agent.description)}</p>
+                    <div class="agent-section-line"><strong>能力</strong>${formatCapabilities(agent.capabilities)}</div>
+                    <div class="agent-section-line"><strong>訊號</strong>${formatList(agent.signal_tags)}</div>
+                    <div class="agent-section-line"><strong>協作</strong>${formatList(agent.collaborators)}</div>
+                    <div class="agent-section-line"><strong>主動工作</strong>${formatList(agent.proactive_jobs)}</div>
+                </article>
+            `).join('');
+        }
+
+        function renderSignals(signals) {
+            if (!signals.length) {
+                signalPanel.innerHTML = '<div class="monitor-empty">尚無學習到的訊號</div>';
+                return;
+            }
+
+            signalPanel.innerHTML = signals.slice(0, 48).map(signal => `
+                <div class="signal-chip">
+                    <strong>${escapeHtml(signal.signal)}</strong>
+                    <span>${escapeHtml(normalizeAgentKey(signal.agent_key))}</span>
+                    <small>命中 ${escapeHtml(signal.hit_count)}</small>
+                </div>
+            `).join('');
+        }
+
+        function renderFramework(framework) {
+            const storage = framework.storage || {};
+            const database = framework.database || {};
+            dataFrameworkPanel.innerHTML = `
+                <div class="metric-row"><span>資料根目錄</span><strong>${escapeHtml(storage.data_root?.path || '')}</strong></div>
+                <div class="metric-row"><span>資料庫路徑</span><strong>${escapeHtml(storage.database?.path || '')}</strong></div>
+                <div class="metric-row"><span>聊天紀錄</span><strong>${escapeHtml(database.chat_history_count || 0)}</strong></div>
+                <div class="metric-row"><span>任務數</span><strong>${escapeHtml(database.agent_task_count || 0)}</strong></div>
+                <div class="metric-row"><span>訊號數</span><strong>${escapeHtml(database.agent_signal_count || 0)}</strong></div>
+                <div class="metric-row"><span>任務通知</span><strong>${escapeHtml(database.agent_notification_count || 0)}</strong></div>
+                <div class="metric-row"><span>CNS 心跳</span><strong>${database.heartbeat_enabled ? escapeHtml(database.cns_heartbeat_count || 0) : '已停用'}</strong></div>
+            `;
+        }
+
+        async function runCycleNow() {
+            runCycleBtn.disabled = true;
+            runCycleBtn.textContent = '執行中...';
+            try {
+                const response = await fetch('/system/cns/run-cycle', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await response.json();
+                const tasks = Array.isArray(data.processed_tasks) ? data.processed_tasks : [];
+                const success = tasks.filter(item => String(item.status || '').toLowerCase() === 'completed').length;
+                const failed = tasks.filter(item => String(item.status || '').toLowerCase() === 'failed').length;
+                addMessage('ai', `CNS 已執行一輪巡檢：處理 ${tasks.length} 個任務，成功 ${success}，失敗 ${failed}。`);
+                loadMonitorData(false);
+            } catch (error) {
+                addMessage('ai', '無法執行 CNS 巡檢。');
+            } finally {
+                runCycleBtn.disabled = false;
+                runCycleBtn.textContent = '執行一輪';
+            }
+        }
+
+        function startNewChat() {
+            if (!confirm('確定要開始新對話嗎？這將清除當前聊天內容。')) return;
+            chatBox.innerHTML = getWelcomeMarkup();
+            bindModelCards();
+            bindPromptChips();
+            bindActionCards();
+            syncModelCards();
+            userInput.value = '';
+            clearInputDraft();
+            updateCharCount();
+            autoResizeInput();
+            toggleSendButton();
+            setInputHint('總管會依關鍵詞與已學習訊號自動分派。');
+        }
+
+        function clearChat() {
+            const messages = chatBox.querySelectorAll('.message');
+            if (!messages.length) return;
+            if (!confirm('確定要清除所有訊息嗎？')) return;
+            startNewChat();
+        }
+
+        sendBtn.addEventListener('click', sendMessage);
+        userInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+                event.preventDefault();
+                sendMessage();
+            }
+        });
+        userInput.addEventListener('input', () => {
+            updateCharCount();
+            autoResizeInput();
+            saveInputDraft();
+            toggleSendButton();
+        });
+        modelSelect.addEventListener('change', () => {
+            syncModelCards();
+            if (isWelcomeVisible()) {
+                enterConversationMode();
+            }
+        });
+        historyBtn.addEventListener('click', () => {
+            openHistorySidebar();
+            showHistory();
+        });
+        statusBtn.addEventListener('click', () => loadMonitorData(true));
+        monitorBtn.addEventListener('click', () => loadMonitorData(true));
+        closeHistoryBtn.addEventListener('click', closePanels);
+        closeMonitorBtn.addEventListener('click', closePanels);
+        overlay.addEventListener('click', closePanels);
+        newChatBtn.addEventListener('click', startNewChat);
+        clearChatBtn.addEventListener('click', clearChat);
+        learnBtn.addEventListener('click', startLearning);
+        refreshMonitorBtn.addEventListener('click', () => loadMonitorData(false));
+        runCycleBtn.addEventListener('click', runCycleNow);
+        runCycleBtnSecondary.addEventListener('click', runCycleNow);
+        monitorTabs.forEach(tab => {
+            tab.addEventListener('click', () => setActiveMonitorTab(tab.dataset.tab));
+        });
+        notificationBtn.addEventListener('click', async () => {
+            await pullNotifications(true);
+            await markAllNotificationsRead();
+        });
+
+        bindModelCards();
+        bindPromptChips();
+        bindActionCards();
+        syncModelCards();
+        renderQuickAgents(REQUIRED_AGENTS);
+        setActiveMonitorTab('overview');
+        restoreInputDraft();
+        autoResizeInput();
+        updateCharCount();
+        toggleSendButton();
+        checkStatus();
+        loadMonitorData(false);
+        pullNotifications(true);
+        setInterval(() => {
+            if (monitorSidebar.classList.contains('active')) {
+                loadMonitorData(false);
+            }
+        }, 15000);
+        setInterval(() => {
+            pullNotifications(false);
+        }, 4000);
+    </script>
+</body>
+</html>

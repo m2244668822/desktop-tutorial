@@ -1,0 +1,29 @@
+[
+  {
+    "id": "task-001",
+    "model": "ollama",
+    "prompt": "請解釋什麼是機器學習",
+    "priority": 1,
+    "status": "pending",
+    "created_at": "2024-01-01T10:00:00",
+    "ollama_model": "llama3.2"
+  },
+  {
+    "id": "task-002",
+    "model": "openai",
+    "prompt": "用Python寫一個簡單的計算器程序",
+    "priority": 2,
+    "status": "pending",
+    "created_at": "2024-01-01T10:05:00",
+    "openai_model": "gpt-3.5-turbo"
+  },
+  {
+    "id": "task-003",
+    "model": "gemini",
+    "prompt": "告訴我今年科技行業最有趣的發展",
+    "priority": 1,
+    "status": "pending",
+    "created_at": "2024-01-01T10:10:00",
+    "gemini_model": "gemini-2.5-flash"
+  }
+]

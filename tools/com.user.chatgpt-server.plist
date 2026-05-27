@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.user.chatgpt-server</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/user/.chat_frontend/run_chatgpt_server_frontend.sh</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/user</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/Users/user/.chat_frontend/chatgpt_server_launchd.out</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/user/.chat_frontend/chatgpt_server_launchd.err</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>CHAT_SERVER_PORT</key>
+    <string>5001</string>
+    <key>TERMINAL_MONITOR_MODE</key>
+    <string>off</string>
+    <key>PYTHONUNBUFFERED</key>
+    <string>1</string>
+  </dict>
+</dict>
+</plist>

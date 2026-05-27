@@ -1,0 +1,58 @@
+[
+  {
+    "scene_id": 1,
+    "text": "有時候我在想，人到底是自己，還是被環境訓練出來的反應？",
+    "visual_prompt": "Cinematic high-contrast shot, a silhouette of a person standing in a void, glowing blue digital neural networks floating around them like rain, hyper-realistic, 4k, philosophical mood.",
+    "pacing": "slow",
+    "transition": "fade_in"
+  },
+  {
+    "scene_id": 2,
+    "text": "我一開始看到行為學派時，它講的是「標的行為」。",
+    "visual_prompt": "Abstract laboratory aesthetic, a single red glowing dot on a dark petri dish, technical diagrams overlayed, microscope view, minimalist.",
+    "pacing": "medium",
+    "transition": "zoom_in"
+  },
+  {
+    "scene_id": 3,
+    "text": "行為治療不問：你現在有哪些行為，正在讓你痛苦？比如逃避、焦慮、強迫、解離。",
+    "visual_prompt": "Close up of a dark vintage typewriter typing words: 'ANXIETY', 'ESCAPE', 'PAIN'. Red ink dripping on the paper, dramatic shadows, moody lighting.",
+    "pacing": "fast",
+    "transition": "cut"
+  },
+  {
+    "scene_id": 4,
+    "text": "很多人以為那是人格。其實只是以前為了活下來，被強化出來的生存反應。",
+    "visual_prompt": "A beautiful porcelain mask with a huge crack, through the crack we see glowing mechanical gears and neural synapses, symbolic of survival mechanisms, dark background.",
+    "pacing": "slow",
+    "transition": "dissolve"
+  },
+  {
+    "scene_id": 5,
+    "text": "當狗被迫分辨越來越混亂的訊號，最後牠會崩潰。但這真的是病嗎？還是唯一能做出的「正確反應」？",
+    "visual_prompt": "An old brass bell ringing violently, split screen with chaotic static noise and abstract geometric shapes distorting, high tension, psychological suspense.",
+    "pacing": "build_up",
+    "transition": "glitch_effect"
+  },
+  {
+    "scene_id": 6,
+    "text": "既然大腦可以被「塑造」出痛苦，同樣可以被「重塑」。這就是精神可塑性。",
+    "visual_prompt": "A dark brain silhouette starting to glow with golden light, golden threads weaving and repairing the cracks, beautiful, inspiring, warm lighting.",
+    "pacing": "medium",
+    "transition": "glow_reveal"
+  },
+  {
+    "scene_id": 7,
+    "text": "你不需要挖掘童年。你只需要從現在開始，去設計新的刺激，去強化新的行為。",
+    "visual_prompt": "Close up of hands holding a glowing futuristic blueprint, the blueprint shows a new neural path, soft cinematic lighting, focus on hope.",
+    "pacing": "medium",
+    "transition": "slide_up"
+  },
+  {
+    "scene_id": 8,
+    "text": "你不是環境的犧牲品，你是自己神經迴路的設計師。",
+    "visual_prompt": "Low angle shot of the silhouette looking at a vast digital horizon, sunrise colors (orange/purple), neural networks blooming like flowers in the sky, powerful ending.",
+    "pacing": "slow",
+    "transition": "fade_to_white"
+  }
+]

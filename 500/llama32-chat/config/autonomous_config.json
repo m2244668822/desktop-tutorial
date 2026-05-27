@@ -1,0 +1,54 @@
+{
+  "agent_name": "本地智能體",
+  "agent_mode": "local_only",
+  "description": "完全基於本地 Ollama 和本地知識庫的智能體",
+  "core": {
+    "model": "ollama",
+    "ollama_model": "mistral",
+    "use_local_kb": true,
+    "offline": true
+  },
+  "knowledge_base": {
+    "enabled": true,
+    "type": "local",
+    "path": "data/local_knowledge/local_knowledge_base.json",
+    "index_path": "data/local_knowledge/rag_index.json",
+    "auto_update": true
+  },
+  "rag": {
+    "enabled": true,
+    "top_k": 10,
+    "similarity_threshold": 0.5,
+    "rerank": true,
+    "use_local_embeddings": true
+  },
+  "models": {
+    "primary": {
+      "name": "ollama",
+      "enabled": true,
+      "priority": 1
+    }
+  },
+  "failover": {
+    "enabled": false,
+    "max_attempts": 0
+  },
+  "local_optimization": {
+    "cache_enabled": true,
+    "prefer_local_memory": true,
+    "context_window": 10,
+    "max_context_length": 2000
+  },
+  "conversation_memory": {
+    "enabled": true,
+    "type": "local",
+    "max_history": 20,
+    "persist": true
+  },
+  "learning": {
+    "enabled": true,
+    "type": "local",
+    "auto_update_kb": true,
+    "learn_from_conversations": true
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "auto_failover": true,
+  "smart_model_selection": true,
+  "health_check_enabled": true,
+  "model_priority": [
+    "ollama",
+    "groq",
+    "gemini",
+    "claude"
+  ],
+  "task_type_preferences": {
+    "code": [
+      "gemini",
+      "claude",
+      "openai",
+      "ollama"
+    ],
+    "creative": [
+      "claude",
+      "openai",
+      "xai",
+      "gemini"
+    ],
+    "analysis": [
+      "claude",
+      "openai",
+      "gemini",
+      "xai"
+    ],
+    "conversation": [
+      "ollama",
+      "gemini",
+      "claude",
+      "openai"
+    ],
+    "default": [
+      "ollama",
+      "gemini",
+      "claude",
+      "openai",
+      "xai"
+    ]
+  },
+  "max_failover_attempts": 3,
+  "health_check_interval": 300,
+  "performance_window": 100
+}
