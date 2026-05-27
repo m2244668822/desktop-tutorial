@@ -50,6 +50,8 @@
 |---|---|---|
 | 文件與程式碼 | 使用 UTF-8，優先 UTF-8 no BOM | Windows/Mac/Linux 讀取一致，避免亂碼 |
 | PowerShell 寫檔 | `[System.IO.File]::WriteAllText($path, $text, [System.Text.UTF8Encoding]::new($false))` | 避免預設編碼造成 mojibake |
+| PowerShell 顯示 | `[Console]::OutputEncoding=[System.Text.Encoding]::UTF8` | 避免終端把 UTF-8 中文誤顯示成亂碼 |
+| Python 顯示 | `$env:PYTHONIOENCODING="utf-8"` | 避免 Python stdout 走 cp950，造成「看起來像壞檔」 |
 | cmd 通道 | 需要時先 `chcp 65001` | 讓 cmd 以 UTF-8 顯示中文 |
 | API 狀態碼 | 使用 ASCII 穩定 token，例如 `ready`, `down`, `not_configured`, `placeholder`, `configured` | 程式判斷不要依賴中文句子 |
 | 中文內容 | 放在 Markdown、UI 顯示、使用者說明 | 中文給人看，ASCII token 給程式判斷 |
@@ -108,3 +110,11 @@ cd E:\智能體\城城城程式
 | n8n | `2.21.4` ready |
 | Ollama | reachable |
 | LLM | `configured(len=70, masked)` |
+
+## 2026-05-28 新增每日最低標準
+- docs/dev/DAILY_MINIMUM_GRAPH_AND_DIALOG_BACKWRITE_STANDARD_2026-05-28.md：規範新筆記三連結、三主幹 MOC、神經連結二次判讀、申言者->工程師工程語譯與對話回寫。
+
+## 2026-05-28 n8n 與申言者穩定化
+- docs/dev/N8N_AND_PROPHET_ENGINEER_STABILITY_REPORT_2026-05-28.md：確認 n8n 不是大量資料卡住，而是遙測 DNS、啟動等待過短與重複啟動；同時規範申言者固定交接單與 FAISS 雙語記憶說明。
+- n8n watchdog 預設等待 90 秒、避免重複啟動、日誌超過 25 MB 自動輪替，並繼續使用獨立 Windows `cmd.exe` 通道。
+- 申言者->工程師語譯是附加能力，不覆蓋申言者原本風險治理能力；交接單不讓雲端 LLM 自由產生不存在的程式碼。

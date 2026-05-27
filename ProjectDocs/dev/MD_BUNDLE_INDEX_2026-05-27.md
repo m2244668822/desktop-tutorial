@@ -144,3 +144,8 @@ This is the routing layer for old Markdown material. It does not delete files; i
 - `500/llama32-chat/docs/認知能力系統使用指南.md` -> MERGE_IF_STILL_TRUE; signals=none
 ## 2026-05-27 快速交接新增
 - `docs/dev/STARTUP_ENCODING_AND_STRUCTURE_HANDOFF_2026-05-27.md` -> `KEEP_CURRENT_CHECK_CODE_SYNC`; role=startup, encoding, Windows path, Python structure, Git/Obsidian handoff
+
+## 2026-05-28 早班穩定化新增
+- `docs/dev/DAILY_MINIMUM_GRAPH_AND_DIALOG_BACKWRITE_STANDARD_2026-05-28.md` -> `KEEP_CURRENT_CHECK_CODE_SYNC`; role=graph, dialog-backwrite, prophet-engineer handoff, three-link standard
+- `docs/dev/N8N_AND_PROPHET_ENGINEER_STABILITY_REPORT_2026-05-28.md` -> `KEEP_CURRENT_CHECK_CODE_SYNC`; role=n8n watchdog, deterministic handoff, FAISS bilingual memory
+- `docs/dev/WORKDAY_HANDOFF_PROGRESS_2026-05-28_0750.md` -> `KEEP_CURRENT_CHECK_CODE_SYNC`; role=workday handoff, verification summary, Mac continuation
