@@ -22,8 +22,8 @@ This is the routing layer for old Markdown material. It does not delete files; i
 ## Old Docs Needing Review
 
 - `docs/runbooks/cors-low-restrict-policy.md` -> REVIEW_ACTIVE_DOC; signals=none
-- `docs/runbooks/frontend-backend-route-compat.md` -> REVIEW_ACTIVE_DOC; signals=gateway
-- `docs/runbooks/knowledge_hub_faiss_enablement.md` -> REVIEW_ACTIVE_DOC; signals=memory
+- `docs/runbooks/frontend-backend-route-compat.md` -> KEEP_CURRENT_CHECK_CODE_SYNC; signals=gateway (validated-2026-05-28)
+- `docs/runbooks/knowledge_hub_faiss_enablement.md` -> KEEP_CURRENT_CHECK_CODE_SYNC; signals=memory (validated-2026-05-28)
 - `docs/runbooks/startup-command-contract.md` -> REVIEW_ACTIVE_DOC; signals=gateway
 - `docs/履歷使用指南.md` -> REVIEW_ACTIVE_DOC; signals=none
 - `docs/快速參考.md` -> REVIEW_ACTIVE_DOC; signals=none
@@ -145,3 +145,9 @@ This is the routing layer for old Markdown material. It does not delete files; i
 - `500/llama32-chat/docs/認知能力系統使用指南.md` -> MERGE_IF_STILL_TRUE; signals=none
 ## 2026-05-27 快速交接新增
 - `docs/dev/STARTUP_ENCODING_AND_STRUCTURE_HANDOFF_2026-05-27.md` -> `KEEP_CURRENT_CHECK_CODE_SYNC`; role=startup, encoding, Windows path, Python structure, Git/Obsidian handoff
+
+## 2026-05-28 補強紀錄
+- 已完成 runbook 級補強（可執行驗證版）：
+  - `docs/runbooks/frontend-backend-route-compat.md`
+  - `docs/runbooks/knowledge_hub_faiss_enablement.md`
+- 對應治理狀態從 `REVIEW_ACTIVE_DOC` 升級為 `KEEP_CURRENT_CHECK_CODE_SYNC`。

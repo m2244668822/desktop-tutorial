@@ -50,3 +50,16 @@ Changes:
 
 - 本輪未做 destructive 清理或刪檔。
 - 優化策略維持 non-destructive：先標記、再回填、最後才做歸檔與收斂。
+
+## 6) 第二輪深化（同日追加）
+
+已完成：
+1. `docs/runbooks/knowledge_hub_faiss_enablement.md`
+   - 補上前置檢查、一鍵驗證腳本、故障排查速記。
+2. `docs/runbooks/frontend-backend-route-compat.md`
+   - 補上 `/Perob` 前綴快篩、錯誤碼對照、標準 API Base 規則。
+3. `docs/dev/MD_BUNDLE_INDEX_2026-05-27.md`
+   - 將上述兩份 runbook 治理狀態升級為 `KEEP_CURRENT_CHECK_CODE_SYNC`。
+
+下一個建議回合：
+- 合併 `reports/AGENT_COMMON_STATUS_20260521_*.md` 為單一彙整檔，並對舊快照做歸檔映射。
