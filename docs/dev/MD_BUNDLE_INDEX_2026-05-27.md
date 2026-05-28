@@ -21,10 +21,10 @@ This is the routing layer for old Markdown material. It does not delete files; i
 
 ## Old Docs Needing Review
 
-- `docs/runbooks/cors-low-restrict-policy.md` -> REVIEW_ACTIVE_DOC; signals=none
+- `docs/runbooks/cors-low-restrict-policy.md` -> KEEP_CURRENT_CHECK_CODE_SYNC; signals=gateway,security (validated-2026-05-28)
 - `docs/runbooks/frontend-backend-route-compat.md` -> KEEP_CURRENT_CHECK_CODE_SYNC; signals=gateway (validated-2026-05-28)
 - `docs/runbooks/knowledge_hub_faiss_enablement.md` -> KEEP_CURRENT_CHECK_CODE_SYNC; signals=memory (validated-2026-05-28)
-- `docs/runbooks/startup-command-contract.md` -> REVIEW_ACTIVE_DOC; signals=gateway
+- `docs/runbooks/startup-command-contract.md` -> KEEP_CURRENT_CHECK_CODE_SYNC; signals=gateway,ops (validated-2026-05-28)
 - `docs/履歷使用指南.md` -> REVIEW_ACTIVE_DOC; signals=none
 - `docs/快速參考.md` -> REVIEW_ACTIVE_DOC; signals=none
 - `docs/智能體快速啟動.md` -> REVIEW_ACTIVE_DOC; signals=none
@@ -76,6 +76,7 @@ This is the routing layer for old Markdown material. It does not delete files; i
 ## Reports Are Snapshots
 
 - `reports/AEG_SHARED_REPORT.md` -> REVIEW_RECENT_REPORT
+- `reports/AGENT_COMMON_STATUS_20260521_CONSOLIDATED.md` -> KEEP_CURRENT_CHECK_CODE_SYNC
 - `reports/AGENT_COMMON_STATUS_20260521_151420.md` -> CONSOLIDATE_OR_ARCHIVE
 - `reports/AGENT_COMMON_STATUS_20260521_153300.md` -> CONSOLIDATE_OR_ARCHIVE
 - `reports/AGENT_COMMON_STATUS_20260521_155404.md` -> CONSOLIDATE_OR_ARCHIVE

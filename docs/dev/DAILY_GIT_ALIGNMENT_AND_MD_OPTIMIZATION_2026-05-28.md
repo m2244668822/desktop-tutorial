@@ -63,3 +63,16 @@ Changes:
 
 下一個建議回合：
 - 合併 `reports/AGENT_COMMON_STATUS_20260521_*.md` 為單一彙整檔，並對舊快照做歸檔映射。
+
+## 7) 第三輪深化（同日追加）
+
+已完成：
+1. 報告彙整：
+   - 新增 `reports/AGENT_COMMON_STATUS_20260521_CONSOLIDATED.md`
+   - 將 6 份 2026-05-21 快照整合為單一入口（保留原始快照作證據）。
+2. Runbook 強化：
+   - `docs/runbooks/startup-command-contract.md`：補上標準啟動序、進階健康檢查、錯誤對照。
+   - `docs/runbooks/cors-low-restrict-policy.md`：補上白名單策略、可執行驗證命令、錯誤定位。
+3. MD 治理狀態推進：
+   - `cors-low-restrict-policy.md`、`startup-command-contract.md` 升級為 `KEEP_CURRENT_CHECK_CODE_SYNC`。
+   - `AGENT_COMMON_STATUS_20260521_CONSOLIDATED.md` 加入治理索引。
