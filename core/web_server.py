@@ -218,6 +218,45 @@ class WebServerMode:
                     self._send_json(server_instance.bridge.get_api_onboarding_info())
                     return
 
+                if route_path in {"/api/providers/status", "/system/model-status"}:
+                    try:
+                        onboarding = server_instance.bridge.get_api_onboarding_info() or {}
+                    except Exception:
+                        onboarding = {}
+                    providers_obj = onboarding.get("providers", onboarding) if isinstance(onboarding, dict) else {}
+                    self._send_json(
+                        {
+                            "ok": True,
+                            "providers": providers_obj if isinstance(providers_obj, dict) else {},
+                            "key_state": onboarding.get("key_state", "") if isinstance(onboarding, dict) else "",
+                            "model_state": onboarding.get("model_state", "") if isinstance(onboarding, dict) else "",
+                            "base_url": onboarding.get("base_url", "") if isinstance(onboarding, dict) else "",
+                        }
+                    )
+                    return
+
+                if route_path in {"/api/n8n/status", "/system/communication/status", "/system/cns/status"}:
+                    n8n_up = False
+                    try:
+                        with socket.create_connection(("127.0.0.1", 5678), timeout=1.5):
+                            n8n_up = True
+                    except Exception:
+                        n8n_up = False
+                    self._send_json(
+                        {
+                            "ok": True,
+                            "status": "connected" if n8n_up else "degraded",
+                            "n8n": {"up": n8n_up, "port": 5678},
+                            "communication": {"up": True},
+                            "cns": {"up": True},
+                        }
+                    )
+                    return
+
+                if route_path == "/agent/notifications":
+                    self._send_json({"ok": True, "items": [], "unread": 0})
+                    return
+
                 if route_path == "/api/conversations":
                     # 與 /history 同步，避免前端顯示「未找到記錄」。
                     route_path = "/history"
@@ -509,4 +548,3 @@ def run_web_server(bridge: any, host: str, port: int, open_browser: bool = False
         bridge.monitor_active = False
         server.server_close()
     return 0
-
