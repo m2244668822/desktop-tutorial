@@ -22,7 +22,9 @@ def test_prophet_engineer_bridge_is_additive():
 
 
 def test_prophet_engineer_request_detection_and_reply_block():
-    assert is_prophet_engineer_request("申言者和工程師協作", "總管")
+    assert not is_prophet_engineer_request("申言者和工程師協作", "申言者")
+    assert not is_prophet_engineer_request("確認後轉譯，先和我對話", "申言者")
+    assert is_prophet_engineer_request("我確認，請轉成工程師任務", "申言者")
     handoff = build_prophet_engineer_handoff(
         message="請建立神經連結每日最低標準",
         role="申言者",

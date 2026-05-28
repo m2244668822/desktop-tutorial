@@ -45,25 +45,76 @@ def _contains_any(text: str, tokens: tuple[str, ...]) -> bool:
 
 def is_prophet_engineer_request(message: str, role: str = "") -> bool:
     """Return true when a turn should create a prophet->engineer handoff."""
-    text = str(message or "")
-    role_name = str(role or "").strip()
-    if role_name == "申言者":
+    text = str(message or "").strip()
+    if not text:
+        return False
+
+    lowered = text.lower()
+    confirmation_tokens = (
+        "我確認",
+        "確認，請",
+        "確認,請",
+        "確認後請",
+        "可以轉譯",
+        "開始轉譯",
+        "直接轉譯",
+        "正式轉譯",
+        "執行交接",
+        "產生交接單",
+        "交給工程師",
+        "請工程師",
+        "工程師開始",
+    )
+    if "確認後" in text and not _contains_any(text, confirmation_tokens):
+        return False
+
+    if _contains_any(text, confirmation_tokens):
         return True
-    if "申言者" in text and "工程師" in text:
-        return True
+
     handoff_tokens = (
         "語譯",
         "轉譯",
+        "轉成工程師",
+        "轉成工程任務",
+        "工程師任務",
         "翻譯成寫程式",
         "寫程式的語",
         "工程語",
+        "固定交接",
+        "handoff",
+    )
+    execution_tokens = (
+        "執行",
+        "開始",
+        "直接",
+        "正式",
+        "落地",
+        "改檔",
+        "修改",
+        "修復",
+        "寫程式",
+    )
+    if _contains_any(text, handoff_tokens) and _contains_any(text, execution_tokens):
+        return True
+
+    direct_engineer_tokens = (
         "工程師開始",
+        "工程師負責",
+        "工程師著手",
+        "請工程師處理",
+        "交由工程師",
+        "交辦工程師",
+    )
+    if _contains_any(text, direct_engineer_tokens):
+        return True
+
+    legacy_strong_tokens = (
         "修改資料進度",
         "每日最低標準",
         "對話回寫",
         "神經連結",
     )
-    return _contains_any(text, handoff_tokens)
+    return _contains_any(lowered, legacy_strong_tokens) and _contains_any(text, execution_tokens)
 
 
 def classify_risk(message: str) -> str:

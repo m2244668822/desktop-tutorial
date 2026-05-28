@@ -1338,9 +1338,24 @@ class DesktopBridge:
         text = str(message or "").strip().lower()
         if not text:
             return False
+        negative_tokens = (
+            "不要直接執行", "先不要執行", "不用執行", "不要動手", "先不要動手",
+            "先聊天", "先對話", "先討論", "只是了解", "只是問", "先解釋",
+        )
+        if any(token in text for token in negative_tokens):
+            return False
+        command_phrases = (
+            "git status", "git push", "git commit", "git pull", "git fetch",
+            "docker compose", "docker run", "n8n start", "n8n stop",
+            "pytest", "npm test", "pnpm test", "yarn test",
+            "重啟服務", "啟動服務", "停止服務",
+        )
+        if any(token in text for token in command_phrases):
+            return True
         action_tokens = (
             "執行", "修復", "修正", "解決", "優化", "debug", "偵測", "檢查",
             "安裝", "啟動", "重啟", "建立", "生成", "寫入", "更新", "測試",
+            "抓取", "下載", "上傳", "提交", "開啟", "打包", "轉譯",
             "run", "fix", "repair", "install", "start", "restart", "build", "test",
         )
         objective_tokens = (
@@ -1355,8 +1370,40 @@ class DesktopBridge:
             return True
         if has_action and any(token in text for token in direct_command_tokens):
             return True
-        hard_tokens = ("run", "debug", "git", "docker", "n8n", "workflow", "重啟服務", "啟動服務")
-        return any(token in text for token in hard_tokens)
+        return False
+
+    def _prophet_should_stay_in_dialog(
+        self, message: str, role: str, interaction_mode: str
+    ) -> bool:
+        role_name = self._normalize_role_name(role)
+        if role_name != "申言者":
+            return False
+        mode = self._normalize_interaction_mode(interaction_mode)
+        if mode in {"coding", "workflow", "execution"}:
+            return False
+        text = str(message or "").strip().lower()
+        if not text:
+            return True
+        direct_execute_tokens = (
+            "直接執行", "開始執行", "請執行", "執行交接", "產生交接單",
+            "交給工程師", "請工程師", "工程師開始", "開始修改", "請修改",
+            "修復", "提交", "push", "重啟", "安裝", "寫入",
+        )
+        negative_tokens = (
+            "不要直接執行", "先不要執行", "不用執行", "不要動手", "先不要動手",
+            "先聊天", "先對話", "先討論", "只是了解", "只是問", "先解釋",
+        )
+        if any(token in text for token in negative_tokens):
+            return True
+        if any(token in text for token in direct_execute_tokens):
+            return False
+        dialog_tokens = (
+            "為什麼", "原因", "怎麼", "是否", "是不是", "有沒有", "可不可以",
+            "解釋", "介紹", "了解", "生活化", "以圖", "例子", "我想", "你覺得",
+            "這樣想", "這樣的思考", "應該", "先確認", "先討論", "先進行對話",
+            "確認後", "對談", "聊天", "基礎對話",
+        )
+        return any(token in text for token in dialog_tokens)
 
     def _is_dialog_quality_request(self, message: str) -> bool:
         text = str(message or "").strip().lower()
@@ -1365,6 +1412,7 @@ class DesktopBridge:
         tokens = (
             "鬼打牆", "重複", "單一", "回覆化", "同內容", "同樣內容", "罐頭", "模板",
             "回答方式", "語氣", "回應低下", "過度單一", "對談模式", "不要重覆",
+            "直接任務", "任務化", "工具結果", "工程交接", "先進行對話", "基礎對話",
         )
         return any(token in text for token in tokens)
 
@@ -1422,6 +1470,8 @@ class DesktopBridge:
 
     def _should_run_workflow(self, message: str, role: str, purpose: str, interaction_mode: str) -> bool:
         mode = self._normalize_interaction_mode(interaction_mode)
+        if self._prophet_should_stay_in_dialog(message, role, mode):
+            return False
         if self._is_dialog_quality_request(message) and not self._has_system_objective_request(message):
             return False
         if mode in {"discussion", "qa", "creative"} and not self._message_has_execution_intent(message):
@@ -1448,6 +1498,23 @@ class DesktopBridge:
         compact = re.sub(r"\s+", "", text.lower())
         role_name = role or "申言者"
 
+        if role_name == "申言者" and self._is_dialog_quality_request(text):
+            return self._pick_variant(
+                [
+                    (
+                        "【申言者】你說得對，這輪應該先對話，不該直接變成任務報告。\n"
+                        "生活化講：申言者像櫃台先聽你描述問題，確認你真的要辦理後，才把單子交給工程師。\n"
+                        "所以我現在先停在「理解與確認」：你要我下一步把它轉成工程師任務時，請說「我確認，請轉成工程師任務」。"
+                    ),
+                    (
+                        "【申言者】這個判斷是對的：對談不是施工單。\n"
+                        "正確流程應該是先聊天釐清意思，再問你要不要轉譯；只有你確認後，我才輸出工程交接單。\n"
+                        "目前我先不跑工具、不丟驗證報告，只先把規則修正成「對話優先、確認後轉譯」。"
+                    ),
+                ],
+                text,
+            )
+
         if compact in {"你好", "嗨", "hi", "hello", "在嗎"}:
             if role_name == "申言者":
                 return self._pick_variant(
@@ -1472,11 +1539,11 @@ class DesktopBridge:
                 [
                     (
                         f"【{role_name}】核心原因是：先前路由把一般對談也送進工具工作流，"
-                        "所以回覆變慢又偏報表。現在已改成雙軌：聊天走輕量、明確任務才跑工具。"
+                        "所以回覆變慢又偏報表。現在要改成雙軌：先聊天確認，明確說「執行/交給工程師」才跑工具。"
                     ),
                     (
                         f"【{role_name}】你看到的鬼打牆，主因是固定模板回覆比例太高。"
-                        "我會保留任務模式，但把對談改成多變體並加上重複檢測。"
+                        "我會保留任務模式，但申言者先做基礎對話、確認你的意思，再決定要不要轉成工程語譯。"
                     ),
                 ],
                 text,
@@ -2149,6 +2216,30 @@ class DesktopBridge:
                 "fallback_used": True,
                 "provider": requested_backend,
                 "fallback_reason": "langgraph_status_guard",
+            }
+            workflow_payload["llm_live"] = dict(live_llm_meta)
+
+        if (
+            (not should_run_workflow)
+            and self._prophet_should_stay_in_dialog(message, role, interaction_mode)
+            and self._is_dialog_quality_request(message)
+            and not reply.strip()
+        ):
+            reply = self._build_conversational_reply(
+                message=message,
+                role=role,
+                purpose=purpose,
+                requested_backend=requested_backend,
+                interaction_mode=interaction_mode,
+                analysis=analysis,
+                retrieval_brief="",
+            )
+            live_llm_meta = {
+                "ok": False,
+                "attempted": False,
+                "fallback_used": True,
+                "provider": requested_backend,
+                "fallback_reason": "prophet_dialog_first_guard",
             }
             workflow_payload["llm_live"] = dict(live_llm_meta)
 
