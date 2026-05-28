@@ -48,19 +48,20 @@
   - `pywebview bridge` PASS
   - `/api/get_status` monitoring payload PASS
 
-## 上次訓練（training overlay）合併狀態
-- 目前工作分支：`codex/git-governance-20260517`
-- 上次訓練提交：`origin/codex/training-overlay-20260525`（`2f7f1e5`）
-- 判定：**尚未合併到目前主線工作分支**
+## 上次訓練（training overlay）合併狀態（2026-05-28 更新）
+- 目前工作分支：`codex/training-overlay-20260525`
+- 上次訓練提交：`2f7f1e5`
+- 判定：**已合併且在主線可用**
 
 佐證：
-- 本地缺少 `docs/dev/TRAINING_FUSION_SCORE_ANALYSIS_2026-05-25.md`
-- 本地缺少 `data/agent_penalty_events.jsonl`
+- `docs/dev/TRAINING_FUSION_SCORE_ANALYSIS_2026-05-25.md`：存在
+- `data/agent_penalty_events.jsonl`：存在
+- `git merge-base --is-ancestor 2f7f1e5 HEAD`：回傳 `0`（祖先關係成立）
 
 ## 結論
 - 前後端已成功開啟，且主入口與 n8n 均可用。
 - 智能體「重複回覆」已從模板回覆改善為內容型回覆，重問時會變換輸出。
-- 上次 training overlay 優化尚未併入目前分支；若要完整接軌，下一步建議做分支級合併與回歸測試。
+- 上次 training overlay 已併入目前分支；下一步轉為「文件治理與回歸驗證常態化」。
 
 ## Related Docs
 
@@ -68,10 +69,10 @@
 - [LLM Default Fallback Fix](./LLM_DEFAULT_FALLBACK_FIX_2026-05-25.md)
 - [Single Entry Gateway Policy](./SINGLE_ENTRY_GATEWAY_POLICY_2026-05-25.md)
 
-## Task Status Snapshot (2026-05-26)
-- Status: `in-progress-followup`
+## Task Status Snapshot (2026-05-28)
+- Status: `merged-and-followup`
 - Completed:
   - Loop-breaker and route compatibility checks passed in prior verification.
+  - Training overlay branch artifacts merged into current working branch.
 - Pending:
-  - Merge and re-verify training overlay branch artifacts into current governance branch.
-
+  - Continue document governance consolidation in `docs/dev/MD_BUNDLE_INDEX_2026-05-27.md`.
