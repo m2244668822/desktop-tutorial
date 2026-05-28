@@ -43,6 +43,8 @@ class DesktopWebCompatRoutesTests(unittest.TestCase):
         for token in [
             'task_summary_payload(server_instance.workspace_path)',
             'task_items_payload(',
+            'status=""',
+            'limit=30',
             'server_instance.bridge.send_message(',
             'server_instance.bridge.get_api_onboarding_info()',
             'provider_catalog',

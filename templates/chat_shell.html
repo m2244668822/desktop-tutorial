@@ -1387,7 +1387,11 @@ async function fetchFrontendSnapshot(force = false) {
     renderProviderStatusFromPayload(providers);
 
     const tasks = snap.tasks || {};
-    renderTasksPanel(tasks.summary || {}, tasks.items || []);
+    if (_tasksFilter) {
+      fetchTasksSummary(true);
+    } else {
+      renderTasksPanel(tasks.summary || {}, tasks.items || []);
+    }
 
     const history = Array.isArray(snap.history) ? snap.history : [];
     renderHistory(history);

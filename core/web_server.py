@@ -266,8 +266,8 @@ class WebServerMode:
                                 "summary": task_summary_payload(server_instance.workspace_path),
                                 "items": task_items_payload(
                                     server_instance.workspace_path,
-                                    status="unresolved",
-                                    limit=10,
+                                    status="",
+                                    limit=30,
                                     compact=True,
                                 ).get("items", []),
                             },

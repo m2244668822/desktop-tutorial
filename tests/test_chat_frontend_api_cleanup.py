@@ -39,6 +39,11 @@ class ChatFrontendApiCleanupTests(unittest.TestCase):
         ]:
             self.assertIn(token, self.html)
 
+    def test_snapshot_does_not_overwrite_filtered_task_view(self):
+        self.assertIn('if (_tasksFilter) {', self.html)
+        self.assertIn('fetchTasksSummary(true);', self.html)
+        self.assertIn('renderTasksPanel(tasks.summary || {}, tasks.items || []);', self.html)
+
     def test_ui_helpers_reduce_inline_dom_noise(self):
         for token in [
             'const $ = (id) => document.getElementById(id);',
