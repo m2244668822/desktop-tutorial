@@ -153,7 +153,7 @@ def router_node(state: WorkflowState) -> WorkflowState:
         risk_level = "L2"
         precheck_owner = "申言者"
     elif any(token in text for token in ["提案", "協作流程", "治理"]):
-        route = "總管"
+        route = "申言者"
     elif any(token in text for token in ["研究", "比較", "開源", "調查"]):
         route = "研究員"
     elif any(token in text for token in engineering_tokens):
@@ -161,7 +161,7 @@ def router_node(state: WorkflowState) -> WorkflowState:
         risk_level = "L1"
         precheck_owner = "申言者"
     else:
-        route = "總管"
+        route = "申言者"
         
     # 溝通巡查：偵測是否需要跨領域協作
     if len(text) > 100 or any(t in text for t in ["整合", "架構", "全面"]):
@@ -307,7 +307,7 @@ def _format_manager_result(tool_outputs: dict[str, Any]) -> str:
         hub.get("faiss_ready") or long_term_status.get("faiss_ready")
     )
     lines = [
-        "總管工具結果：",
+        "申言者中樞工具結果（原總管相容輸出）：",
         f"- 工作區: {ws.get('workspace', '')}",
         f"- VS Code 工作區: {'是' if ws.get('vscode_workspace_exists') else '否'}",
         f"- NVIDIA/OPENAI 模型: {api.get('model', '未設定')}",
@@ -374,7 +374,7 @@ def _format_prophet_result(tool_outputs: dict[str, Any]) -> str:
 
 def executor_node(state: WorkflowState) -> WorkflowState:
     workspace = Path(state.get("workspace", str(BASE_DIR))).expanduser().resolve()
-    route = state.get("route", "總管")
+    route = state.get("route", "申言者")
     risk_level = state.get("risk_level", "L0")
     precheck_owner = state.get("precheck_owner", "無")
     user_input = state.get("user_input", "")
@@ -488,7 +488,7 @@ def verifier_node(state: WorkflowState) -> WorkflowState:
 def memory_writer_node(state: WorkflowState) -> WorkflowState:
     record = {
         "timestamp": datetime.now().isoformat(),
-        "route": state.get("route", "總管"),
+        "route": state.get("route", "申言者"),
         "plan": state.get("plan", ""),
         "verified": state.get("verified", False),
         "tool_keys": sorted(list((state.get("tool_outputs") or {}).keys())),

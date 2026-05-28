@@ -25,6 +25,19 @@ from pathlib import Path
 from typing import Any, Mapping
 from copy import deepcopy
 
+
+def _configure_utf8_stdio() -> None:
+    """Keep Windows terminals from crashing on UTF-8 status text."""
+    for stream in (getattr(sys, "stdout", None), getattr(sys, "stderr", None)):
+        try:
+            if hasattr(stream, "reconfigure"):
+                stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
+_configure_utf8_stdio()
+
 try:
     import psutil
 except Exception:
@@ -225,7 +238,7 @@ class DesktopBridge:
         self.window = None
         self.chat_window = None
         self._webview_windows: list = []
-        self.default_role = "總管"
+        self.default_role = "申言者"
 
         # 狀態變數
         self.last_message = ""
@@ -350,12 +363,12 @@ class DesktopBridge:
         self.quick_replies = self._init_quick_replies()
         self.custom_replies: list[dict] = []
         self.agent_language_enabled = {
-            "總管": True,
+            "申言者": True,
+            "通用": True,
             "研究員": True,
             "工程師": True,
             "中繼器": True,
             "小編": True,
-            "申言者": True,
             "帽子": HAT_AGENT_AVAILABLE,
         }
 
@@ -802,7 +815,7 @@ class DesktopBridge:
             "langgraph 尚未可用",
             "langgraph未可用",
             "langgraph not available",
-            "回退到總管單一路由",
+            "回退到申言者中樞單一路由",
         )
         if not any(marker in text or marker in lower for marker in unavailable_markers):
             return False
@@ -962,7 +975,7 @@ class DesktopBridge:
             "timestamp": now,
             "turn_id": turn_id,
             "session_id": sid,
-            "role": str(role or "總管"),
+            "role": str(role or "申言者"),
             "topic": topic,
             "keywords": keywords,
             "workflow_ran": bool(workflow_ran),
@@ -1078,7 +1091,7 @@ class DesktopBridge:
             "timestamp": datetime.now().isoformat(),
             "session_id": str(session_id or "default"),
             "turn_id": f"{session_id or 'default'}#turn:{self.reply_counter}",
-            "role": str(role or "總管"),
+            "role": str(role or "申言者"),
             "input": str(user_message or ""),
             "output": str(assistant_message or ""),
             "topic": self._focus_topic(user_message, analysis if isinstance(analysis, dict) else {}),
@@ -1186,21 +1199,41 @@ class DesktopBridge:
             "primary_topic": tokens[0] if tokens else "一般對話",
             "keywords": tokens[:8],
             "domain_tags": ["general"],
-            "role_hints": ["總管"],
+            "role_hints": ["申言者"],
         }
 
     def _role_to_agent_key(self, role: str) -> str:
         role_map = {
-            "總管": "dispatcher",
+            "總管": "proclaimer",
+            "申言者": "proclaimer",
             "通用": "general",
             "研究員": "researcher",
             "工程師": "engineer",
             "小編": "xiaobian",
-            "申言者": "prophet",
-            "帽子": "hat",
+            "帽子": "whitehat",
             "中繼器": "relay",
         }
-        return role_map.get(str(role or "").strip(), "dispatcher")
+        return role_map.get(str(role or "").strip(), "proclaimer")
+
+    def _normalize_role_name(self, role: str | None) -> str:
+        role_name = str(role or self.default_role or "申言者").strip()
+        aliases = {
+            "總管": "申言者",
+            "dispatcher": "申言者",
+            "manager": "申言者",
+            "orchestrator": "申言者",
+            "proclaimer": "申言者",
+            "prophet": "申言者",
+            "general": "通用",
+            "researcher": "研究員",
+            "engineer": "工程師",
+            "relay": "中繼器",
+            "xiaobian": "小編",
+            "editor": "小編",
+            "whitehat": "帽子",
+            "hat": "帽子",
+        }
+        return aliases.get(role_name, role_name or "申言者")
 
     def _normalize_interaction_mode(self, mode: str | None) -> str:
         normalized = str(mode or "auto").strip().lower()
@@ -1225,7 +1258,7 @@ class DesktopBridge:
         self.last_user_fingerprint = fingerprint
 
     def _remember_role_reply(self, role: str, reply: str) -> None:
-        role_name = str(role or "總管")
+        role_name = str(role or "申言者")
         cleaned = str(reply or "").strip()
         if not cleaned:
             return
@@ -1235,7 +1268,7 @@ class DesktopBridge:
             del history[:-self.max_role_reply_history]
 
     def _is_reply_repetitive(self, role: str, candidate_reply: str) -> tuple[bool, float]:
-        role_name = str(role or "總管")
+        role_name = str(role or "申言者")
         candidate_fp = self._text_fingerprint(candidate_reply)
         if not candidate_fp:
             return False, 0.0
@@ -1254,7 +1287,7 @@ class DesktopBridge:
     def _build_loop_breaker_reply(
         self, message: str, role: str, analysis: dict, similarity: float = 0.0
     ) -> str:
-        role_name = role or "總管"
+        role_name = role or "申言者"
         focus = self._focus_topic(message, analysis)
         if (
             not self._has_system_objective_request(message)
@@ -1284,7 +1317,7 @@ class DesktopBridge:
     def _apply_reply_diversity(
         self, message: str, role: str, analysis: dict, reply: str, workflow_ran: bool
     ) -> str:
-        role_name = role or "總管"
+        role_name = role or "申言者"
         candidate = str(reply or "").strip()
         if not candidate:
             return candidate
@@ -1345,7 +1378,7 @@ class DesktopBridge:
         return any(token in text for token in status_tokens)
 
     def _build_langgraph_status_guard_reply(self, role: str) -> str:
-        role_name = str(role or "總管")
+        role_name = self._normalize_role_name(role)
         available = self._langgraph_available_now(ttl_sec=5.0)
         now_text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         if available:
@@ -1413,15 +1446,15 @@ class DesktopBridge:
     ) -> str:
         text = str(message or "").strip()
         compact = re.sub(r"\s+", "", text.lower())
-        role_name = role or "總管"
+        role_name = role or "申言者"
 
         if compact in {"你好", "嗨", "hi", "hello", "在嗎"}:
-            if role_name == "總管":
+            if role_name == "申言者":
                 return self._pick_variant(
                     [
-                        "【總管】我在。現在用輕量對談模式：一般聊天不跑巡檢；你要我檢查或修復時，我再啟動工作流。",
-                        "【總管】在線。先維持對談模式，避免工具清單洗版；你一句「執行」我就切工作流。",
-                        "【總管】收到，這輪先不跑重型巡檢。你要我動手時，直接說「檢查」或「修復」。",
+                        "【申言者】我在。現在用輕量對談模式：一般聊天不跑巡檢；你要我檢查或修復時，我再啟動工作流。",
+                        "【申言者】在線。先維持對談模式，避免工具清單洗版；你一句「執行」我就切工作流。",
+                        "【申言者】收到，這輪先不跑重型巡檢。你要我動手時，直接說「檢查」或「修復」。",
                     ],
                     text,
                 )
@@ -1462,16 +1495,16 @@ class DesktopBridge:
             )
 
         topic = analysis.get("primary_topic") if isinstance(analysis, dict) else ""
-        if role_name == "總管":
+        if role_name == "申言者":
             return self._pick_variant(
                 [
                     (
-                        "【總管】我先用對談模式接住，不啟動工具巡檢。"
+                        "【申言者】我先用對談模式接住，不啟動工具巡檢。"
                         f"我抓到重點是「{topic or text[:24] or '目前對話'}」。"
                         "你要我動手時，直接加「執行 / 修復 / 檢查 / debug」。"
                     ),
                     (
-                        f"【總管】先不進工具流，避免洗版。這句的焦點我判定為「{topic or text[:24] or '目前對話'}」。"
+                        f"【申言者】先不進工具流，避免洗版。這句的焦點我判定為「{topic or text[:24] or '目前對話'}」。"
                         "若你要落地處理，我下一則就切工作流執行。"
                     ),
                 ],
@@ -1564,7 +1597,7 @@ class DesktopBridge:
         loop_breaking: bool = False,
         retrieval_brief: str = "",
     ) -> str:
-        role_name = role or "總管"
+        role_name = role or "申言者"
         text = str(message or "").strip()
         focus = self._focus_topic(text, analysis or {})
         count = self._extract_requested_count(text, default=3, max_count=5)
@@ -1864,7 +1897,7 @@ class DesktopBridge:
         user_message: str,
         retrieval_brief: str = "",
     ) -> list[dict[str, str]]:
-        role_name = str(role or "總管").strip() or "總管"
+        role_name = str(role or "申言者").strip() or "申言者"
         system_prompt = self._get_dynamic_system_prompt(role_name)
         behavior_guard = (
             "請使用繁體中文，優先直接回答問題本身，不要只回模板話術。"
@@ -2044,8 +2077,9 @@ class DesktopBridge:
             "請確認目標與限制後，我再繼續執行。"
         )
 
-    def send_message(self, message: str, role: str = "總管", session_id: str = "", model_key: str = "auto", interaction_mode: str = "auto") -> dict:
+    def send_message(self, message: str, role: str = "申言者", session_id: str = "", model_key: str = "auto", interaction_mode: str = "auto") -> dict:
         start_ts = time.time()
+        role = self._normalize_role_name(role)
         self.last_message = message
         self.last_message_ts = start_ts
         self.reply_counter += 1
@@ -2134,7 +2168,7 @@ class DesktopBridge:
             }
             workflow_payload["llm_live"] = dict(live_llm_meta)
 
-        # 明確任務才啟動 LangGraph；一般總管聊天保持輕量對談。
+        # 明確任務才啟動 LangGraph；一般申言者中樞聊天保持輕量對談。
         if should_run_workflow and not reply.strip():
             try:
                 from core.langgraph_workflow import run_workflow
@@ -2412,7 +2446,7 @@ class DesktopBridge:
         return {"ok": False, "message": "此模式暫不支援重跑步驟"}
 
     def _load_offline_replies(self) -> dict:
-        return {"總管": ["離線模式已就緒"]}
+        return {"申言者": ["離線模式已就緒"]}
 
     def _init_quick_replies(self) -> list:
         return [{"id": "status", "text": "檢查系統狀態"}]

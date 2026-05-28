@@ -10,9 +10,10 @@ from pathlib import Path
 
 
 AGENT_SYSTEM_PROMPTS = {
-    "總管": """你是「總管」—— 具備巡查與調度能力的深度思考助手。
-你的特質：理解用戶需求、監控系統健康、主動調度多智能體協作。
-重要規則：參考巡查快照，若系統不穩定須優先告知；每次回覆要展現思考過程與多方觀點。""",
+    "總管": """你是「總管」的相容別名；實際中樞治理能力已併入「申言者」。
+重要規則：若被舊路由呼叫，必須以申言者的風險分級、邊界判讀、調度治理方式回覆，不可退回舊式泛用模板。""",
+    "通用": """你是「通用」—— 一般問答與自由對話助手。
+任務：處理不需要中樞治理、工程修復、研究蒐證或安全覆核的一般問題。若對話涉及風險、架構、權限或跨智能體協作，必須提醒可交由申言者治理。""",
     "研究員": """你是「研究員」—— 具備巡查意識的開源技術分析師。
 任務：提供客觀比較、檢視系統資料庫完整性。回覆時若發現資料缺失或 API 異常，須主動警示。""",
     "工程師": """你是「工程師」—— 永續掌控前後端的主責修繕智能體。
@@ -37,6 +38,7 @@ AGENT_SYSTEM_PROMPTS = {
 3) 取得帽子回傳許可後，必須再打回對應主責（通常工程師）執行，不可中斷流程。
 4) 針對人機互動衝突、價值衝突、越權指令，提供可執行的替代方案與邊界說明。
 5) 重大事件要留下可追蹤記錄（風險等級、判定原因、交接對象、解封條件）。
+6) 已吸收原「總管」能力：理解用戶需求、監控系統健康、主動調度多智能體協作，並作為新的中樞治理入口。
 附加能力（不可覆蓋原職責）：
 - 可把使用者的想法翻譯成工程師可執行的工程語譯。
 - 工程語譯只作為橋接輸出；不得取代風險分級、帽子安全交接與價值衝突判讀。""",
@@ -50,7 +52,7 @@ AGENT_SYSTEM_PROMPTS = {
 }
 
 AGENT_WINDOW_ROLES = ("研究員", "工程師", "中繼器", "小編", "申言者", "帽子")
-ONLY_AGENT_ROLES = ("總管", "研究員", "工程師", "中繼器", "小編", "申言者", "帽子")
+ONLY_AGENT_ROLES = ("申言者", "通用", "研究員", "工程師", "中繼器", "小編", "帽子")
 
 AGENT_PROFILE_DIRNAME = "agent_profiles"
 AGENT_PROFILE_FILES = {
@@ -100,7 +102,7 @@ def load_global_agent_prompt(workspace: Path) -> str:
 
 def get_agent_system_prompt(role: str, workspace: Path | None = None) -> str:
     """獲取指定角色的系統提示詞，並整合 Profile 與全局指令"""
-    base_prompt = AGENT_SYSTEM_PROMPTS.get(role, AGENT_SYSTEM_PROMPTS["總管"])
+    base_prompt = AGENT_SYSTEM_PROMPTS.get(role, AGENT_SYSTEM_PROMPTS["申言者"])
     
     if workspace:
         global_prompt = load_global_agent_prompt(workspace)

@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8">
@@ -302,7 +302,6 @@
 
     <div class="sb-sec">
       <div class="sb-lbl">智能體</div>
-      <div class="nav-item" id="nav-dispatcher" onclick="selectAgent('dispatcher','👑','總管')"><span>👑</span> 總管<span class="nav-dot"></span><span class="nav-cnt" id="cnt-dispatcher"></span></div>
       <div class="nav-item" id="nav-researcher" onclick="selectAgent('researcher','🔬','研究學習中樞')"><span>🔬</span> 研究學習中樞<span class="nav-dot"></span><span class="nav-cnt" id="cnt-researcher"></span></div>
       <div class="nav-item" id="nav-engineer" onclick="selectAgent('engineer','⚙️','工程師')"><span>⚙️</span> 工程師<span class="nav-dot"></span><span class="nav-cnt" id="cnt-engineer"></span></div>
       <div class="nav-item" id="nav-xiaobian" onclick="selectAgent('xiaobian','✍️','小編')"><span>✍️</span> 小編<span class="nav-dot"></span><span class="nav-cnt" id="cnt-xiaobian"></span></div>
@@ -418,7 +417,7 @@
     <div class="chat-view" id="chatView">
       <div class="chat-topbar">
         <button class="back-btn" onclick="showHub()">← 返回</button>
-        <span class="role-tag" id="roleTag">總管</span>
+        <span class="role-tag" id="roleTag">申言者</span>
         <span class="model-indicator" id="modelIndicator"></span>
         <span class="backend-sync" id="backendSync">後台同步：待機</span>
       </div>
@@ -547,8 +546,8 @@ function newId() {
 renderApiBaseBadge();
 
 let state = {
-  agentKey: "dispatcher",
-  agentLabel: "總管",
+  agentKey: "proclaimer",
+  agentLabel: "申言者",
   agentIcon: "👑",
   model: "ollama_qwen25_7b",
   modelLabel: "Qwen2.5 7B",
@@ -608,10 +607,10 @@ function toggleLowRestrict() {
 
 const AGENT_META = {
   dispatcher: {
-    label: "總管中樞", icon: "👑",
-    desc: "主線路由中樞，負責協調各智能體、分派任務，所有複雜指令的起點。",
-    caps: ["📍 智能路由", "🔗 多智能體協調", "📊 任務拆解", "⚡ 優先排序"],
-    prompts: ["幫我把這個任務分派給合適的智能體", "分析我的需求並推薦最佳處理方式", "目前系統整體狀態如何？"]
+    label: "申言者中樞", icon: "✝️",
+    desc: "舊總管相容入口已併入申言者；負責治理、分派、風險分級與多智能體協調。",
+    caps: ["⚖️ 風險分級", "🔗 多智能體協調", "📊 任務拆解", "⚡ 優先排序"],
+    prompts: ["申言者先判斷風險再分派任務", "分析我的需求並推薦最佳處理方式", "目前系統整體狀態如何？"]
   },
   researcher: {
     label: "研究學習中樞", icon: "🔬",
@@ -661,11 +660,12 @@ function normalizeAgentKey(key) {
   const normalized = String(key || "").trim().toLowerCase();
   const aliasMap = {
     learner: "researcher",
-    manager: "dispatcher",
-    proclaimer: "prophet",
-    申言者: "prophet",
-    whitehat: "hat",
-    帽子: "hat",
+    dispatcher: "proclaimer",
+    manager: "proclaimer",
+    prophet: "proclaimer",
+    申言者: "proclaimer",
+    hat: "whitehat",
+    帽子: "whitehat",
   };
   return aliasMap[normalized] || normalized;
 }
@@ -1139,7 +1139,7 @@ async function sendMessage(options = {}) {
   if (!document.getElementById("chatView").classList.contains("vis")) showChat();
 
   const iMode = document.getElementById("interactionSelect").value || state.interactionMode;
-  // 程式任務預設交給工程師，避免被總管中樞覆蓋成泛用對話。
+  // 程式任務預設交給工程師，避免被申言者中樞覆蓋成泛用對話。
   if (iMode === "coding" && state.agentKey !== "engineer") {
     state.agentKey = "engineer";
     state.agentLabel = AGENT_META.engineer?.label || "工程師";

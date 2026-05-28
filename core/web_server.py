@@ -90,14 +90,16 @@ class WebServerMode:
         self._provider_ttl_sec = 2.0
 
         self._agent_key_map = {
-            "general": "總管",
-            "dispatcher": "總管",
-            "manager": "總管",
+            "general": "通用",
+            "dispatcher": "申言者",
+            "manager": "申言者",
             "researcher": "研究員",
             "engineer": "工程師",
             "relay": "中繼器",
             "xiaobian": "小編",
+            "proclaimer": "申言者",
             "prophet": "申言者",
+            "whitehat": "帽子",
             "hat": "帽子",
         }
 
@@ -341,7 +343,7 @@ class WebServerMode:
                             for conv_id, conv in conversations.items():
                                 agent_name = str(conv.get("agent_name", "通用") or "通用")
                                 agent_key_map = {
-                                    "總管": "dispatcher",
+                                    "總管": "proclaimer",
                                     "研究員": "researcher",
                                     "工程師": "engineer",
                                     "小編": "xiaobian",
@@ -409,18 +411,20 @@ class WebServerMode:
                     payload = {}
 
                 if route_path in {"/api/send_message", "/api/send_message/", "/chat/agent", "/chat/agent/"}:
-                    role_value = payload.get("role", "總管")
+                    role_value = payload.get("role", "申言者")
                     # 若 chat shell 傳 agent key，先轉成 bridge 需要的 role。
                     if route_path in {"/chat/agent", "/chat/agent/"}:
                         agent_to_role = {
-                            "dispatcher": "總管",
-                            "manager": "總管",
-                            "general": "總管",
+                            "dispatcher": "申言者",
+                            "manager": "申言者",
+                            "general": "通用",
                             "researcher": "研究員",
                             "engineer": "工程師",
                             "xiaobian": "小編",
                             "proclaimer": "申言者",
+                            "prophet": "申言者",
                             "whitehat": "帽子",
+                            "hat": "帽子",
                             "relay": "中繼器",
                         }
                         role_value = agent_to_role.get(
