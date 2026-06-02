@@ -1,6 +1,6 @@
 # Perob 系統框架、關係圖與進度主控報告
 
-產生時間：2026-06-03T02:35:34
+產生時間：2026-06-03T02:56:22
 
 ## 1. 系統摘要與已驗證真相
 
@@ -8,7 +8,7 @@
 |---|---|---|
 | 正式工作區 | `/Volumes/智能體/城城城程式` | 外接硬碟為唯一正式執行工作區 |
 | Git 分支 | `codex/perob-openclaw-integration-20260602` | 整合分支 |
-| 本地 HEAD | `2523753` | 可追查 |
+| 本地 HEAD | `b584070` | 可追查 |
 | 遠端基線 HEAD | `ed7b646` | 已保留遠端真相來源 |
 | Web `5001` | `up` | 前端與 API 單一入口 |
 | TLS `5443` | `up` | HTTPS 大門 |
@@ -18,6 +18,7 @@
 | readiness | `ready` | 必要條件：`True` |
 | FAISS | `True` | 背景重建，不堵塞 Web request |
 | SQLite | `True` | 記憶層可用 |
+| AEG runtime 報告 | `data/knowledge_hub/reports/AEG_SHARED_REPORT_LATEST.md` | 定時更新，不污染 Git 工作樹 |
 
 生活化理解：瀏覽器是大門，`5443` 是門禁與 TLS，`5001` 是同時負責櫃台與廚房的 Perob 主服務，`18789` 是新增的 OpenClaw 調度室。調度室故障時，廚房仍可走原生 DesktopBridge 回退路徑，不會整間餐廳停擺。
 
@@ -26,9 +27,7 @@
 ### Git 工作樹
 
 ```text
-M docs/dev/SYSTEM_FRAMEWORK_RELATIONSHIP_AND_PROGRESS_MASTER_2026-06-02.md
- M reports/AEG_SHARED_REPORT.md
- M tools/generate_system_framework_master_report.py
+clean
 ```
 
 ### Desktop 舊副本
@@ -468,6 +467,7 @@ flowchart LR
 | Workflow rerun | HTTP 路由已補齊 | 前端帶有效 task id 重跑通過 |
 | 診斷工具 | 已移除 legacy 誤報 | 持續監控趨勢與 swap |
 | hosts | 仍需人工授權正規化 | 只保留本機 `127.0.0.1 perob.com` |
+| AEG 報告分流 | runtime 與正式快照已分離 | 只有人工執行 `python3 tools/write_aeg_shared_report.py --canonical` 才更新 Git 追蹤版 |
 
 ## 7. 風險排名與下一階段 backlog
 
