@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from datetime import datetime
@@ -18,7 +19,9 @@ from core.data_paths import resolve_data_root
 DATA_ROOT = resolve_data_root(BASE)
 AEG_JSON = DATA_ROOT / "knowledge_hub" / "aeg_keyword_graph.json"
 REPORTS_DIR = BASE / "reports"
-OUT = REPORTS_DIR / "AEG_SHARED_REPORT.md"
+RUNTIME_REPORTS_DIR = DATA_ROOT / "knowledge_hub" / "reports"
+RUNTIME_OUT = RUNTIME_REPORTS_DIR / "AEG_SHARED_REPORT_LATEST.md"
+CANONICAL_OUT = REPORTS_DIR / "AEG_SHARED_REPORT.md"
 
 
 def _is_private_use(ch: str) -> bool:
@@ -137,19 +140,33 @@ def build_report(payload: dict[str, Any]) -> str:
     return "\n".join(parts)
 
 
-def main() -> int:
-    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Write an AEG retrieval report. Runtime output is the safe default."
+    )
+    parser.add_argument(
+        "--canonical",
+        action="store_true",
+        help="Export a curated Git-trackable snapshot to reports/AEG_SHARED_REPORT.md.",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    out = CANONICAL_OUT if args.canonical else RUNTIME_OUT
+    out.parent.mkdir(parents=True, exist_ok=True)
     if not AEG_JSON.exists():
-        OUT.write_text(
+        out.write_text(
             "# AEG Shared Retrieval Report\n\n- `aeg_keyword_graph.json` is missing. Run AEG graph build first.\n",
             encoding="utf-8",
         )
-        print(f"[aeg-report] no aeg json, wrote placeholder -> {OUT}")
+        print(f"[aeg-report] no aeg json, wrote placeholder -> {out}")
         return 0
 
     payload = json.loads(AEG_JSON.read_text(encoding="utf-8"))
-    OUT.write_text(build_report(payload), encoding="utf-8")
-    print(f"[aeg-report] updated -> {OUT}")
+    out.write_text(build_report(payload), encoding="utf-8")
+    print(f"[aeg-report] updated -> {out}")
     return 0
 
 

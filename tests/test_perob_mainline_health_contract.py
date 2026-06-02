@@ -8,6 +8,7 @@ DESKTOP_APP = (ROOT / "desktop_chat_app.py").read_text(encoding="utf-8-sig")
 CHATGPT_SERVER = (ROOT / "chatgpt_server.py").read_text(encoding="utf-8-sig")
 STACK_MANAGER = (ROOT / "tools" / "manage_perob_stack.sh").read_text(encoding="utf-8")
 HTTPS_PROXY = (ROOT / "tools" / "https_local_proxy.py").read_text(encoding="utf-8")
+AEG_WRITER = (ROOT / "tools" / "write_aeg_shared_report.py").read_text(encoding="utf-8")
 
 
 class PerobMainlineHealthContractTests(unittest.TestCase):
@@ -41,6 +42,12 @@ class PerobMainlineHealthContractTests(unittest.TestCase):
 
     def test_repository_has_full_verification_entrypoint(self):
         self.assertTrue((ROOT / "tools" / "run_full_verification.sh").exists())
+
+    def test_runtime_aeg_report_does_not_dirty_git_snapshot(self):
+        self.assertIn('RUNTIME_OUT = RUNTIME_REPORTS_DIR / "AEG_SHARED_REPORT_LATEST.md"', AEG_WRITER)
+        self.assertIn('CANONICAL_OUT = REPORTS_DIR / "AEG_SHARED_REPORT.md"', AEG_WRITER)
+        self.assertIn('"--canonical"', AEG_WRITER)
+        self.assertIn("out = CANONICAL_OUT if args.canonical else RUNTIME_OUT", AEG_WRITER)
 
 
 if __name__ == "__main__":

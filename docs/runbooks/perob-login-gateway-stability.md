@@ -130,3 +130,21 @@ curl -k -sS --resolve perob.com:5443:127.0.0.1 https://perob.com:5443/status
 - 登入開啟前後端與伺服器所需時間：壓到 1~2 分鐘
 - 故障定位：從「猜問題」改成「三層分流」
 - 後續交接：以此文件為單一入口標準，不再散落多版本口訣
+
+## 10) AEG 共用檢索層（runtime 與 Git 快照分流）
+
+AEG 會定期更新關鍵字關聯圖，供智能體協作檢索。為避免每次啟動服務都讓 Git 工作樹變髒，報告分為兩層：
+
+| 用途 | 路徑 | 更新方式 |
+|---|---|---|
+| 值班白板：最新 runtime 狀態 | `data/knowledge_hub/reports/AEG_SHARED_REPORT_LATEST.md` | 服務與排程器自動更新，不提交 Git |
+| 正式存檔：人工確認後的快照 | `reports/AEG_SHARED_REPORT.md` | 只有明確要求時才輸出並提交 |
+
+需要把最新狀態正式存檔時，執行：
+
+```bash
+cd /Volumes/智能體/城城城程式
+python3 tools/write_aeg_shared_report.py --canonical
+```
+
+生活化理解：runtime 報告是值班人員會持續更新的白板；Git 快照是確認內容後才歸檔的正式會議紀錄。兩者都重要，但不能讓白板每五分鐘改寫正式文件。

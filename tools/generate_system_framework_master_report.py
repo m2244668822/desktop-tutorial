@@ -115,6 +115,14 @@ def bullet_rows(rows: list[str], empty: str = "無") -> str:
     return "\n".join(f"- `{row}`" for row in rows) if rows else f"- {empty}"
 
 
+def worktree_status() -> str:
+    """Hide the generator's own output while preserving real workspace drift."""
+    report_rel = REPORT.relative_to(ROOT).as_posix()
+    rows = run("git", "-c", "core.quotepath=false", "status", "--short").splitlines()
+    visible_rows = [row for row in rows if row[3:].strip() != report_rel]
+    return "\n".join(visible_rows) or "clean"
+
+
 def main() -> None:
     tracked_md = sorted(
         filter(
@@ -137,7 +145,7 @@ def main() -> None:
     branch = run("git", "branch", "--show-current") or "unknown"
     remote_head = run("git", "rev-parse", "--short", "origin/codex/training-overlay-20260525") or "unknown"
     local_head = run("git", "rev-parse", "--short", "HEAD") or "unknown"
-    worktree = run("git", "status", "--short") or "clean"
+    worktree = worktree_status()
     live = get_json("http://127.0.0.1:5001/health/live")
     ready = get_json("http://127.0.0.1:5001/health/ready")
     topology = get_json("http://127.0.0.1:5001/api/runtime/topology")
@@ -171,6 +179,7 @@ def main() -> None:
 | readiness | `{ready.get("status", "unavailable")}` | 必要條件：`{ready.get("required_ready", False)}` |
 | FAISS | `{knowledge_hub.get("faiss_ready", False)}` | 背景重建，不堵塞 Web request |
 | SQLite | `{knowledge_hub.get("sqlite_ready", False)}` | 記憶層可用 |
+| AEG runtime 報告 | `data/knowledge_hub/reports/AEG_SHARED_REPORT_LATEST.md` | 定時更新，不污染 Git 工作樹 |
 
 生活化理解：瀏覽器是大門，`5443` 是門禁與 TLS，`5001` 是同時負責櫃台與廚房的 Perob 主服務，`18789` 是新增的 OpenClaw 調度室。調度室故障時，廚房仍可走原生 DesktopBridge 回退路徑，不會整間餐廳停擺。
 
@@ -256,6 +265,7 @@ flowchart LR
 | Workflow rerun | HTTP 路由已補齊 | 前端帶有效 task id 重跑通過 |
 | 診斷工具 | 已移除 legacy 誤報 | 持續監控趨勢與 swap |
 | hosts | 仍需人工授權正規化 | 只保留本機 `127.0.0.1 perob.com` |
+| AEG 報告分流 | runtime 與正式快照已分離 | 只有人工執行 `python3 tools/write_aeg_shared_report.py --canonical` 才更新 Git 追蹤版 |
 
 ## 7. 風險排名與下一階段 backlog
 
