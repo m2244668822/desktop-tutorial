@@ -25,6 +25,14 @@ RESCUED_FILES = [
 ]
 SKIP_PARTS = {
     ".git",
+    ".claude",
+    ".cursor",
+    ".gemini",
+    ".playwright-cli",
+    ".pytest_cache",
+    ".python-installations",
+    ".ruff_cache",
+    ".uv-cache",
     ".venv",
     ".venv312",
     ".venv-faiss",
@@ -32,6 +40,7 @@ SKIP_PARTS = {
     "__pycache__",
     "data",
     "data_hdd_storage",
+    "logs",
 }
 
 
@@ -67,8 +76,22 @@ def disk_markdown_files(*, include_runtime: bool = False) -> list[str]:
     rows = []
     for path in ROOT.rglob("*.md"):
         rel = path.relative_to(ROOT)
-        skip_parts = SKIP_PARTS if not include_runtime else SKIP_PARTS - {"data", "data_hdd_storage"}
-        if any(part in skip_parts for part in rel.parts):
+        skip_parts = (
+            SKIP_PARTS
+            if not include_runtime
+            else {".git", "node_modules", "__pycache__"}
+        )
+        if any(
+            part in skip_parts
+            or part.startswith(".venv")
+            or part.startswith(".git_corrupt_backup")
+            for part in rel.parts
+        ):
+            continue
+        if rel.parts[:2] in {
+            ("archive", "backups"),
+            ("archive", "case_collision_backups"),
+        }:
             continue
         rows.append(rel.as_posix())
     return sorted(rows)

@@ -1,6 +1,6 @@
 # Perob 系統框架、關係圖與進度主控報告
 
-產生時間：2026-06-03T02:11:40
+產生時間：2026-06-03T02:35:34
 
 ## 1. 系統摘要與已驗證真相
 
@@ -8,7 +8,7 @@
 |---|---|---|
 | 正式工作區 | `/Volumes/智能體/城城城程式` | 外接硬碟為唯一正式執行工作區 |
 | Git 分支 | `codex/perob-openclaw-integration-20260602` | 整合分支 |
-| 本地 HEAD | `3fe3dd0` | 可追查 |
+| 本地 HEAD | `2523753` | 可追查 |
 | 遠端基線 HEAD | `ed7b646` | 已保留遠端真相來源 |
 | Web `5001` | `up` | 前端與 API 單一入口 |
 | TLS `5443` | `up` | HTTPS 大門 |
@@ -26,37 +26,16 @@
 ### Git 工作樹
 
 ```text
-M .github/pull_request_template.md
- M .gitignore
- M SYSTEM_DIAGNOSTIC.py
- M core/knowledge_hub.py
- M core/openclaw_adapter.py
- M core/web_server.py
- M desktop_chat_app.py
- M docs/runbooks/perob-login-gateway-stability.md
+M docs/dev/SYSTEM_FRAMEWORK_RELATIONSHIP_AND_PROGRESS_MASTER_2026-06-02.md
  M reports/AEG_SHARED_REPORT.md
- M start_desktop_chat_app.sh
- M tests/test_perob_mainline_health_contract.py
- M tools/fix_https_cert_perob.sh
- M tools/https_local_proxy.py
- M tools/manage_perob_stack.sh
- M tools/run_full_verification.sh
- M tools/start_web_server_5001.sh
-?? .githooks/
-?? docs/dev/AGENT_GIT_AUTOPILOT.md
-?? docs/dev/BRANCH_PROTECTION_POLICY.md
-?? docs/dev/SYSTEM_FRAMEWORK_RELATIONSHIP_AND_PROGRESS_MASTER_2026-06-02.md
-?? tools/agent_git_autopilot.py
-?? tools/generate_system_framework_master_report.py
-?? tools/install_perob_launchagents.sh
-?? tools/normalize_perob_hosts.sh
+ M tools/generate_system_framework_master_report.py
 ```
 
 ### Desktop 舊副本
 
 | 項目 | 狀態 |
 |---|---|
-| `/Users/user/Desktop/城城城程式` | `仍存在，等待推送與 checksum 驗證後刪除` |
+| `/Users/user/Desktop/城城城程式` | `已清理` |
 | 已救援檔案 | `5/5` |
 
 - `.githooks/commit-msg`
@@ -96,11 +75,11 @@ flowchart LR
 
 | 統計 | 數量 |
 |---|---:|
-| Git 追蹤 MD | 174 |
-| 可治理磁碟 MD | 352 |
+| Git 追蹤 MD | 177 |
+| 可治理磁碟 MD | 292 |
 | Git 已追蹤但磁碟缺失 | 0 |
-| 已追蹤但刻意排除的 runtime MD | 0 |
-| 磁碟存在但未追蹤 | 178 |
+| 已追蹤但刻意排除的 runtime MD | 6 |
+| 磁碟存在但未追蹤 | 121 |
 
 ### 500/llama32-chat/docs：legacy 對照
 
@@ -266,48 +245,9 @@ flowchart LR
 
 ### 其他：待逐步整理
 
-共 `130` 筆。
+共 `70` 筆。
 
-- `.gemini/skills/brain-spirit-guide/SKILL.md`
-- `.gemini/skills/brain-spirit-guide/references/domain_map.md`
-- `.gemini/skills/brain-spirit-guide/references/example_reference.md`
-- `.gemini/skills/memory-retriever/SKILL.md`
-- `.gemini/skills/traffic-optimizer/SKILL.md`
-- `.gemini/skills/workspace-butler/SKILL.md`
 - `.github/pull_request_template.md`
-- `.pytest_cache/README.md`
-- `.python-installations/cpython-3.12.13-macos-x86_64-none/lib/python3.12/site-packages/pip-26.0.1.dist-info/licenses/src/pip/_vendor/idna/LICENSE.md`
-- `.python-installations/cpython-3.12.13-macos-x86_64-none/lib/python3.12/site-packages/pip/_vendor/idna/LICENSE.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/autogen_ext/experimental/task_centric_memory/README.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/chromadb/telemetry/README.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/chromadb/test/distributed/README.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/chromadb/utils/embedding_functions/schemas/README.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/flask/sansio/README.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/httpcore-1.0.9.dist-info/licenses/LICENSE.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/httpx-0.28.1.dist-info/licenses/LICENSE.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/huggingface_hub/templates/datasetcard_template.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/huggingface_hub/templates/modelcard_template.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/idna-3.11.dist-info/licenses/LICENSE.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/langsmith/cli/README.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/langsmith/sandbox/README.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/numpy/random/LICENSE.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/onnxruntime/Privacy.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/onnxruntime/tools/mobile_helpers/coreml_supported_mlprogram_ops.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/onnxruntime/tools/mobile_helpers/coreml_supported_neuralnetwork_ops.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/onnxruntime/tools/mobile_helpers/nnapi_supported_ops.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/opentelemetry/sdk/metrics/_internal/exponential_histogram/mapping/ieee_754.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/pip-26.0.1.dist-info/licenses/src/pip/_vendor/idna/LICENSE.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/pip/_vendor/idna/LICENSE.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/pyparsing/ai/best_practices.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/schemas/embedding_functions/README.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/scipy/fft/_pocketfft/LICENSE.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/sentence_transformers/model_card_template.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/sklearn/externals/array_api_compat/README.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/sklearn/externals/array_api_extra/README.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/torchgen/packaged/autograd/README.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/uuid_utils-0.14.1.dist-info/licenses/LICENSE.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/uvicorn-0.42.0.dist-info/licenses/LICENSE.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/werkzeug/debug/shared/ICON_LICENSE.md`
 - `500/llama32-chat/README.md`
 - `GEMINI.md`
 - `README.md`
@@ -348,6 +288,35 @@ flowchart LR
 - `docs/效能維護手冊.md`
 - `docs/智能體功能對應圖.md`
 - `docs/智能體升級完成報告_英文版.md`
+- `docs/智能體實務指南.md`
+- `docs/智能體快速啟動.md`
+- `docs/智能體快速啟動_英文版.md`
+- `docs/智能體系統升級_v1_英文版.md`
+- `docs/智能體能力強化路線圖.md`
+- `docs/本地記憶API使用指南.md`
+- `docs/桌面聊天使用說明.md`
+- `docs/檔案清單總覽.md`
+- `docs/檔案系統學習說明.md`
+- `docs/終端機快速操作_智能體控制台失靈救援.md`
+- `docs/網狀語言比對_進度回報_2026-04-11.md`
+- `docs/聊天系統說明.md`
+- `docs/自適應神經成長系統_README.md`
+- `docs/自適應神經成長系統指南.md`
+- `docs/連續自主學習使用指南.md`
+- `docs/開源參考路線圖.md`
+- `skills/brain-spirit-guide/SKILL.md`
+- `skills/brain-spirit-guide/references/domain_map.md`
+- `skills/brain-spirit-guide/references/example_reference.md`
+- `skills/memory-retriever/SKILL.md`
+- `skills/traffic-optimizer/SKILL.md`
+- `skills/workspace-butler/SKILL.md`
+- `skills_dev/coding-master/SKILL.md`
+- `skills_dev/coding-master/references/collaboration.md`
+- `skills_dev/coding-master/references/engineering_standards.md`
+- `skills_dev/coding-master/references/example_reference.md`
+- `skills_dev/coding-master/references/workflows.md`
+- `陳品瑜_履歷.md`
+- `陳品瑜_平台申請簡歷.md`
 
 ### Git 已追蹤但磁碟缺失
 
@@ -355,67 +324,15 @@ flowchart LR
 
 ### 已追蹤但刻意排除的 runtime MD
 
-- 無
+- `.gemini/skills/brain-spirit-guide/SKILL.md`
+- `.gemini/skills/brain-spirit-guide/references/domain_map.md`
+- `.gemini/skills/brain-spirit-guide/references/example_reference.md`
+- `.gemini/skills/memory-retriever/SKILL.md`
+- `.gemini/skills/traffic-optimizer/SKILL.md`
+- `.gemini/skills/workspace-butler/SKILL.md`
 
 ### 磁碟存在但未追蹤
 
-- `.pytest_cache/README.md`
-- `.python-installations/cpython-3.12.13-macos-x86_64-none/lib/python3.12/site-packages/pip-26.0.1.dist-info/licenses/src/pip/_vendor/idna/LICENSE.md`
-- `.python-installations/cpython-3.12.13-macos-x86_64-none/lib/python3.12/site-packages/pip/_vendor/idna/LICENSE.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/autogen_ext/experimental/task_centric_memory/README.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/chromadb/telemetry/README.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/chromadb/test/distributed/README.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/chromadb/utils/embedding_functions/schemas/README.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/flask/sansio/README.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/httpcore-1.0.9.dist-info/licenses/LICENSE.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/httpx-0.28.1.dist-info/licenses/LICENSE.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/huggingface_hub/templates/datasetcard_template.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/huggingface_hub/templates/modelcard_template.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/idna-3.11.dist-info/licenses/LICENSE.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/langsmith/cli/README.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/langsmith/sandbox/README.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/numpy/random/LICENSE.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/onnxruntime/Privacy.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/onnxruntime/tools/mobile_helpers/coreml_supported_mlprogram_ops.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/onnxruntime/tools/mobile_helpers/coreml_supported_neuralnetwork_ops.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/onnxruntime/tools/mobile_helpers/nnapi_supported_ops.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/opentelemetry/sdk/metrics/_internal/exponential_histogram/mapping/ieee_754.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/pip-26.0.1.dist-info/licenses/src/pip/_vendor/idna/LICENSE.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/pip/_vendor/idna/LICENSE.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/pyparsing/ai/best_practices.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/schemas/embedding_functions/README.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/scipy/fft/_pocketfft/LICENSE.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/sentence_transformers/model_card_template.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/sklearn/externals/array_api_compat/README.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/sklearn/externals/array_api_extra/README.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/torchgen/packaged/autograd/README.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/uuid_utils-0.14.1.dist-info/licenses/LICENSE.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/uvicorn-0.42.0.dist-info/licenses/LICENSE.md`
-- `.venv-unix-backup-20260519-211340/lib/python3.12/site-packages/werkzeug/debug/shared/ICON_LICENSE.md`
-- `docs/dev/AGENT_GIT_AUTOPILOT.md`
-- `docs/dev/BRANCH_PROTECTION_POLICY.md`
-- `docs/dev/SYSTEM_FRAMEWORK_RELATIONSHIP_AND_PROGRESS_MASTER_2026-06-02.md`
-- `logs/daily_routine_20260301.md`
-- `logs/daily_summaries/summary_2026-03-01.md`
-- `logs/knowledge_hub/notes/20260428/171748-總管-知識整理.md`
-- `logs/knowledge_hub/notes/20260428/171800-總管-知識整理.md`
-- `logs/knowledge_hub/notes/20260428/171805-總管-知識整理.md`
-- `logs/knowledge_hub/notes/20260428/171807-總管-知識整理.md`
-- `logs/knowledge_hub/notes/20260428/171809-總管-知識整理.md`
-- `logs/knowledge_hub/notes/20260428/171856-總管-知識整理.md`
-- `logs/knowledge_hub/notes/20260428/171857-總管-知識整理.md`
-- `logs/knowledge_hub/notes/20260428/171901-總管-知識整理.md`
-- `logs/knowledge_hub/notes/20260428/171907-總管-知識整理.md`
-- `logs/knowledge_hub/notes/20260428/171910-總管-知識整理.md`
-- `logs/knowledge_hub/notes/20260428/171944-總管-知識整理.md`
-- `logs/knowledge_hub/notes/20260428/171945-總管-知識整理.md`
-- `logs/knowledge_hub/notes/20260428/171950-總管-知識整理.md`
-- `logs/knowledge_hub/notes/20260428/171953-總管-知識整理.md`
-- `logs/knowledge_hub/notes/20260428/171955-總管-知識整理.md`
-- `logs/knowledge_hub/notes/20260508/230139-總管-知識整理.md`
-- `logs/knowledge_hub/notes/20260508/230156-總管-知識整理.md`
-- `logs/knowledge_hub/notes/20260519/094220-總管-知識整理.md`
-- `logs/knowledge_hub/notes/20260519/210833-總管-知識整理.md`
 - `reports/observability/latest.md`
 - `reports/observability/observability_20260428_165255.md`
 - `reports/observability/observability_20260428_165321.md`
@@ -479,6 +396,63 @@ flowchart LR
 - `reports/workflow_runs/20260521_155421-workflow-report.md`
 - `reports/workflow_runs/20260521_155423-workflow-report.md`
 - `reports/workflow_runs/20260521_155424-workflow-report.md`
+- `reports/workflow_runs/20260521_155635-workflow-report.md`
+- `reports/workflow_runs/20260521_155637-workflow-report.md`
+- `reports/workflow_runs/20260521_155638-workflow-report.md`
+- `reports/workflow_runs/20260521_155639-workflow-report.md`
+- `reports/workflow_runs/20260521_155641-workflow-report.md`
+- `reports/workflow_runs/20260521_155642-workflow-report.md`
+- `reports/workflow_runs/20260521_155644-workflow-report.md`
+- `reports/workflow_runs/20260521_161025-workflow-report.md`
+- `reports/workflow_runs/20260521_161026-workflow-report.md`
+- `reports/workflow_runs/20260521_161028-workflow-report.md`
+- `reports/workflow_runs/20260521_161029-workflow-report.md`
+- `reports/workflow_runs/20260521_161033-workflow-report.md`
+- `reports/workflow_runs/20260521_161034-workflow-report.md`
+- `reports/workflow_runs/20260521_161036-workflow-report.md`
+- `reports/workflow_runs/20260521_161722-workflow-report.md`
+- `reports/workflow_runs/20260521_161724-workflow-report.md`
+- `reports/workflow_runs/20260521_161726-workflow-report.md`
+- `reports/workflow_runs/20260521_161728-workflow-report.md`
+- `reports/workflow_runs/20260521_161730-workflow-report.md`
+- `reports/workflow_runs/20260521_161732-workflow-report.md`
+- `reports/workflow_runs/20260521_161734-workflow-report.md`
+- `reports/workflow_runs/20260521_171929-workflow-report-research.md`
+- `reports/workflow_runs/20260521_182351-workflow-report-research.md`
+- `reports/workflow_runs/20260522_080411-workflow-report.md`
+- `reports/workflow_runs/20260522_115611-workflow-report.md`
+- `reports/workflow_runs/20260522_204502-workflow-report-engineering.md`
+- `reports/workflow_runs/20260522_211812-workflow-report.md`
+- `reports/workflow_runs/20260522_211928-workflow-report.md`
+- `reports/workflow_runs/20260522_211939-workflow-report.md`
+- `reports/workflow_runs/20260522_212016-workflow-report.md`
+- `reports/workflow_runs/20260523_061851-workflow-report.md`
+- `reports/workflow_runs/20260523_061920-workflow-report.md`
+- `reports/workflow_runs/20260523_062754-workflow-report.md`
+- `reports/workflow_runs/20260523_063012-workflow-report.md`
+- `reports/workflow_runs/20260523_064130-workflow-report.md`
+- `reports/workflow_runs/20260523_064155-workflow-report.md`
+- `reports/workflow_runs/20260523_064255-workflow-report.md`
+- `reports/workflow_runs/20260523_064346-workflow-report.md`
+- `reports/workflow_runs/20260523_065106-workflow-report.md`
+- `reports/workflow_runs/20260523_071917-workflow-report.md`
+- `reports/workflow_runs/20260523_071932-workflow-report.md`
+- `reports/workflow_runs/20260523_071959-workflow-report.md`
+- `reports/workflow_runs/20260523_073504-workflow-report.md`
+- `reports/workflow_runs/20260523_110159-workflow-report.md`
+- `reports/workflow_runs/20260523_110206-workflow-report.md`
+- `reports/workflow_runs/20260523_110904-workflow-report.md`
+- `reports/workflow_runs/20260523_111130-workflow-report.md`
+- `reports/workflow_runs/20260523_111448-workflow-report.md`
+- `reports/workflow_runs/20260523_111537-workflow-report.md`
+- `reports/workflow_runs/20260523_113019-workflow-report.md`
+- `reports/workflow_runs/20260528_110036-workflow-report.md`
+- `reports/workflow_runs/20260528_110249-workflow-report.md`
+- `reports/workflow_runs/20260528_111610-workflow-report.md`
+- `reports/workflow_runs/20260528_111928-workflow-report.md`
+- `reports/workflow_runs/20260529_102156-workflow-report.md`
+- `reports/workflow_runs/20260529_102353-workflow-report.md`
+- `reports/workflow_runs/20260529_102703-workflow-report.md`
 
 ## 6. 統一進度表
 
