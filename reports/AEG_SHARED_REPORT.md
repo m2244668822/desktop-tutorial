@@ -1,9 +1,9 @@
 # AEG Shared Retrieval Report
 
-- generated_at: `2026-05-28T15:19:37`
+- generated_at: `2026-06-02T23:23:12`
 - source_file: `/Volumes/智能體/城城城程式/data/knowledge_hub/aeg_keyword_graph.json`
 - sources_seen: `3`
-- text_items: `3332`
+- text_items: `3338`
 - keywords_count: `120`
 
 ## Completeness Check
@@ -12,7 +12,7 @@
 - skipped_garbled_tokens_at_build: `0`
 
 ## Top Keywords (readable-first)
-1. `總管` (161)
+1. `總管` (164)
 2. `langgraph` (89)
 3. `路由角色` (70)
 4. `規劃` (70)
@@ -21,19 +21,19 @@
 7. `尚未可用` (69)
 8. `回退到總管單` (69)
 9. `一路由` (69)
-10. `energy_saving` (53)
-11. `nvidia` (51)
+10. `nvidia` (54)
+11. `energy_saving` (53)
 12. `話題` (50)
 13. `openai-compatible` (46)
-14. `vs` (41)
-15. `code` (41)
-16. `openai` (41)
-17. `工作區` (39)
-18. `城城城程式` (39)
-19. `volumes` (38)
-20. `智能體` (38)
-21. `時間` (36)
-22. `模型` (35)
+14. `vs` (44)
+15. `code` (44)
+16. `openai` (44)
+17. `工作區` (42)
+18. `城城城程式` (42)
+19. `volumes` (41)
+20. `智能體` (41)
+21. `模型` (38)
+22. `時間` (36)
 23. `總管回報` (34)
 24. `已收到` (34)
 25. `你現在優先由` (34)
