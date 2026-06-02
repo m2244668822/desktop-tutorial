@@ -46,10 +46,10 @@ STATUS_ALIASES = {
 }
 
 ROUTE_AGENT_ALIASES = {
-    "dispatcher": "dispatcher",
-    "manager": "dispatcher",
-    "general": "dispatcher",
-    "orchestrator": "dispatcher",
+    "dispatcher": "proclaimer",
+    "manager": "proclaimer",
+    "general": "general",
+    "orchestrator": "proclaimer",
     "engineering": "engineer",
     "engineer": "engineer",
     "dev": "engineer",
@@ -58,18 +58,18 @@ ROUTE_AGENT_ALIASES = {
     "editor": "xiaobian",
     "xiaobian": "xiaobian",
     "content": "xiaobian",
-    "prophet": "prophet",
-    "proclaimer": "prophet",
+    "prophet": "proclaimer",
+    "proclaimer": "proclaimer",
     "security": "whitehat",
     "whitehat": "whitehat",
     "hat": "whitehat",
     "relay": "relay",
-    "總管": "dispatcher",
-    "通用": "dispatcher",
+    "總管": "proclaimer",
+    "通用": "general",
     "工程師": "engineer",
     "研究員": "researcher",
     "小編": "xiaobian",
-    "申言者": "prophet",
+    "申言者": "proclaimer",
     "帽子": "whitehat",
 }
 
@@ -139,7 +139,7 @@ def _normalize_status(raw: Any = "", *, failed_steps: Any = 0) -> str:
 def _normalize_agent(route: Any) -> str:
     text = str(route or "").strip()
     lowered = text.lower().replace(" ", "_").replace("-", "_")
-    return ROUTE_AGENT_ALIASES.get(lowered, "dispatcher")
+    return ROUTE_AGENT_ALIASES.get(lowered, "proclaimer")
 
 
 def _queue_files(workspace_root: Path) -> list[Path]:

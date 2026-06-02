@@ -15,13 +15,17 @@ class ChatFrontendApiCleanupTests(unittest.TestCase):
 
     def test_agent_aliases_cover_old_backend_keys(self):
         for token in [
-            'manager: "dispatcher"',
+            'dispatcher: "proclaimer"',
+            'manager: "proclaimer"',
             'learner: "researcher"',
-            'proclaimer: "prophet"',
-            'whitehat: "hat"',
+            'prophet: "proclaimer"',
+            'hat: "whitehat"',
         ]:
             self.assertIn(token, self.html)
         self.assertNotIn('general: "dispatcher"', self.html)
+        self.assertNotIn('manager: "dispatcher"', self.html)
+        self.assertNotIn('proclaimer: "prophet"', self.html)
+        self.assertNotIn('whitehat: "hat"', self.html)
 
     def test_polling_bootstrap_is_grouped(self):
         self.assertIn('function bootstrapPolling()', self.html)
@@ -34,6 +38,11 @@ class ChatFrontendApiCleanupTests(unittest.TestCase):
             'fetchArchiveList();',
         ]:
             self.assertIn(token, self.html)
+
+    def test_snapshot_does_not_overwrite_filtered_task_view(self):
+        self.assertIn('if (_tasksFilter) {', self.html)
+        self.assertIn('fetchTasksSummary(true);', self.html)
+        self.assertIn('renderTasksPanel(tasks.summary || {}, tasks.items || []);', self.html)
 
     def test_ui_helpers_reduce_inline_dom_noise(self):
         for token in [

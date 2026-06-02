@@ -153,7 +153,7 @@ def router_node(state: WorkflowState) -> WorkflowState:
         risk_level = "L2"
         precheck_owner = "申言者"
     elif any(token in text for token in ["提案", "協作流程", "治理"]):
-        route = "申言者"
+        route = "總管"
     elif any(token in text for token in ["研究", "比較", "開源", "調查"]):
         route = "研究員"
     elif any(token in text for token in engineering_tokens):
@@ -161,7 +161,7 @@ def router_node(state: WorkflowState) -> WorkflowState:
         risk_level = "L1"
         precheck_owner = "申言者"
     else:
-        route = "申言者"
+        route = "總管"
         
     # 溝通巡查：偵測是否需要跨領域協作
     if len(text) > 100 or any(t in text for t in ["整合", "架構", "全面"]):
@@ -301,21 +301,15 @@ def _format_manager_result(tool_outputs: dict[str, Any]) -> str:
     ws = tool_outputs.get("workspace_status", {})
     providers = api.get("providers", [])
     enabled_count = len([p for p in providers if p.get("enabled")])
-    long_term_status = tool_outputs.get("long_term_memory", {}).get("status", {})
-    chatgpt_ready = bool(hub.get("chatgpt_database_ready"))
-    sqlite_faiss_ready = bool(
-        hub.get("faiss_ready") or long_term_status.get("faiss_ready")
-    )
     lines = [
-        "申言者中樞工具結果（原總管相容輸出）：",
+        "總管工具結果：",
         f"- 工作區: {ws.get('workspace', '')}",
         f"- VS Code 工作區: {'是' if ws.get('vscode_workspace_exists') else '否'}",
         f"- NVIDIA/OPENAI 模型: {api.get('model', '未設定')}",
         f"- 本地模型: {api.get('open_source_model', '未設定')}",
         f"- API 供應商啟用數: {enabled_count}/{len(providers)}",
-        f"- ChatGPT 長期記憶庫: {'就緒' if chatgpt_ready else '未就緒'}",
-        f"- SQLite + FAISS: {'就緒' if sqlite_faiss_ready else '未就緒'}",
-        f"- 記憶索引筆數: {hub.get('total_items') or long_term_status.get('total_items') or 0}",
+        f"- ChatGPT 長期記憶庫: {'可用' if hub.get('chatgpt_database_ready') else '未就緒'}",
+        f"- SQLite + FAISS: {'可用' if tool_outputs.get('long_term_memory', {}).get('status', {}).get('faiss_ready') else '未就緒'}",
         f"- 知識中樞 manifest: {hub.get('manifest_path', '')}",
     ]
     for item in providers[:5]:
@@ -374,7 +368,7 @@ def _format_prophet_result(tool_outputs: dict[str, Any]) -> str:
 
 def executor_node(state: WorkflowState) -> WorkflowState:
     workspace = Path(state.get("workspace", str(BASE_DIR))).expanduser().resolve()
-    route = state.get("route", "申言者")
+    route = state.get("route", "總管")
     risk_level = state.get("risk_level", "L0")
     precheck_owner = state.get("precheck_owner", "無")
     user_input = state.get("user_input", "")
@@ -488,7 +482,7 @@ def verifier_node(state: WorkflowState) -> WorkflowState:
 def memory_writer_node(state: WorkflowState) -> WorkflowState:
     record = {
         "timestamp": datetime.now().isoformat(),
-        "route": state.get("route", "申言者"),
+        "route": state.get("route", "總管"),
         "plan": state.get("plan", ""),
         "verified": state.get("verified", False),
         "tool_keys": sorted(list((state.get("tool_outputs") or {}).keys())),

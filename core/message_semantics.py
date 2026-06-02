@@ -379,7 +379,7 @@ def _detect_radicals(text: str, max_items: int = 4) -> list[dict[str, Any]]:
 
 
 def _suggest_roles(domain_tags: list[str], intent: str) -> list[str]:
-    hints = ["總管"]
+    hints = ["申言者"]
     for tag in domain_tags:
         role = ROLE_HINTS.get(tag)
         if role and role not in hints:

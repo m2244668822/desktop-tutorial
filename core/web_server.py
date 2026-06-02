@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import socket
 import threading
 import time
 import webbrowser
@@ -21,6 +22,7 @@ from urllib import request as urllib_request
 from urllib.parse import urlencode, parse_qs, urlparse
 
 from core.data_paths import ProjectPaths
+from core.openclaw_adapter import OpenClawAdapter
 from core.task_board import task_items_payload, task_summary_payload
 
 # Shim for pywebview API in web mode
@@ -88,16 +90,19 @@ class WebServerMode:
         self._provider_cache = {}
         self._provider_cache_ts = 0.0
         self._provider_ttl_sec = 2.0
+        self.openclaw = OpenClawAdapter(self.workspace_path)
 
         self._agent_key_map = {
-            "general": "總管",
-            "dispatcher": "總管",
-            "manager": "總管",
+            "general": "通用",
+            "dispatcher": "申言者",
+            "manager": "申言者",
             "researcher": "研究員",
             "engineer": "工程師",
             "relay": "中繼器",
             "xiaobian": "小編",
+            "proclaimer": "申言者",
             "prophet": "申言者",
+            "whitehat": "帽子",
             "hat": "帽子",
         }
 
@@ -109,6 +114,63 @@ class WebServerMode:
                 normalized = path[len(prefix):]
                 return normalized if normalized.startswith("/") else "/" + normalized
         return path
+
+    @staticmethod
+    def _tcp_up(host: str, port: int, timeout: float = 0.8) -> bool:
+        try:
+            with socket.create_connection((host, port), timeout=timeout):
+                return True
+        except OSError:
+            return False
+
+    def readiness_payload(self) -> dict:
+        bridge_ready = bool(getattr(self.bridge, "is_ready", False))
+        knowledge_hub = self.bridge._knowledge_status_summary()
+        openclaw = self.openclaw.status()
+        tls_up = self._tcp_up("127.0.0.1", 5443)
+        db_ready = bool(getattr(self.bridge, "memory_manager", None))
+        required_ready = bool(bridge_ready and db_ready)
+        degraded_reasons = []
+        if not bool(knowledge_hub.get("faiss_ready")):
+            degraded_reasons.append("faiss_not_ready")
+        if not tls_up:
+            degraded_reasons.append("tls_proxy_not_ready")
+        if not openclaw.get("ok"):
+            degraded_reasons.append("openclaw_not_ready")
+        return {
+            "ok": required_ready,
+            "status": "ready" if required_ready and not degraded_reasons else "degraded",
+            "required_ready": required_ready,
+            "bridge_ready": bridge_ready,
+            "database_ready": db_ready,
+            "knowledge_hub": knowledge_hub,
+            "tls_proxy": {"up": tls_up, "port": 5443},
+            "openclaw": openclaw,
+            "degraded_reasons": degraded_reasons,
+            "workspace": str(self.workspace_path),
+        }
+
+    def topology_payload(self) -> dict:
+        readiness = self.readiness_payload()
+        return {
+            "ok": True,
+            "entry": "https://perob.com:5443",
+            "canonical_web": "http://127.0.0.1:5001",
+            "services": {
+                "perob": {"port": 5001, "required": True, "up": True},
+                "tls_proxy": {"port": 5443, "required": True, **readiness["tls_proxy"]},
+                "openclaw": {"port": 18789, "required": False, **readiness["openclaw"]},
+                "n8n": {"port": 5678, "required": False, "up": self._tcp_up("127.0.0.1", 5678)},
+                "ollama": {"port": 11434, "required": False, "up": self._tcp_up("127.0.0.1", 11434)},
+            },
+            "routing": [
+                "browser -> tls_proxy:5443",
+                "tls_proxy:5443 -> perob:5001",
+                "perob:5001 -> openclaw:18789 (phased, optional)",
+                "perob:5001 -> DesktopBridge (emergency fallback)",
+            ],
+            "readiness": readiness,
+        }
 
     def get_handler(self, template_map, redirect_map):
         server_instance = self
@@ -167,8 +229,20 @@ class WebServerMode:
                     self._send_redirect(redirect_map[route_path])
                     return
                 
-                if route_path in {"/health", "/api/ping", "/status"}:
+                if route_path in {"/health", "/health/live", "/api/ping", "/status"}:
                     self._send_json({"ok": True, "status": "connected", "workspace": str(server_instance.workspace_path)})
+                    return
+
+                if route_path == "/health/ready":
+                    self._send_json(server_instance.readiness_payload())
+                    return
+
+                if route_path == "/api/runtime/topology":
+                    self._send_json(server_instance.topology_payload())
+                    return
+
+                if route_path == "/api/openclaw/status":
+                    self._send_json(server_instance.openclaw.status())
                     return
 
                 if route_path in {"/api/gateway/policy", "/gateway/policy"}:
@@ -203,6 +277,7 @@ class WebServerMode:
                             "monitor_active": bool(getattr(server_instance.bridge, "monitor_active", False)),
                             "history_threads": len(conversations) if isinstance(conversations, dict) else 0,
                             "knowledge_hub": server_instance.bridge._knowledge_status_summary(),
+                            "agent_memory_aeg": server_instance.bridge.get_agent_memory_aeg_status(),
                             "templates_dir": str(server_instance.paths.templates),
                             "data_dir": str(server_instance.paths.data),
                         }
@@ -302,8 +377,8 @@ class WebServerMode:
                                 "summary": task_summary_payload(server_instance.workspace_path),
                                 "items": task_items_payload(
                                     server_instance.workspace_path,
-                                    status="unresolved",
-                                    limit=10,
+                                    status="",
+                                    limit=30,
                                     compact=True,
                                 ).get("items", []),
                             },
@@ -311,6 +386,7 @@ class WebServerMode:
                             "communication": {"ok": True},
                             "monitor": status_payload,
                             "knowledge_hub": server_instance.bridge._knowledge_status_summary(),
+                            "agent_memory_aeg": server_instance.bridge.get_agent_memory_aeg_status(),
                             "history_count": len(
                                 getattr(getattr(server_instance.bridge, "memory_manager", None), "_conversations", {}) or {}
                             ),
@@ -378,7 +454,7 @@ class WebServerMode:
                             for conv_id, conv in conversations.items():
                                 agent_name = str(conv.get("agent_name", "通用") or "通用")
                                 agent_key_map = {
-                                    "總管": "dispatcher",
+                                    "總管": "proclaimer",
                                     "研究員": "researcher",
                                     "工程師": "engineer",
                                     "小編": "xiaobian",
@@ -446,18 +522,20 @@ class WebServerMode:
                     payload = {}
 
                 if route_path in {"/api/send_message", "/api/send_message/", "/chat/agent", "/chat/agent/"}:
-                    role_value = payload.get("role", "總管")
+                    role_value = payload.get("role", "申言者")
                     # 若 chat shell 傳 agent key，先轉成 bridge 需要的 role。
                     if route_path in {"/chat/agent", "/chat/agent/"}:
                         agent_to_role = {
-                            "dispatcher": "總管",
-                            "manager": "總管",
-                            "general": "總管",
+                            "dispatcher": "申言者",
+                            "manager": "申言者",
+                            "general": "通用",
                             "researcher": "研究員",
                             "engineer": "工程師",
                             "xiaobian": "小編",
                             "proclaimer": "申言者",
+                            "prophet": "申言者",
                             "whitehat": "帽子",
+                            "hat": "帽子",
                             "relay": "中繼器",
                         }
                         role_value = agent_to_role.get(
@@ -488,6 +566,19 @@ class WebServerMode:
 
                 if route_path == "/api/upload_file":
                     self._send_json({"ok": False, "error": "upload_not_enabled_in_minimal_server"})
+                    return
+
+                if route_path == "/api/rerun_workflow_step":
+                    try:
+                        step_index = int(payload.get("step_index", -1))
+                    except (TypeError, ValueError):
+                        step_index = -1
+                    result = server_instance.bridge.rerun_workflow_step(
+                        str(payload.get("task_id", "")),
+                        str(payload.get("tool_name", "")),
+                        step_index,
+                    )
+                    self._send_json(result)
                     return
 
                 if route_path in {"/archive/export"}:

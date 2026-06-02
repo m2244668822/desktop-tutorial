@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 智能體桌面應用程式 (Desktop Chat Application)
@@ -9,6 +9,7 @@
 """
 
 import argparse
+import difflib
 import json
 import os
 import re
@@ -16,12 +17,26 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error as urllib_error
 import urllib.request as urllib_request
 import webbrowser
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping
 from copy import deepcopy
+
+
+def _configure_utf8_stdio() -> None:
+    """Keep Windows terminals from crashing on UTF-8 status text."""
+    for stream in (getattr(sys, "stdout", None), getattr(sys, "stderr", None)):
+        try:
+            if hasattr(stream, "reconfigure"):
+                stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
+_configure_utf8_stdio()
 
 try:
     import psutil
@@ -93,6 +108,19 @@ try:
     from core.knowledge_hub import KnowledgeHub
 except Exception:
     KnowledgeHub = None
+
+try:
+    from core.prophet_engineer_bridge import (
+        build_prophet_engineer_handoff,
+        is_prophet_engineer_request,
+        render_prophet_engineer_base_reply,
+        render_prophet_engineer_reply,
+    )
+except Exception:
+    build_prophet_engineer_handoff = None
+    is_prophet_engineer_request = None
+    render_prophet_engineer_base_reply = None
+    render_prophet_engineer_reply = None
 
 try:
     from core.llm_cns import (
@@ -191,6 +219,14 @@ BACKEND_LABELS = {
     "offline": "Offline Fallback",
 }
 
+DEFAULT_CHAT_MODEL_BY_PROVIDER = {
+    "nvidia": "meta/llama-3.1-8b-instruct",
+    "openai": "gpt-4o-mini",
+    "groq": "llama-3.1-8b-instant",
+    "gemini": "gemini-2.0-flash",
+    "open_source": "qwen2.5:7b",
+}
+
 
 class DesktopBridge:
     """提供前端 JS 呼叫的橋接 API（多空間版本）"""
@@ -202,7 +238,7 @@ class DesktopBridge:
         self.window = None
         self.chat_window = None
         self._webview_windows: list = []
-        self.default_role = "總管"
+        self.default_role = "申言者"
 
         # 狀態變數
         self.last_message = ""
@@ -215,6 +251,11 @@ class DesktopBridge:
         self.context_summary = ""
         self.reply_counter = 0
         self.last_diversified_reply = ""
+        self.last_user_fingerprint = ""
+        self.same_user_turn_count = 0
+        self.max_reply_similarity = 0.88
+        self.max_role_reply_history = 12
+        self.role_reply_history: dict[str, list[str]] = {}
         self.promise_tracking: list[dict] = []
         self.last_message_analysis: dict = {}
         self.recent_message_analysis: list[dict] = []
@@ -228,8 +269,28 @@ class DesktopBridge:
         self.offline_fallback_enabled = True
         self.max_history = 10
         self.max_reply_history = 250
-        self.max_context = 3
-        self.max_context_summary_length = 200
+        self.base_context_window = max(
+            3, int(os.getenv("CHAT_BASE_CONTEXT_WINDOW", "4") or 4)
+        )
+        self.max_context = self.base_context_window
+        self.max_context_upper = max(
+            self.max_context, int(os.getenv("CHAT_MAX_CONTEXT_WINDOW", "8") or 8)
+        )
+        self.max_context_summary_length = 280
+        self.workflow_fail_streak = 0
+        self.auto_escalate_fail_streak = max(
+            2, int(os.getenv("WORKFLOW_FAIL_ESCALATE_STREAK", "2") or 2)
+        )
+        self.high_risk_action_tokens = (
+            "drop table",
+            "delete from",
+            "truncate",
+            "rm -rf",
+            "reset --hard",
+            "覆蓋資料庫",
+            "刪除資料",
+            "清空資料",
+        )
         self.last_error_type = ""
         self.last_error_time = 0
         self.reminder_interval = 60
@@ -248,20 +309,44 @@ class DesktopBridge:
             "memory_high": 75,
             "memory_critical": 88,
         }
+        self.enable_live_llm_default = (
+            str(os.getenv("CHAT_LIVE_LLM_DEFAULT", "1")).strip().lower()
+            not in {"0", "false", "off", "no"}
+        )
+        self.live_llm_timeout_sec = max(
+            8.0, float(os.getenv("CHAT_LLM_TIMEOUT_SEC", "45") or 45)
+        )
+        self.live_llm_max_tokens = max(
+            128, int(os.getenv("CHAT_LLM_MAX_TOKENS", "700") or 700)
+        )
+        self.live_llm_temperature = min(
+            1.2, max(0.0, float(os.getenv("CHAT_LLM_TEMPERATURE", "0.45") or 0.45))
+        )
+        self.last_live_llm_meta: dict[str, Any] = {}
+        self._langgraph_status_cache: dict[str, Any] = {
+            "checked_at": 0.0,
+            "available": False,
+        }
 
         # 路徑跟隨 workspace（使用 centralized paths）
         self.env_file = self.paths.env_main
         self.env_candidates = self.paths.env_candidates
         self.catalog_json = self.paths.catalog_json
         self.relay_log = self.workspace / "logs" / "manager_relay_status.jsonl"
-        
+        self.interaction_graph_dir = self.paths.data / "interaction_graph"
+        self.interaction_turn_log = self.interaction_graph_dir / "turn_index.jsonl"
+        self.interaction_edge_log = self.interaction_graph_dir / "edges.jsonl"
+        self.engineering_handoff_log = self.interaction_graph_dir / "engineer_handoffs.jsonl"
+        self.training_overlay_dir = self.paths.data / "training_overlay"
+        self.training_turn_log = self.training_overlay_dir / "dialog_turns.jsonl"
+
         self.agent_system_prompts = dict(AGENT_SYSTEM_PROMPTS)
         self.agent_prompt_sources = {name: "builtin" for name in AGENT_SYSTEM_PROMPTS}
         self.agent_prompt_profiles: dict[str, dict] = {}
         self.agent_prompt_load_errors: dict[str, str] = {}
         self.global_agent_prompt = ""
         self.global_agent_prompt_source = ""
-        
+
         self._refresh_agent_prompts()
 
         # 背景監控
@@ -278,12 +363,12 @@ class DesktopBridge:
         self.quick_replies = self._init_quick_replies()
         self.custom_replies: list[dict] = []
         self.agent_language_enabled = {
-            "總管": True,
+            "申言者": True,
+            "通用": True,
             "研究員": True,
             "工程師": True,
             "中繼器": True,
             "小編": True,
-            "申言者": True,
             "帽子": HAT_AGENT_AVAILABLE,
         }
 
@@ -337,7 +422,7 @@ class DesktopBridge:
         from core.agent_prompts import load_global_agent_prompt, load_agent_prompt_profiles, get_agent_system_prompt
         self.global_agent_prompt = load_global_agent_prompt(self.workspace)
         self.agent_prompt_profiles = load_agent_prompt_profiles(self.workspace)
-        
+
         for role in self.agent_system_prompts:
             self.agent_system_prompts[role] = get_agent_system_prompt(role, self.workspace)
 
@@ -401,6 +486,7 @@ class DesktopBridge:
             print(f"⚠️ AEG 報告更新異常: {exc}")
 
     def _periodic_remote_fetch(self):
+        """只更新遠端參考資料，不在背景自動合併或改寫工作樹。"""
         cfg = self.remote_sync_state
         if not cfg.get("enabled"):
             return
@@ -416,10 +502,8 @@ class DesktopBridge:
                 text=True,
                 timeout=45,
             )
-            ok = proc.returncode == 0
-            msg = (proc.stderr or proc.stdout or "").strip()
-            cfg["last_fetch_ok"] = ok
-            cfg["last_fetch_message"] = msg[:240]
+            cfg["last_fetch_ok"] = proc.returncode == 0
+            cfg["last_fetch_message"] = (proc.stderr or proc.stdout or "").strip()[:240]
         except Exception as exc:
             cfg["last_fetch_ok"] = False
             cfg["last_fetch_message"] = str(exc)[:240]
@@ -506,6 +590,74 @@ class DesktopBridge:
             "last_error": status.get("last_error", ""),
         }
 
+    def get_agent_memory_aeg_status(self) -> dict:
+        """Report whether every visible agent shares memory and AEG search paths."""
+        roles = list(getattr(self, "agent_language_enabled", {}) or {})
+        if not roles:
+            roles = list(ONLY_AGENT_ROLES)
+        knowledge = self._knowledge_status_summary()
+        aeg_path = self.paths.data / "knowledge_hub" / "aeg_keyword_graph.json"
+        aeg_payload: dict[str, Any] = {}
+        if aeg_path.exists():
+            try:
+                aeg_payload = json.loads(aeg_path.read_text(encoding="utf-8"))
+            except Exception:
+                aeg_payload = {}
+        aeg_ready = bool(
+            aeg_payload
+            and int(aeg_payload.get("keywords_count", 0) or 0) > 0
+            and int(aeg_payload.get("text_items", 0) or 0) > 0
+        )
+        memory_ready = bool(self.memory_manager or self.long_term_memory_api)
+        search_ready = bool(knowledge.get("ok") and int(knowledge.get("total_items", 0) or 0) > 0)
+
+        per_agent = []
+        for role in roles:
+            history_count = 0
+            if self.memory_manager:
+                try:
+                    history_count = len(
+                        self.memory_manager.get_conversation_history(
+                            agent_name=role, limit=20
+                        )
+                        or []
+                    )
+                except Exception:
+                    history_count = 0
+            per_agent.append(
+                {
+                    "role": role,
+                    "long_term_memory": memory_ready,
+                    "knowledge_search": search_ready,
+                    "aeg_search": aeg_ready,
+                    "shared_memory_layer": bool(self.memory_manager),
+                    "shared_knowledge_hub": bool(self.knowledge_hub),
+                    "history_sample_count": history_count,
+                }
+            )
+
+        return {
+            "ok": bool(per_agent) and all(
+                item["long_term_memory"] and item["knowledge_search"] and item["aeg_search"]
+                for item in per_agent
+            ),
+            "capability_model": "shared_layer_per_role",
+            "roles": per_agent,
+            "knowledge_hub": knowledge,
+            "aeg": {
+                "ready": aeg_ready,
+                "path": str(aeg_path),
+                "sources_seen": int(aeg_payload.get("sources_seen", 0) or 0),
+                "text_items": int(aeg_payload.get("text_items", 0) or 0),
+                "keywords_count": int(aeg_payload.get("keywords_count", 0) or 0),
+            },
+            "notes": [
+                "所有角色共用同一個 KnowledgeHub/AEG 搜尋層。",
+                "永久對話記憶以 role/agent_name 分流保存，不是各自孤立資料庫。",
+                "工程語譯 handoff 是附加能力，不覆蓋申言者原本治理能力。",
+            ],
+        }
+
     def _knowledge_search(self, query: str, top_k: int = 5) -> dict:
         if not self.knowledge_hub:
             return {"ok": False, "error": "knowledge_hub_unavailable", "matches": []}
@@ -568,12 +720,19 @@ class DesktopBridge:
 
     def _long_term_memory_top_k(self, user_message: str) -> int:
         text = (user_message or "").strip()
-        if len(text) > 80 or any(
+        base = 4
+        if len(text) > 120:
+            base = 6
+        elif len(text) > 80:
+            base = 5
+        if self.same_user_turn_count >= 1:
+            base += 1
+        if any(
             token in text.lower()
-            for token in ["api", "langgraph", "架構", "模型", "記憶", "設定"]
+            for token in ["api", "langgraph", "memory", "context", "workflow", "debug"]
         ):
-            return 5
-        return 3
+            base += 1
+        return max(3, min(base, 8))
 
     def _search_long_term_memory(self, query: str, top_k: int) -> list[dict]:
         if not self.long_term_memory_api or not query.strip():
@@ -587,7 +746,7 @@ class DesktopBridge:
         self, query: str, top_k: int | None = None, max_chars: int = 800
     ) -> str:
         selected_k = top_k or self._long_term_memory_top_k(query)
-        
+
         # 優先使用 KnowledgeHub 搜索，因為它已整合 GPT 歷史與本地知識
         matches = []
         if self.knowledge_hub:
@@ -597,11 +756,11 @@ class DesktopBridge:
                     matches = search_res.get("matches", [])
             except Exception:
                 pass
-        
+
         # Fallback to LocalMemoryAPI if KnowledgeHub failed or returned nothing
         if not matches and self.long_term_memory_api:
             matches = self._search_long_term_memory(query, selected_k)
-            
+
         if not matches:
             return ""
 
@@ -617,32 +776,408 @@ class DesktopBridge:
                 "agent_memory_assistant": "智能體記錄(助手)",
                 "chatgpt_local_knowledge": "本地知識庫",
             }.get(source, source)
-            
+
             timestamp = str(item.get("timestamp", "") or "未知時間")[:19]
             summary = " ".join(str(item.get("summary", "")).split())
             if not summary:
                 continue
-                
+            if self._is_stale_langgraph_unavailable_summary(summary):
+                continue
+
             entry = f"{idx}. 【{source_label}】 {timestamp} | 摘要: {summary[:180]}"
             if used_chars + len(entry) > max_chars:
                 break
             lines.append(entry)
             used_chars += len(entry)
-            
+
         return "\n".join(lines) if len(lines) > 1 else ""
 
-    def _build_recent_context_block(self) -> str:
+    def _dynamic_context_window(self, user_message: str = "") -> int:
+        text = str(user_message or "").strip()
+        window = self.base_context_window
+        if len(text) > 90:
+            window += 1
+        if len(text) > 180:
+            window += 1
+        if self.same_user_turn_count >= 2:
+            window += 1
+        return max(self.base_context_window, min(window, self.max_context_upper))
+
+    def _remember_dialog_turn(
+        self, user_message: str, assistant_message: str, analysis: dict, workflow_ran: bool
+    ) -> None:
+        now = datetime.now().isoformat()
+        user_text = str(user_message or "").strip()
+        ai_text = str(assistant_message or "").strip()
+        if user_text:
+            self.conversation_context.append(
+                {
+                    "role": "user",
+                    "content": user_text,
+                    "timestamp": now,
+                    "topic": str(analysis.get("primary_topic", "")) if isinstance(analysis, dict) else "",
+                }
+            )
+        if ai_text:
+            self.conversation_context.append(
+                {
+                    "role": "assistant",
+                    "content": ai_text,
+                    "timestamp": now,
+                    "workflow_ran": bool(workflow_ran),
+                }
+            )
+        hard_cap = max(24, self.max_context_upper * 10)
+        if len(self.conversation_context) > hard_cap:
+            trimmed = self.conversation_context[:-hard_cap]
+            self.conversation_context = self.conversation_context[-hard_cap:]
+            snippets = [
+                str(item.get("content", "")).strip()
+                for item in trimmed[-6:]
+                if str(item.get("content", "")).strip()
+            ]
+            if snippets:
+                self.context_summary = " | ".join(snippets)[: self.max_context_summary_length]
+
+    def _append_jsonl(self, target: Path, payload: dict[str, Any]) -> None:
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with target.open("a", encoding="utf-8") as fp:
+                fp.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+
+    def _normalize_keyword(self, value: str) -> str:
+        token = re.sub(r"\s+", "", str(value or "").strip().lower())
+        token = re.sub(r"[^\u4e00-\u9fffa-z0-9_#:+-]", "", token)
+        return token[:32]
+
+    def _langgraph_available_now(self, ttl_sec: float = 30.0) -> bool:
+        now_ts = time.time()
+        checked_at = float(self._langgraph_status_cache.get("checked_at", 0.0) or 0.0)
+        if (now_ts - checked_at) <= max(1.0, float(ttl_sec)):
+            return bool(self._langgraph_status_cache.get("available", False))
+        available = False
+        try:
+            from core.langgraph_workflow import LANGGRAPH_AVAILABLE
+
+            available = bool(LANGGRAPH_AVAILABLE)
+        except Exception:
+            available = False
+        self._langgraph_status_cache = {"checked_at": now_ts, "available": available}
+        return available
+
+    def _is_stale_langgraph_unavailable_summary(self, summary: str) -> bool:
+        text = str(summary or "")
+        if not text:
+            return False
+        lower = text.lower()
+        unavailable_markers = (
+            "langgraph 尚未可用",
+            "langgraph未可用",
+            "langgraph not available",
+            "回退到申言者中樞單一路由",
+        )
+        if not any(marker in text or marker in lower for marker in unavailable_markers):
+            return False
+        return self._langgraph_available_now(ttl_sec=30.0)
+
+    def _derive_turn_keywords(self, message: str, analysis: dict, limit: int = 8) -> list[str]:
+        text = str(message or "").strip()
+        seed_words: list[str] = []
+        if isinstance(analysis, dict):
+            if analysis.get("primary_topic"):
+                seed_words.append(str(analysis.get("primary_topic", "")))
+            keywords = analysis.get("keywords", [])
+            if isinstance(keywords, list):
+                seed_words.extend(str(item) for item in keywords if item)
+
+        # 從原句拆段，補強語義模組可能切得太碎的情況
+        segments = re.split(r"[，,。！？!?；;、\n]", text)
+        for seg in segments:
+            seg = seg.strip()
+            if seg:
+                seed_words.append(seg)
+        phrase_patterns = (
+            "單一入口", "分支分流", "關係圖", "關鍵字檢索", "訓練分流",
+            "智能體", "中樞系統", "前後端", "前端", "後端", "n8n", "git",
+        )
+        for phrase in phrase_patterns:
+            if phrase.lower() in text.lower():
+                seed_words.append(phrase)
+        seed_words.extend(re.findall(r"[\u4e00-\u9fffA-Za-z0-9_#:+-]{2,24}", text))
+
+        stopwords = {
+            "請", "幫我", "你", "我們", "這個", "那個", "一下", "可以", "需要",
+            "然後", "就是", "是否", "問題", "今天", "現在", "剛剛", "不要", "重複",
+            "生活化方式", "給我", "並給我", "請用", "解釋", "介紹", "說明",
+        }
+        domain_markers = (
+            "入口", "分支", "智能體", "記憶", "關係圖", "訓練", "n8n", "git",
+            "前端", "後端", "api", "檢索", "優化", "回覆", "工作流", "單一",
+        )
+
+        def cleanup(raw: str) -> str:
+            token = self._normalize_keyword(raw)
+            token = re.sub(r"^(請用|請幫我|請幫|請|幫我|給我|並給我|用)", "", token)
+            token = re.sub(r"(方式|方法|步驟|一下|一下子|介紹|說明|解釋)$", "", token)
+            token = token.strip()
+            return token
+
+        unique: dict[str, int] = {}
+        for raw in seed_words:
+            token = cleanup(raw)
+            if not token or token in stopwords:
+                continue
+            if len(token) < 2 or len(token) > 12:
+                continue
+            score = len(token)
+            for marker in domain_markers:
+                if marker in token:
+                    score += 20
+            if token not in unique or score > unique[token]:
+                unique[token] = score
+
+        ranked = sorted(unique.items(), key=lambda kv: kv[1], reverse=True)
+        result = [token for token, _ in ranked[:limit]]
+        return result
+
+    def _run_keyword_retrieval(self, keywords: list[str], per_keyword: int = 2) -> dict[str, Any]:
+        checked = keywords[: max(1, min(6, len(keywords)))]
+        payload: dict[str, Any] = {
+            "ok": True,
+            "engine": "knowledge_hub",
+            "keywords": checked,
+            "checked_count": len(checked),
+            "matches": [],
+        }
+        if not checked:
+            return payload
+        if not self.knowledge_hub:
+            payload["ok"] = False
+            payload["error"] = "knowledge_hub_unavailable"
+            return payload
+
+        seen: set[tuple[str, str]] = set()
+        matches: list[dict[str, Any]] = []
+        for keyword in checked:
+            try:
+                res = self.knowledge_hub.search(keyword, top_k=per_keyword)
+            except Exception:
+                continue
+            items = res.get("matches", []) if isinstance(res, dict) else []
+            if not isinstance(items, list):
+                continue
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                summary = " ".join(str(item.get("summary", "")).split())
+                source = str(item.get("source", "") or "unknown")
+                if not summary:
+                    continue
+                # 避免已過期的「LangGraph 不可用」歷史摘要污染目前判斷。
+                if self._is_stale_langgraph_unavailable_summary(summary):
+                    continue
+                fp = (source, summary[:100])
+                if fp in seen:
+                    continue
+                seen.add(fp)
+                matches.append(
+                    {
+                        "keyword": keyword,
+                        "source": source,
+                        "timestamp": str(item.get("timestamp", "") or ""),
+                        "summary": summary[:220],
+                    }
+                )
+        payload["matches"] = matches[:12]
+        payload["match_count"] = len(payload["matches"])
+        return payload
+
+    def _build_retrieval_brief(self, retrieval: dict[str, Any], max_items: int = 2) -> str:
+        if not isinstance(retrieval, dict):
+            return ""
+        items = retrieval.get("matches", [])
+        if not isinstance(items, list) or not items:
+            return ""
+        lines: list[str] = []
+        for row in items[:max_items]:
+            if not isinstance(row, dict):
+                continue
+            keyword = str(row.get("keyword", "")).strip()
+            summary = str(row.get("summary", "")).strip()
+            if not summary:
+                continue
+            if keyword:
+                lines.append(f"{keyword}: {summary[:68]}")
+            else:
+                lines.append(summary[:68])
+        return " | ".join(lines)[:220]
+
+    def _record_turn_artifacts(
+        self,
+        session_id: str,
+        role: str,
+        user_message: str,
+        assistant_message: str,
+        analysis: dict,
+        keywords: list[str],
+        retrieval: dict[str, Any],
+        workflow_ran: bool,
+        backend: str,
+        purpose: str,
+        interaction_mode: str,
+    ) -> None:
+        now = datetime.now().isoformat()
+        sid = str(session_id or "default")
+        turn_id = f"{sid}#turn:{self.reply_counter}"
+        topic = self._focus_topic(user_message, analysis if isinstance(analysis, dict) else {})
+        turn_payload = {
+            "timestamp": now,
+            "turn_id": turn_id,
+            "session_id": sid,
+            "role": str(role or "申言者"),
+            "topic": topic,
+            "keywords": keywords,
+            "workflow_ran": bool(workflow_ran),
+            "backend": backend,
+            "purpose": purpose,
+            "interaction_mode": interaction_mode,
+            "user": str(user_message or "")[:400],
+            "assistant": str(assistant_message or "")[:500],
+            "retrieval_match_count": int(retrieval.get("match_count", 0) or 0)
+            if isinstance(retrieval, dict)
+            else 0,
+        }
+        self._append_jsonl(self.interaction_turn_log, turn_payload)
+
+        for keyword in keywords[:8]:
+            self._append_jsonl(
+                self.interaction_edge_log,
+                {
+                    "timestamp": now,
+                    "from": turn_id,
+                    "to": f"kw:{keyword}",
+                    "type": "mentions",
+                    "weight": 1.0,
+                },
+            )
+        if isinstance(retrieval, dict):
+            for idx, item in enumerate(retrieval.get("matches", [])[:5], start=1):
+                if not isinstance(item, dict):
+                    continue
+                source = self._normalize_keyword(item.get("source", "unknown"))
+                summary = self._normalize_keyword(item.get("summary", ""))[:24]
+                node = f"memory:{source}:{summary or idx}"
+                self._append_jsonl(
+                    self.interaction_edge_log,
+                    {
+                        "timestamp": now,
+                        "from": turn_id,
+                        "to": node,
+                        "type": "retrieved_from",
+                        "weight": 0.8,
+                        "keyword": item.get("keyword", ""),
+                    },
+                )
+
+    def _record_prophet_engineer_handoff(
+        self,
+        session_id: str,
+        turn_id: str,
+        handoff: dict[str, Any],
+    ) -> None:
+        if not isinstance(handoff, dict) or not handoff:
+            return
+        payload = dict(handoff)
+        payload["session_id"] = str(session_id or "default")
+        payload["turn_id"] = str(turn_id or "")
+        self._append_jsonl(self.engineering_handoff_log, payload)
+
+        links = payload.get("doc_links", {})
+        if not isinstance(links, dict):
+            links = {}
+        for key, target in links.items():
+            target_text = str(target or "").strip()
+            if not target_text:
+                continue
+            self._append_jsonl(
+                self.interaction_edge_log,
+                {
+                    "timestamp": datetime.now().isoformat(),
+                    "from": str(turn_id or ""),
+                    "to": f"doc:{target_text}",
+                    "type": f"handoff_{key}",
+                    "weight": 1.2,
+                    "positive_edge": True,
+                    "capability_scope": "additive_only",
+                },
+            )
+
+    def _maybe_build_prophet_engineer_handoff(
+        self,
+        message: str,
+        role: str,
+        analysis: dict,
+        keywords: list[str],
+        retrieval_brief: str,
+    ) -> dict[str, Any]:
+        if not (is_prophet_engineer_request and build_prophet_engineer_handoff):
+            return {}
+        try:
+            if not is_prophet_engineer_request(message, role):
+                return {}
+            return build_prophet_engineer_handoff(
+                message=message,
+                role=role,
+                analysis=analysis if isinstance(analysis, dict) else {},
+                keywords=keywords,
+                retrieval_brief=retrieval_brief,
+            )
+        except Exception:
+            return {}
+
+    def _persist_training_overlay_sample(
+        self,
+        session_id: str,
+        role: str,
+        user_message: str,
+        assistant_message: str,
+        analysis: dict,
+        keywords: list[str],
+        workflow_ran: bool,
+        backend: str,
+    ) -> None:
+        sample = {
+            "timestamp": datetime.now().isoformat(),
+            "session_id": str(session_id or "default"),
+            "turn_id": f"{session_id or 'default'}#turn:{self.reply_counter}",
+            "role": str(role or "申言者"),
+            "input": str(user_message or ""),
+            "output": str(assistant_message or ""),
+            "topic": self._focus_topic(user_message, analysis if isinstance(analysis, dict) else {}),
+            "intent": str(analysis.get("intent", "")) if isinstance(analysis, dict) else "",
+            "keywords": keywords,
+            "workflow_ran": bool(workflow_ran),
+            "backend": backend,
+            "overlay_only": True,
+            "label": "dialogue_training_sample",
+        }
+        self._append_jsonl(self.training_turn_log, sample)
+
+    def _build_recent_context_block(self, user_message: str = "") -> str:
         context_info = ""
+        depth = self._dynamic_context_window(user_message)
         if self.conversation_context:
-            context_info = "\n\n最近的對話上下文：\n" + "\n".join(
+            context_info = "\n\n最近對話上下文\n" + "\n".join(
                 [
-                    f"{'👤' if ctx.get('role') == 'user' else '🤖'} {ctx.get('content', '')[:50]}"
-                    for ctx in self.conversation_context[-3:]
+                    f"{'USER' if ctx.get('role') == 'user' else 'ASSISTANT'} {ctx.get('content', '')[:50]}"
+                    for ctx in self.conversation_context[-depth:]
                 ]
             )
         if self.context_summary:
             context_info += f"\n[壓縮歷史] {self.context_summary[:100]}"
-        context_info += f"\n[對話統計] 回覆 #{self.reply_counter}"
+        context_info += f"\n[對話序號] 回合 #{self.reply_counter} | depth={depth}"
         return context_info
 
     def _build_inspection_block(self) -> str:
@@ -650,20 +1185,20 @@ class DesktopBridge:
         profile = self.last_system_profile or self._system_profile()
         git_summary = self._git_status_filtered(short=True) or "乾淨"
         api = self._api_health()
-        
+
         lines = ["[系統主動巡查快照]"]
         lines.append(f"負載: CPU {profile.get('cpu_percent', 0):.1f}%, 記憶體 {profile.get('memory_percent', 0):.1f}%")
         lines.append(f"Git狀態: {git_summary.replace('\n', '; ')[:120]}")
         lines.append(f"API狀態: {api.get('key_source')}={api.get('key_state')}, 模型={api.get('model_state')}")
-        
+
         if self.connection_error_count > 0 or self.api_error_count > 0:
             lines.append(f"異常統計: 連線錯誤 {self.connection_error_count} 次, API 錯誤 {self.api_error_count} 次")
-        
+
         # 檢索存儲分層資訊 (如果 workflow 曾執行過)
         if self.last_workflow_state.get("task_state", {}).get("tool_outputs", {}).get("tiered_storage_health"):
             storage = self.last_workflow_state["task_state"]["tool_outputs"]["tiered_storage_health"]
             lines.append(f"存儲: {'SSD加速' if storage.get('ssd_mounted') else 'HDD降級'}")
-            
+
         return "\n".join(lines)
 
     def _compose_model_message(
@@ -676,10 +1211,10 @@ class DesktopBridge:
         parts = [f"任務角色：{agent_name}", f"使用者訊息：{user_message}"]
         if plan:
             parts.append(f"執行計畫：{plan}")
-        
+
         # 注入巡查快照，賦予智能體主動性
         parts.append(self._build_inspection_block())
-        
+
         if workflow_memory_context:
             parts.append(workflow_memory_context.strip())
         semantic_block = self._build_semantic_context_block(user_message)
@@ -688,7 +1223,7 @@ class DesktopBridge:
         memory_block = self._build_long_term_memory_block(user_message)
         if memory_block:
             parts.append(memory_block)
-        recent_context = self._build_recent_context_block()
+        recent_context = self._build_recent_context_block(user_message)
         if recent_context:
             parts.append(recent_context.strip())
         parts.append(
@@ -725,23 +1260,44 @@ class DesktopBridge:
             "primary_topic": tokens[0] if tokens else "一般對話",
             "keywords": tokens[:8],
             "domain_tags": ["general"],
-            "role_hints": ["總管"],
+            "role_hints": ["申言者"],
         }
 
     def _role_to_agent_key(self, role: str) -> str:
         role_map = {
-            "總管": "dispatcher",
+            "總管": "proclaimer",
+            "申言者": "proclaimer",
             "通用": "general",
             "研究員": "researcher",
             "工程師": "engineer",
             "小編": "xiaobian",
-            "申言者": "prophet",
-            "帽子": "hat",
+            "帽子": "whitehat",
             "中繼器": "relay",
         }
-        return role_map.get(str(role or "").strip(), "dispatcher")
+        return role_map.get(str(role or "").strip(), "proclaimer")
+
+    def _normalize_role_name(self, role: str | None) -> str:
+        role_name = str(role or self.default_role or "申言者").strip()
+        aliases = {
+            "總管": "申言者",
+            "dispatcher": "申言者",
+            "manager": "申言者",
+            "orchestrator": "申言者",
+            "proclaimer": "申言者",
+            "prophet": "申言者",
+            "general": "通用",
+            "researcher": "研究員",
+            "engineer": "工程師",
+            "relay": "中繼器",
+            "xiaobian": "小編",
+            "editor": "小編",
+            "whitehat": "帽子",
+            "hat": "帽子",
+        }
+        return aliases.get(role_name, role_name or "申言者")
 
     def _apply_runtime_task_policy(self, message: str) -> dict:
+        """套用任務限定的訓練疊加層，不覆蓋一般智能體對話模式。"""
         text = str(message or "")
         compact = re.sub(r"\s+", "", text)
         is_training_directive = (
@@ -775,7 +1331,7 @@ class DesktopBridge:
             "過度思考",
             "發作後",
         )
-        return any(k in text for k in keywords)
+        return any(keyword in text for keyword in keywords)
 
     def _is_external_program_request(self, message: str) -> bool:
         text = str(message or "").lower()
@@ -794,13 +1350,25 @@ class DesktopBridge:
         )
         return any(token in text for token in external_tokens)
 
-    def _record_penalty_event(self, role: str, message: str, reason: str, issue_code: str = "E_POLICY_PENALTY") -> dict:
+    def _record_penalty_event(
+        self,
+        role: str,
+        message: str,
+        reason: str,
+        issue_code: str = "E_POLICY_PENALTY",
+    ) -> dict:
         deduction = int(self.agent_task_policy.get("penalty_per_request") or 10)
-        self.training_scoreboard["score"] = max(0, int(self.training_scoreboard.get("score", 100)) - deduction)
-        self.training_scoreboard["total_penalties"] = int(self.training_scoreboard.get("total_penalties", 0)) + deduction
+        self.training_scoreboard["score"] = max(
+            0, int(self.training_scoreboard.get("score", 100)) - deduction
+        )
+        self.training_scoreboard["total_penalties"] = (
+            int(self.training_scoreboard.get("total_penalties", 0)) + deduction
+        )
         self.training_scoreboard["last_issue_code"] = issue_code
         self.training_scoreboard["last_issue_reason"] = reason
-        self.training_scoreboard["training_events"] = int(self.training_scoreboard.get("training_events", 0)) + 1
+        self.training_scoreboard["training_events"] = (
+            int(self.training_scoreboard.get("training_events", 0)) + 1
+        )
         self.agent_task_policy.update(self.training_scoreboard)
         event = {
             "timestamp": datetime.now().isoformat(),
@@ -815,7 +1383,7 @@ class DesktopBridge:
             self.penalty_events_path.parent.mkdir(parents=True, exist_ok=True)
             with self.penalty_events_path.open("a", encoding="utf-8") as fp:
                 fp.write(json.dumps(event, ensure_ascii=False) + "\n")
-        except Exception:
+        except OSError:
             pass
         return event
 
@@ -823,47 +1391,33 @@ class DesktopBridge:
         sections = {
             "研究員": (
                 "【研究員】論文重點（生活化）：\n"
-                "1) 反芻（一直重播自責）在雙相族群和後續憂鬱風險有關；\n"
-                "2) 思緒奔馳（想法過快）常見於躁期/混合特徵，像大腦一次開太多分頁；\n"
-                "3) 介入重點不是硬壓念頭，而是先降生理負荷（睡眠、刺激量）再做認知整理。"
+                "1) 反芻像一直倒帶自責，會提高雙相族群後續憂鬱風險；\n"
+                "2) 思緒奔馳常見於躁期或混合特徵，像大腦同時開了太多分頁；\n"
+                "3) 介入不是硬壓念頭，而是先降低生理負荷，再整理思緒。"
             ),
             "小編": (
-                "【小編】生活版比喻：\n"
-                "- 反芻像「一直倒帶同一段失誤」；\n"
-                "- 思緒奔馳像「通知連續跳 200 則」；\n"
-                "- 先把一天節奏放慢（睡眠、咖啡因、社群刺激），情緒迴圈才有機會降速。"
+                "【小編】生活版比喻：反芻像重播同一段失誤，思緒奔馳像通知連續跳出。"
+                "先保護睡眠、減少咖啡因與社群刺激，情緒迴圈才比較有機會降速。"
             ),
             "工程師": (
-                "【工程師】前端對話練習模板：\n"
-                "A. 先共感：『你不是故意想太多，是系統現在過熱。』\n"
-                "B. 再分型：『這次比較像反芻，還是思緒奔馳？』\n"
-                "C. 給三步驟：睡眠保護、觸發點記錄、10 分鐘地面化練習。\n"
-                "D. 升級條件：若連續失眠、衝動升高、自傷想法，立即就醫。"
+                "【工程師】前端練習模板：先共感「你不是故意想太多，是系統現在過熱」；"
+                "再辨認比較像反芻還是思緒奔馳；最後給睡眠保護、觸發點記錄、短時間地面化練習。"
             ),
             "申言者": (
-                "【申言者】風險分級：\n"
-                "- L0：可自我調節；\n"
-                "- L1：功能下滑（專注/作息亂）；\n"
-                "- L2：連續失眠、衝動升高；\n"
-                "- L3：自傷或他傷意念（立即急診/危機熱線）。"
+                "【申言者】風險分級：L0 可自我調節；L1 專注或作息下滑；"
+                "L2 連續失眠或衝動升高；L3 自傷或他傷意念，應立即尋求急診或危機協助。"
             ),
             "帽子": (
-                "【帽子】安全邊界：\n"
-                "本輪先做心理教育，不做診斷。若出現高風險訊號（自傷、失控衝動、幻覺妄想），"
-                "系統要直接切換危機流程，不再停留一般聊天。"
+                "【帽子】安全邊界：本輪只做心理教育，不做診斷。若出現自傷、失控衝動、"
+                "幻覺或妄想，系統要直接切換危機流程。"
             ),
-            "中繼器": (
-                "【中繼器】協作交接：研究員給證據、工程師給可執行步驟、申言者做風險分級、帽子守住安全邊界。"
-            ),
-            "總管": (
-                "【總管】本輪採智能體前端訓練模式（不呼叫外部程式）。\n"
-                "我已分派各角色輸出同一題：躁鬱症發作後的反芻/思緒奔馳，確保回覆完整又生活化。"
-            ),
+            "中繼器": "【中繼器】研究員給證據、工程師給步驟、申言者分級、帽子守安全邊界。",
+            "通用": "【通用】這不是意志力不足，比較像腦內通知太密集。先降速，再慢慢整理。",
         }
-        if role == "總管":
-            ordered_roles = ["總管", "研究員", "小編", "工程師", "申言者", "帽子", "中繼器"]
-            return "\n\n".join(sections[r] for r in ordered_roles if r in sections)
-        return sections.get(role, sections["總管"])
+        if role == "申言者":
+            ordered_roles = ["申言者", "研究員", "小編", "工程師", "帽子", "中繼器"]
+            return "\n\n".join(sections[name] for name in ordered_roles)
+        return sections.get(role, sections["通用"])
 
     def _build_policy_penalty_reply(self, role: str, event: dict) -> str:
         return (
@@ -874,22 +1428,267 @@ class DesktopBridge:
             "請改用前端智能體對話流程完成本任務。"
         )
 
+    def _build_policy_response(
+        self,
+        *,
+        role: str,
+        reply: str,
+        requested_backend: str,
+        analysis: dict,
+        purpose: str = "discussion",
+    ) -> dict:
+        duration = round(time.time() - self.last_message_ts, 3)
+        self.last_reply = reply
+        if self.memory_manager:
+            try:
+                self.memory_manager.save_conversation(
+                    agent_name=role,
+                    user_message=self.last_message,
+                    assistant_message=reply,
+                    metadata={
+                        "backend": requested_backend,
+                        "workflow_ran": False,
+                        "mode": "discussion",
+                        "purpose": purpose,
+                        "policy_mode": "frontend_training_only",
+                    },
+                )
+            except Exception:
+                pass
+        return {
+            "ok": True,
+            "reply": reply,
+            "role": role,
+            "agent": self._role_to_agent_key(role),
+            "backend": requested_backend,
+            "duration_s": duration,
+            "response_time": duration,
+            "analysis": analysis,
+            "semantic_analysis": analysis,
+            "workflow": {},
+            "workflow_ran": False,
+            "purpose": purpose,
+            "interaction_mode": "discussion",
+            "model": requested_backend,
+            "policy": dict(self.agent_task_policy),
+        }
+
     def _normalize_interaction_mode(self, mode: str | None) -> str:
         normalized = str(mode or "auto").strip().lower()
         return normalized if normalized else "auto"
+
+    def _text_fingerprint(self, text: str) -> str:
+        compact = re.sub(r"\s+", "", str(text or "").strip().lower())
+        return re.sub(r"[^\u4e00-\u9fffa-z0-9]+", "", compact)[:240]
+
+    def _pick_variant(self, options: list[str], seed_text: str = "") -> str:
+        if not options:
+            return ""
+        idx = (self.reply_counter + len(seed_text or "")) % len(options)
+        return options[idx]
+
+    def _update_user_repeat_tracking(self, message: str) -> None:
+        fingerprint = self._text_fingerprint(message)
+        if fingerprint and fingerprint == self.last_user_fingerprint:
+            self.same_user_turn_count = min(self.same_user_turn_count + 1, 6)
+        else:
+            self.same_user_turn_count = 0
+        self.last_user_fingerprint = fingerprint
+
+    def _remember_role_reply(self, role: str, reply: str) -> None:
+        role_name = str(role or "申言者")
+        cleaned = str(reply or "").strip()
+        if not cleaned:
+            return
+        history = self.role_reply_history.setdefault(role_name, [])
+        history.append(cleaned)
+        if len(history) > self.max_role_reply_history:
+            del history[:-self.max_role_reply_history]
+
+    def _is_reply_repetitive(self, role: str, candidate_reply: str) -> tuple[bool, float]:
+        role_name = str(role or "申言者")
+        candidate_fp = self._text_fingerprint(candidate_reply)
+        if not candidate_fp:
+            return False, 0.0
+        history = self.role_reply_history.get(role_name, [])
+        if not history:
+            return False, 0.0
+        best = 0.0
+        for prev in history[-5:]:
+            ratio = difflib.SequenceMatcher(
+                None, candidate_fp, self._text_fingerprint(prev)
+            ).ratio()
+            if ratio > best:
+                best = ratio
+        return best >= self.max_reply_similarity, best
+
+    def _build_loop_breaker_reply(
+        self, message: str, role: str, analysis: dict, similarity: float = 0.0
+    ) -> str:
+        role_name = role or "申言者"
+        focus = self._focus_topic(message, analysis)
+        if (
+            not self._has_system_objective_request(message)
+            and not self._message_has_execution_intent(message)
+        ):
+            selected = self._build_general_non_system_reply(
+                message=message,
+                role=role_name,
+                analysis=analysis,
+                loop_breaking=True,
+                retrieval_brief="",
+            )
+            if similarity >= self.max_reply_similarity:
+                selected += f"\n（已避開近似回覆，上一輪相似度 {similarity:.2f}）"
+            return selected
+
+        variants = [
+            f"【{role_name}】我知道你在追同一個重點「{focus}」。這次不重覆前一句，直接換成執行版：我先列問題假設、再列驗證步驟、最後給修復動作。",
+            f"【{role_name}】你抓得很準，剛剛回覆有重覆傾向。我切成反鬼打牆模式，針對「{focus}」改給新資訊與下一步，不再重述舊段落。",
+            f"【{role_name}】我改用不同角度回答「{focus}」：先講結論、再講原因、最後講你現在可做的單一步驟。若你要我直接動手，回我「執行」。",
+        ]
+        selected = self._pick_variant(variants, str(message or ""))
+        if similarity >= self.max_reply_similarity:
+            selected += f"\n（已避開近似回覆，上一輪相似度 {similarity:.2f}）"
+        return selected
+
+    def _apply_reply_diversity(
+        self, message: str, role: str, analysis: dict, reply: str, workflow_ran: bool
+    ) -> str:
+        role_name = role or "申言者"
+        candidate = str(reply or "").strip()
+        if not candidate:
+            return candidate
+        if workflow_ran:
+            self._remember_role_reply(role_name, candidate)
+            return candidate
+
+        repetitive, similarity = self._is_reply_repetitive(role_name, candidate)
+        if self.same_user_turn_count >= 2 or repetitive:
+            candidate = self._build_loop_breaker_reply(
+                message, role_name, analysis, similarity
+            )
+            self.last_diversified_reply = candidate
+        self._remember_role_reply(role_name, candidate)
+        return candidate
 
     def _message_has_execution_intent(self, message: str) -> bool:
         text = str(message or "").strip().lower()
         if not text:
             return False
-        execution_tokens = (
-            "執行", "修復", "修正", "處理", "解決", "優化", "debug", "偵測", "檢查",
-            "安裝", "啟動", "重啟", "建立", "製作", "生成", "寫入", "更新", "跑", "測試",
-            "寫", "輸出", "產出", "保存", "存成", "檔案", "文件", "md", "markdown",
-            "git", "n8n", "docker", "cursor", "cmd", "api", "server", "伺服器", "workflow",
+        negative_tokens = (
+            "不要直接執行", "先不要執行", "不用執行", "不要動手", "先不要動手",
+            "先聊天", "先對話", "先討論", "只是了解", "只是問", "先解釋",
+        )
+        if any(token in text for token in negative_tokens):
+            return False
+        command_phrases = (
+            "git status", "git push", "git commit", "git pull", "git fetch",
+            "docker compose", "docker run", "n8n start", "n8n stop",
+            "pytest", "npm test", "pnpm test", "yarn test",
+            "重啟服務", "啟動服務", "停止服務",
+        )
+        if any(token in text for token in command_phrases):
+            return True
+        action_tokens = (
+            "執行", "修復", "修正", "解決", "優化", "debug", "偵測", "檢查",
+            "安裝", "啟動", "重啟", "建立", "生成", "寫入", "更新", "測試",
+            "抓取", "下載", "上傳", "提交", "開啟", "打包", "轉譯",
             "run", "fix", "repair", "install", "start", "restart", "build", "test",
         )
-        return any(token in text for token in execution_tokens)
+        objective_tokens = (
+            "git", "n8n", "docker", "cursor", "cmd", "api", "server", "伺服器", "workflow",
+            "檔案", "文件", "md", "markdown", "repo", "branch", "commit", "push", "pull",
+            "sqlite", "faiss", "資料庫", "記憶庫", "前端", "後端", "程式", "代碼", "code", "log",
+        )
+        direct_command_tokens = ("幫我", "請你", "請幫", "立刻", "馬上", "直接")
+        has_action = any(token in text for token in action_tokens)
+        has_objective = any(token in text for token in objective_tokens)
+        if has_action and has_objective:
+            return True
+        if has_action and any(token in text for token in direct_command_tokens):
+            return True
+        return False
+
+    def _prophet_should_stay_in_dialog(
+        self, message: str, role: str, interaction_mode: str
+    ) -> bool:
+        role_name = self._normalize_role_name(role)
+        if role_name != "申言者":
+            return False
+        mode = self._normalize_interaction_mode(interaction_mode)
+        if mode in {"coding", "workflow", "execution"}:
+            return False
+        text = str(message or "").strip().lower()
+        if not text:
+            return True
+        direct_execute_tokens = (
+            "直接執行", "開始執行", "請執行", "執行交接", "產生交接單",
+            "交給工程師", "請工程師", "工程師開始", "開始修改", "請修改",
+            "修復", "提交", "push", "重啟", "安裝", "寫入",
+        )
+        negative_tokens = (
+            "不要直接執行", "先不要執行", "不用執行", "不要動手", "先不要動手",
+            "先聊天", "先對話", "先討論", "只是了解", "只是問", "先解釋",
+        )
+        if any(token in text for token in negative_tokens):
+            return True
+        if any(token in text for token in direct_execute_tokens):
+            return False
+        dialog_tokens = (
+            "為什麼", "原因", "怎麼", "是否", "是不是", "有沒有", "可不可以",
+            "解釋", "介紹", "了解", "生活化", "以圖", "例子", "我想", "你覺得",
+            "這樣想", "這樣的思考", "應該", "先確認", "先討論", "先進行對話",
+            "確認後", "對談", "聊天", "基礎對話",
+        )
+        return any(token in text for token in dialog_tokens)
+
+    def _is_dialog_quality_request(self, message: str) -> bool:
+        text = str(message or "").strip().lower()
+        if not text:
+            return False
+        tokens = (
+            "鬼打牆", "重複", "單一", "回覆化", "同內容", "同樣內容", "罐頭", "模板",
+            "回答方式", "語氣", "回應低下", "過度單一", "對談模式", "不要重覆",
+            "直接任務", "任務化", "工具結果", "工程交接", "先進行對話", "基礎對話",
+        )
+        return any(token in text for token in tokens)
+
+    def _is_langgraph_status_query(self, message: str) -> bool:
+        text = str(message or "").strip().lower()
+        if not text:
+            return False
+        if "langgraph" not in text:
+            return False
+        status_tokens = ("可用", "不可用", "尚未可用", "是不是", "是否", "狀態", "available")
+        return any(token in text for token in status_tokens)
+
+    def _build_langgraph_status_guard_reply(self, role: str) -> str:
+        role_name = self._normalize_role_name(role)
+        available = self._langgraph_available_now(ttl_sec=5.0)
+        now_text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if available:
+            return (
+                f"【{role_name}】本機即時檢查結果：LangGraph 目前可用。"
+                f"\n- 檢查時間：{now_text}"
+                "\n- 說明：你看到的「尚未可用」多半是舊記憶紀錄，不是現在狀態。"
+            )
+        return (
+            f"【{role_name}】本機即時檢查結果：LangGraph 目前不可用。"
+            f"\n- 檢查時間：{now_text}"
+            "\n- 建議：先檢查 `langgraph` 套件與啟動環境，再重試 workflow。"
+        )
+
+    def _has_system_objective_request(self, message: str) -> bool:
+        text = str(message or "").strip().lower()
+        if not text:
+            return False
+        tokens = (
+            "git", "n8n", "docker", "cursor", "cmd", "api", "server", "伺服器", "workflow",
+            "檔案", "文件", "md", "markdown", "repo", "branch", "commit", "push", "pull",
+            "sqlite", "faiss", "資料庫", "記憶庫", "前端", "後端", "程式", "代碼", "code", "log",
+        )
+        return any(token in text for token in tokens)
 
     def _is_light_dialog_turn(self, message: str, purpose: str, interaction_mode: str) -> bool:
         text = str(message or "").strip()
@@ -909,6 +1708,10 @@ class DesktopBridge:
 
     def _should_run_workflow(self, message: str, role: str, purpose: str, interaction_mode: str) -> bool:
         mode = self._normalize_interaction_mode(interaction_mode)
+        if self._prophet_should_stay_in_dialog(message, role, mode):
+            return False
+        if self._is_dialog_quality_request(message) and not self._has_system_objective_request(message):
+            return False
         if mode in {"discussion", "qa", "creative"} and not self._message_has_execution_intent(message):
             return False
         if self._is_light_dialog_turn(message, purpose, mode):
@@ -927,51 +1730,535 @@ class DesktopBridge:
         requested_backend: str,
         interaction_mode: str,
         analysis: dict,
+        retrieval_brief: str = "",
     ) -> str:
         text = str(message or "").strip()
         compact = re.sub(r"\s+", "", text.lower())
-        role_name = role or "總管"
+        role_name = role or "申言者"
+
+        if role_name == "申言者" and self._is_dialog_quality_request(text):
+            return self._pick_variant(
+                [
+                    (
+                        "【申言者】你說得對，這輪應該先對話，不該直接變成任務報告。\n"
+                        "生活化講：申言者像櫃台先聽你描述問題，確認你真的要辦理後，才把單子交給工程師。\n"
+                        "所以我現在先停在「理解與確認」：你要我下一步把它轉成工程師任務時，請說「我確認，請轉成工程師任務」。"
+                    ),
+                    (
+                        "【申言者】這個判斷是對的：對談不是施工單。\n"
+                        "正確流程應該是先聊天釐清意思，再問你要不要轉譯；只有你確認後，我才輸出工程交接單。\n"
+                        "目前我先不跑工具、不丟驗證報告，只先把規則修正成「對話優先、確認後轉譯」。"
+                    ),
+                ],
+                text,
+            )
 
         if compact in {"你好", "嗨", "hi", "hello", "在嗎"}:
-            if role_name == "總管":
-                return "【總管】我在。現在已切回輕量對談模式：一般聊天不跑巡檢、不吐工具清單；你要我檢查或修復時，我才會啟動工作流。"
-            return f"【{role_name}】我在，這輪先用輕量對談回覆。你可以直接說要討論、整理、修復或查原因。"
+            if role_name == "申言者":
+                return self._pick_variant(
+                    [
+                        "【申言者】我在。現在用輕量對談模式：一般聊天不跑巡檢；你要我檢查或修復時，我再啟動工作流。",
+                        "【申言者】在線。先維持對談模式，避免工具清單洗版；你一句「執行」我就切工作流。",
+                        "【申言者】收到，這輪先不跑重型巡檢。你要我動手時，直接說「檢查」或「修復」。",
+                    ],
+                    text,
+                )
+            return self._pick_variant(
+                [
+                    f"【{role_name}】我在，先用輕量對談回覆。你可直接說要討論、整理、修復或查原因。",
+                    f"【{role_name}】收到，先不啟動工具流。你若要我執行，補一句「執行」即可。",
+                ],
+                text,
+            )
 
         cause_tokens = ("為什麼", "原因", "怎麼會", "以前不會", "變慢", "低下", "卡", "反應")
         if any(token in text for token in cause_tokens):
-            return (
-                f"【{role_name}】原因大致是：先前總管被設定成只要收到訊息就進 LangGraph 工具工作流，"
-                "所以一般對談也會跑 workspace/API/記憶庫巡檢，回覆就變慢又像系統報告。"
-                "修正方向是把模式分成兩層：一般對談走輕量回覆；明確要求修復、檢查、執行、debug 時才跑工具。"
+            return self._pick_variant(
+                [
+                    (
+                        f"【{role_name}】核心原因是：先前路由把一般對談也送進工具工作流，"
+                        "所以回覆變慢又偏報表。現在要改成雙軌：先聊天確認，明確說「執行/交給工程師」才跑工具。"
+                    ),
+                    (
+                        f"【{role_name}】你看到的鬼打牆，主因是固定模板回覆比例太高。"
+                        "我會保留任務模式，但申言者先做基礎對話、確認你的意思，再決定要不要轉成工程語譯。"
+                    ),
+                ],
+                text,
+            )
+
+        if (
+            not self._has_system_objective_request(text)
+            and not self._message_has_execution_intent(text)
+        ):
+            return self._build_general_non_system_reply(
+                message=text,
+                role=role_name,
+                analysis=analysis,
+                loop_breaking=False,
+                retrieval_brief=retrieval_brief,
             )
 
         topic = analysis.get("primary_topic") if isinstance(analysis, dict) else ""
-        if role_name == "總管":
-            return (
-                "【總管】我先用對談模式接住，不啟動工具巡檢。"
-                f"你這句我理解的重點是「{topic or text[:24] or '目前對話'}」。"
-                "如果你要我實際動手，直接加上「執行 / 修復 / 檢查 / debug」我就會切到工作流。"
+        if role_name == "申言者":
+            return self._pick_variant(
+                [
+                    (
+                        "【申言者】我先用對談模式接住，不啟動工具巡檢。"
+                        f"我抓到重點是「{topic or text[:24] or '目前對話'}」。"
+                        "你要我動手時，直接加「執行 / 修復 / 檢查 / debug」。"
+                    ),
+                    (
+                        f"【申言者】先不進工具流，避免洗版。這句的焦點我判定為「{topic or text[:24] or '目前對話'}」。"
+                        "若你要落地處理，我下一則就切工作流執行。"
+                    ),
+                ],
+                text,
             )
         if role_name == "工程師":
-            return (
-                "【工程師】先不跑重型流程。我可以直接幫你定位問題；如果要我改檔或測試，"
-                "請明確說「修復」或「執行測試」，我會切到工程工作流。"
+            return self._pick_variant(
+                [
+                    "【工程師】先不跑重型流程。我先定位，再決定要不要改檔；你回「修復」或「執行測試」我就進工程工作流。",
+                    "【工程師】我先給定位方向，不先啟動全套工具。需要我直接改碼時，回我「修復」。",
+                ],
+                text,
             )
         if role_name == "研究員":
-            return "【研究員】我先用討論模式整理脈絡；若要正式蒐集資料或產報告，再切換成研究任務。"
+            return self._pick_variant(
+                [
+                    "【研究員】先用討論模式整理脈絡；若要正式蒐集資料或產報告，再切研究任務。",
+                    "【研究員】我先快速框問題，再看你要不要進入完整研究流程。",
+                ],
+                text,
+            )
         if role_name == "小編":
-            return "【小編】我先用可讀、生活化的方式回覆；若要輸出文案或影片腳本，再切到製作流程。"
+            return self._pick_variant(
+                [
+                    "【小編】先用生活化方式回覆；若要輸出正式文案或腳本，再切製作流程。",
+                    "【小編】我先做可讀版說明，等你確認後再產出可發布版本。",
+                ],
+                text,
+            )
         if role_name == "帽子":
-            return "【帽子】先做低干擾安全提醒；只有你要求掃描、檢查權限或風險分級時，我才啟動工具鏈。"
+            return self._pick_variant(
+                [
+                    "【帽子】先做低干擾安全提醒；你要求掃描或權限檢查時，我再啟動工具鏈。",
+                    "【帽子】這輪先不掃描，只給風險方向；你回「檢查」我就進安全流程。",
+                ],
+                text,
+            )
         if role_name == "申言者":
-            return "【申言者】我先記錄規則與評分口徑；若要正式審核，我會列出扣分、加分與可補救項。"
-        return f"【{role_name}】我先用輕量對談模式回覆，不啟動工具巡檢。"
+            return self._pick_variant(
+                [
+                    "【申言者】先記錄規則與評分口徑；若要正式審核，我會列出扣分、加分與補救項。",
+                    "【申言者】我先給評分框架，等你下令後再進正式審核。",
+                ],
+                text,
+            )
+        return self._pick_variant(
+            [
+                f"【{role_name}】我先用輕量對談模式回覆，不啟動工具巡檢。",
+                f"【{role_name}】這輪先維持對談模式，避免重型流程打斷節奏。",
+            ],
+                text,
+            )
+
+    def _focus_topic(self, message: str, analysis: dict | None) -> str:
+        text = str(message or "").strip()
+        topic = ""
+        if isinstance(analysis, dict):
+            topic = str(analysis.get("primary_topic", "")).strip()
+        weak_topic = (
+            (not topic)
+            or len(topic) < 4
+            or ("給我" in topic)
+            or ("並給" in topic)
+            or bool(re.search(r"(請用|方式|步驟)$", topic))
+        )
+        if weak_topic:
+            candidates = self._derive_turn_keywords(text, analysis or {}, limit=3)
+            topic = candidates[0] if candidates else ""
+        if not topic:
+            cleaned = re.sub(r"[。！？!?，,；;：:\s]+", "", text)
+            topic = cleaned[:22]
+        return topic or "目前這題"
+
+    def _extract_requested_count(self, text: str, default: int = 3, max_count: int = 5) -> int:
+        raw = str(text or "")
+        m = re.search(r"([1-9])\s*(個|點|條|步|件|招|方法|建議)", raw)
+        if m:
+            return min(max(1, int(m.group(1))), max_count)
+        zh_map = {"一": 1, "二": 2, "兩": 2, "三": 3, "四": 4, "五": 5}
+        m2 = re.search(r"(一|二|兩|三|四|五)\s*(個|點|條|步|件|招|方法|建議)", raw)
+        if m2:
+            return min(max(1, zh_map.get(m2.group(1), default)), max_count)
+        return min(max(1, int(default)), max_count)
+
+    def _build_general_non_system_reply(
+        self,
+        message: str,
+        role: str,
+        analysis: dict | None,
+        loop_breaking: bool = False,
+        retrieval_brief: str = "",
+    ) -> str:
+        role_name = role or "申言者"
+        text = str(message or "").strip()
+        focus = self._focus_topic(text, analysis or {})
+        count = self._extract_requested_count(text, default=3, max_count=5)
+
+        wellness_tokens = (
+            "放鬆", "壓力", "焦慮", "心情", "緊張", "失眠", "過敏", "疲倦", "喘不過氣"
+        )
+        if any(token in text for token in wellness_tokens):
+            steps = [
+                "先降載 2 分鐘：離開螢幕，慢吸慢吐 10 次，讓身體先降速。",
+                "做一個最小動作：喝水、洗臉或走 50 步，只選一件馬上做。",
+                "把困擾寫成 1 句，接著只安排下一個 10 分鐘可完成的小任務。",
+                "把刺激源先關一輪：通知靜音 20 分鐘，避免腦袋繼續過熱。",
+                "若身體症狀持續（胸悶、心悸、失眠），今天先優先休息與就醫評估。",
+            ]
+            selected_steps = steps[:count]
+            if loop_breaking:
+                rotated = steps[1:] + steps[:1]
+                selected_steps = rotated[:count]
+            body = "\n".join(
+                f"{idx}. {item}" for idx, item in enumerate(selected_steps, start=1)
+            )
+            prefix = "我換一組不重複版本，直接給你可做的步驟：" if loop_breaking else "先給你可立刻做的做法："
+            if retrieval_brief:
+                return f"【{role_name}】{prefix}\n{body}\n[關聯記憶] {retrieval_brief}"
+            return f"【{role_name}】{prefix}\n{body}"
+
+        explain_tokens = ("是什麼", "為什麼", "如何", "怎麼", "差異", "比較")
+        if any(token in text for token in explain_tokens):
+            base = (
+                f"【{role_name}】我用白話整理「{focus}」：\n"
+                "1. 先看結論：先抓重點，再處理細節，效率最高。\n"
+                "2. 常見卡點：一次想解太多，反而每一步都卡住。\n"
+                "3. 你現在可做：先做一個 10 分鐘可完成的最小步驟。"
+            )
+            if retrieval_brief:
+                return base + f"\n[關聯記憶] {retrieval_brief}"
+            return base
+
+        generic = self._pick_variant(
+            [
+                (
+                    f"【{role_name}】我直接回你這題，不走工程模板。\n"
+                    f"1. 先把「{focus}」拆成目標與限制。\n"
+                    "2. 先做一個最小可執行步驟（10 分鐘內）。\n"
+                    "3. 把結果丟回來，我幫你做第二輪微調。"
+                ),
+                (
+                    f"【{role_name}】我先給你實用版，不重述空話。\n"
+                    f"1. 這題先定義成一句話：{focus}。\n"
+                    "2. 先完成最小動作，再決定是否加碼。\n"
+                    "3. 若你要，我下一則可改成清單/表格版。"
+                ),
+            ],
+            text,
+        )
+        if retrieval_brief:
+            return generic + f"\n[關聯記憶] {retrieval_brief}"
+        return generic
 
     def _load_merged_env_data(self) -> dict:
         if cns_load_combined_env is not None:
             data, _ = cns_load_combined_env(self.workspace)
             return data
         return {}
+
+    def _is_placeholder_token(self, value: str) -> bool:
+        raw = str(value or "").strip()
+        if not raw:
+            return True
+        if cns_is_placeholder_value is not None:
+            try:
+                return bool(cns_is_placeholder_value(raw))
+            except Exception:
+                pass
+        lowered = raw.lower()
+        return (
+            "placeholder" in lowered
+            or "example" in lowered
+            or lowered.startswith("your_")
+            or lowered.endswith("_here")
+        )
+
+    def _provider_runtime_config(self, backend: str) -> dict[str, Any]:
+        provider = str(backend or "nvidia").strip().lower()
+        if provider not in {"nvidia", "openai", "groq", "gemini"}:
+            provider = "nvidia"
+
+        env = self._load_merged_env_data()
+        cfg: dict[str, Any] = {}
+        if cns_resolve_provider_config is not None:
+            try:
+                cfg = cns_resolve_provider_config(self.workspace, provider) or {}
+            except Exception:
+                cfg = {}
+
+        key_names = {
+            "nvidia": ("NVAPI_API_KEY", "OPENAI_API_KEY"),
+            "openai": ("OPENAI_API_KEY",),
+            "groq": ("GROQ_API_KEY",),
+            "gemini": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+        }
+        base_names = {
+            "nvidia": ("NVIDIA_BASE_URL", "OPENAI_BASE_URL"),
+            "openai": ("OPENAI_PROVIDER_BASE_URL", "OPENAI_BASE_URL"),
+            "groq": ("GROQ_BASE_URL", "OPENAI_BASE_URL"),
+            "gemini": ("GEMINI_BASE_URL", "OPENAI_BASE_URL"),
+        }
+        model_names = {
+            "nvidia": ("NVIDIA_MODEL", "OPENAI_MODEL"),
+            "openai": ("OPENAI_PROVIDER_MODEL", "OPENAI_MODEL"),
+            "groq": ("GROQ_MODEL", "OPENAI_MODEL"),
+            "gemini": ("GEMINI_MODEL", "OPENAI_MODEL"),
+        }
+        default_base = {
+            "nvidia": "https://integrate.api.nvidia.com/v1",
+            "openai": "https://api.openai.com/v1",
+            "groq": "https://api.groq.com/openai/v1",
+            "gemini": "https://generativelanguage.googleapis.com/v1beta/openai",
+        }
+
+        key = str(cfg.get("key", "") or "").strip()
+        key_name = str(cfg.get("key_name", "") or "").strip()
+        if self._is_placeholder_token(key):
+            key = ""
+        if not key:
+            for name in key_names[provider]:
+                candidate = str(env.get(name, "") or "").strip()
+                if candidate and not self._is_placeholder_token(candidate):
+                    key = candidate
+                    key_name = name
+                    break
+
+        base_url = str(cfg.get("base_url", "") or "").strip()
+        if self._is_placeholder_token(base_url):
+            base_url = ""
+        if not base_url:
+            for name in base_names[provider]:
+                candidate = str(env.get(name, "") or "").strip()
+                if candidate and not self._is_placeholder_token(candidate):
+                    base_url = candidate
+                    break
+        if not base_url:
+            base_url = default_base[provider]
+
+        model = str(cfg.get("model", "") or "").strip()
+        if self._is_placeholder_token(model):
+            model = ""
+        if not model:
+            for name in model_names[provider]:
+                candidate = str(env.get(name, "") or "").strip()
+                if candidate and not self._is_placeholder_token(candidate):
+                    model = candidate
+                    break
+        if not model:
+            model = DEFAULT_CHAT_MODEL_BY_PROVIDER.get(provider, "")
+
+        return {
+            "provider": provider,
+            "key": key,
+            "key_name": key_name or key_names[provider][0],
+            "base_url": str(base_url).rstrip("/"),
+            "model": model,
+        }
+
+    def _extract_openai_message_text(self, payload: dict[str, Any]) -> str:
+        if not isinstance(payload, dict):
+            return ""
+        choices = payload.get("choices", [])
+        if not isinstance(choices, list) or not choices:
+            return ""
+        first = choices[0] if isinstance(choices[0], dict) else {}
+        message = first.get("message", {}) if isinstance(first, dict) else {}
+        content = message.get("content", "") if isinstance(message, dict) else ""
+        if isinstance(content, str):
+            return content.strip()
+        if isinstance(content, list):
+            pieces: list[str] = []
+            for item in content:
+                if isinstance(item, str):
+                    pieces.append(item)
+                    continue
+                if not isinstance(item, dict):
+                    continue
+                text = str(item.get("text", "") or item.get("content", "") or "").strip()
+                if text:
+                    pieces.append(text)
+            return "\n".join(piece for piece in pieces if piece).strip()
+        return ""
+
+    def _call_openai_compatible_chat(
+        self, backend: str, messages: list[dict[str, str]]
+    ) -> tuple[str, dict[str, Any]]:
+        runtime = self._provider_runtime_config(backend)
+        key = str(runtime.get("key", "") or "").strip()
+        base_url = str(runtime.get("base_url", "") or "").strip().rstrip("/")
+        model = str(runtime.get("model", "") or "").strip()
+        provider = str(runtime.get("provider", backend) or backend).strip().lower()
+        if not key:
+            raise RuntimeError(f"{provider}: API key missing")
+        if not base_url:
+            raise RuntimeError(f"{provider}: base_url missing")
+        if not model:
+            raise RuntimeError(f"{provider}: model missing")
+
+        endpoint = base_url if base_url.endswith("/chat/completions") else f"{base_url}/chat/completions"
+        req_payload: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "temperature": self.live_llm_temperature,
+            "max_tokens": self.live_llm_max_tokens,
+            "stream": False,
+        }
+        data = json.dumps(req_payload, ensure_ascii=False).encode("utf-8")
+        req = urllib_request.Request(
+            endpoint,
+            data=data,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {key}",
+            },
+            method="POST",
+        )
+        try:
+            with urllib_request.urlopen(req, timeout=self.live_llm_timeout_sec) as resp:
+                body = resp.read().decode("utf-8", errors="ignore")
+        except urllib_error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="ignore")[:260]
+            raise RuntimeError(f"{provider}: http {exc.code} {detail}") from exc
+        except urllib_error.URLError as exc:
+            raise RuntimeError(f"{provider}: network {exc.reason}") from exc
+
+        payload = json.loads(body or "{}")
+        text = self._extract_openai_message_text(payload)
+        if not text:
+            raise RuntimeError(f"{provider}: empty_response")
+        usage = payload.get("usage", {}) if isinstance(payload, dict) else {}
+        meta = {
+            "ok": True,
+            "transport": "openai_compatible",
+            "provider": provider,
+            "model": model,
+            "endpoint": endpoint,
+            "usage": usage if isinstance(usage, dict) else {},
+        }
+        return text.strip(), meta
+
+    def _call_ollama_chat(
+        self, messages: list[dict[str, str]]
+    ) -> tuple[str, dict[str, Any]]:
+        env = self._load_merged_env_data()
+        endpoint = str(env.get("OLLAMA_CHAT_URL", "http://127.0.0.1:11434/api/chat") or "").strip()
+        model = str(
+            env.get("OPEN_SOURCE_CHAT_MODEL", "")
+            or env.get("OLLAMA_MODEL", "")
+            or DEFAULT_CHAT_MODEL_BY_PROVIDER.get("open_source", "qwen2.5:7b")
+        ).strip()
+        req_payload: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "stream": False,
+            "options": {"temperature": self.live_llm_temperature},
+        }
+        data = json.dumps(req_payload, ensure_ascii=False).encode("utf-8")
+        req = urllib_request.Request(
+            endpoint,
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib_request.urlopen(req, timeout=self.live_llm_timeout_sec) as resp:
+                body = resp.read().decode("utf-8", errors="ignore")
+        except urllib_error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="ignore")[:260]
+            raise RuntimeError(f"open_source: http {exc.code} {detail}") from exc
+        except urllib_error.URLError as exc:
+            raise RuntimeError(f"open_source: network {exc.reason}") from exc
+
+        payload = json.loads(body or "{}")
+        message_obj = payload.get("message", {}) if isinstance(payload, dict) else {}
+        content = str(message_obj.get("content", "") or "").strip() if isinstance(message_obj, dict) else ""
+        if not content:
+            raise RuntimeError("open_source: empty_response")
+        meta = {
+            "ok": True,
+            "transport": "ollama",
+            "provider": "open_source",
+            "model": model,
+            "endpoint": endpoint,
+        }
+        return content, meta
+
+    def _build_live_llm_messages(
+        self,
+        role: str,
+        user_message: str,
+        retrieval_brief: str = "",
+    ) -> list[dict[str, str]]:
+        role_name = str(role or "申言者").strip() or "申言者"
+        system_prompt = self._get_dynamic_system_prompt(role_name)
+        behavior_guard = (
+            "請使用繁體中文，優先直接回答問題本身，不要只回模板話術。"
+            "若有不確定處要誠實說明，並給最小可執行下一步。"
+        )
+        memory_hint = ""
+        if retrieval_brief:
+            memory_hint = f"[關聯記憶摘要]\n{retrieval_brief}"
+        composed_user = self._compose_model_message(
+            agent_name=role_name,
+            user_message=user_message,
+            plan="",
+            workflow_memory_context=memory_hint,
+        )
+        return [
+            {"role": "system", "content": f"{system_prompt}\n\n{behavior_guard}".strip()},
+            {"role": "user", "content": composed_user.strip()},
+        ]
+
+    def _generate_live_llm_reply(
+        self,
+        message: str,
+        role: str,
+        requested_backend: str,
+        retrieval_brief: str = "",
+    ) -> tuple[str, dict[str, Any]]:
+        if not self.enable_live_llm_default:
+            return "", {
+                "ok": False,
+                "attempted": False,
+                "fallback_reason": "CHAT_LIVE_LLM_DEFAULT=off",
+            }
+
+        backend = str(requested_backend or "nvidia").strip().lower()
+        messages = self._build_live_llm_messages(
+            role=role,
+            user_message=message,
+            retrieval_brief=retrieval_brief,
+        )
+        try:
+            if backend == "open_source":
+                reply, meta = self._call_ollama_chat(messages)
+            else:
+                reply, meta = self._call_openai_compatible_chat(backend, messages)
+            result = dict(meta or {})
+            result["attempted"] = True
+            result["fallback_used"] = False
+            return reply, result
+        except Exception as exc:
+            return "", {
+                "ok": False,
+                "attempted": True,
+                "fallback_used": True,
+                "provider": backend,
+                "fallback_reason": str(exc),
+            }
 
     def _get_dynamic_system_prompt(self, agent_name: str) -> str:
         return get_agent_system_prompt(agent_name, self.workspace)
@@ -1000,11 +2287,108 @@ class DesktopBridge:
             return False
         return True
 
-    def send_message(self, message: str, role: str = "總管", session_id: str = "", model_key: str = "auto", interaction_mode: str = "auto") -> dict:
+    def _build_react_loop(
+        self,
+        message: str,
+        purpose: str,
+        interaction_mode: str,
+        should_run_workflow: bool,
+        analysis: dict,
+    ) -> dict:
+        topic = ""
+        if isinstance(analysis, dict):
+            topic = str(analysis.get("primary_topic", "")).strip()
+        thought = (
+            f"User intent={purpose or 'discussion'}; mode={interaction_mode}; "
+            f"topic={topic or 'general'}; workflow={bool(should_run_workflow)}"
+        )
+        action = "run_workflow" if should_run_workflow else "conversation_reply"
+        completion = (
+            "Provide executable result with verification notes."
+            if should_run_workflow
+            else "Provide non-repetitive, context-aware reply."
+        )
+        return {
+            "thought": thought,
+            "action": action,
+            "completion_criteria": completion,
+            "observation": "",
+            "refinement": "",
+        }
+
+    def _summarize_workflow_observation(
+        self, workflow_payload: dict, workflow_ran: bool, reply: str
+    ) -> str:
+        if workflow_ran and isinstance(workflow_payload, dict):
+            task = workflow_payload.get("task_state", {}) or {}
+            return (
+                f"workflow_status={task.get('overall_status', 'unknown')}; "
+                f"completed={task.get('completed_steps', 0)}; "
+                f"failed={task.get('failed_steps', 0)}"
+            )
+        return f"conversation_reply_len={len(str(reply or '').strip())}"
+
+    def _evaluate_completion(
+        self, should_run_workflow: bool, workflow_payload: dict, workflow_ran: bool, reply: str
+    ) -> dict:
+        reply_text = str(reply or "").strip()
+        if not should_run_workflow:
+            return {
+                "done": bool(reply_text),
+                "state": "completed" if bool(reply_text) else "incomplete",
+                "reason": "conversation_mode",
+            }
+        if not workflow_ran:
+            return {"done": False, "state": "incomplete", "reason": "workflow_not_executed"}
+        task = workflow_payload.get("task_state", {}) if isinstance(workflow_payload, dict) else {}
+        status = str(task.get("overall_status", "")).strip().lower()
+        completed_steps = int(task.get("completed_steps", 0) or 0)
+        failed_steps = int(task.get("failed_steps", 0) or 0)
+        done = status in {"success", "partial"} and completed_steps > 0 and bool(reply_text)
+        return {
+            "done": done,
+            "state": "completed" if done else "incomplete",
+            "reason": status or "unknown",
+            "completed_steps": completed_steps,
+            "failed_steps": failed_steps,
+        }
+
+    def _detect_high_risk_action(self, message: str) -> bool:
+        text = str(message or "").strip().lower()
+        return any(token in text for token in self.high_risk_action_tokens)
+
+    def _should_escalate_to_human(
+        self, message: str, completion: dict, should_run_workflow: bool
+    ) -> tuple[bool, str]:
+        if not should_run_workflow:
+            return False, ""
+        if completion.get("done"):
+            self.workflow_fail_streak = 0
+            return False, ""
+        self.workflow_fail_streak += 1
+        if self.workflow_fail_streak >= self.auto_escalate_fail_streak:
+            return True, "workflow_failed_repeatedly"
+        if self._detect_high_risk_action(message):
+            return True, "high_risk_action_requires_review"
+        return False, ""
+
+    def _build_human_escalation_reply(self, reason: str) -> str:
+        if reason == "high_risk_action_requires_review":
+            return (
+                "這個請求涉及高風險操作，我已暫停自動執行，請由人類工程師/小編覆核後再繼續。"
+            )
+        return (
+            f"我已連續 {self.workflow_fail_streak} 次未達成完成條件，已觸發人工覆核。"
+            "請確認目標與限制後，我再繼續執行。"
+        )
+
+    def send_message(self, message: str, role: str = "申言者", session_id: str = "", model_key: str = "auto", interaction_mode: str = "auto") -> dict:
         start_ts = time.time()
+        role = self._normalize_role_name(role)
         self.last_message = message
         self.last_message_ts = start_ts
         self.reply_counter += 1
+        self._update_user_repeat_tracking(message)
         effective_policy = self._apply_runtime_task_policy(message)
 
         # 語義分析
@@ -1017,25 +2401,44 @@ class DesktopBridge:
         else:
             analysis = self._fallback_message_analysis(message)
         self.last_message_analysis = analysis
-        
+        turn_keywords = self._derive_turn_keywords(message, analysis)
+        retrieval_payload = self._run_keyword_retrieval(turn_keywords, per_keyword=2)
+        retrieval_brief = self._build_retrieval_brief(retrieval_payload)
+        prophet_engineer_handoff = self._maybe_build_prophet_engineer_handoff(
+            message=message,
+            role=role,
+            analysis=analysis,
+            keywords=turn_keywords,
+            retrieval_brief=retrieval_brief,
+        )
+
         # 決定後端
         interaction_mode = self._normalize_interaction_mode(interaction_mode)
         purpose = infer_backend_purpose(message) if infer_backend_purpose else "discussion"
         requested_backend = model_key if model_key != "auto" else self._requested_backend_for_purpose(purpose)
-        
+
         # 雲端優先邏輯
         if requested_backend == "open_source" and not self.oss_is_healthy:
             if self._is_cloud_available("nvidia"): requested_backend = "nvidia"
             elif self._is_cloud_available("groq"): requested_backend = "groq"
-        
+
         self._requested_backend = requested_backend
 
         reply = ""
         workflow_payload: dict = {}
-        role = str(role or "總管")
+        workflow_ran = False
+        live_llm_meta: dict[str, Any] = {
+            "ok": False,
+            "attempted": False,
+            "fallback_used": False,
+            "provider": requested_backend,
+        }
+        workflow_payload["retrieval"] = retrieval_payload
+        workflow_payload["keywords"] = turn_keywords
+        if retrieval_brief:
+            workflow_payload["retrieval_brief"] = retrieval_brief
         policy_active = bool(effective_policy.get("active"))
         is_training_task = self._is_bipolar_rumination_task(message)
-
         if policy_active and self._is_external_program_request(message):
             event = self._record_penalty_event(
                 role=role,
@@ -1043,87 +2446,100 @@ class DesktopBridge:
                 reason="任務禁止外部程式支援，本次申請已拒絕",
                 issue_code="E_POLICY_PENALTY",
             )
-            reply = self._build_policy_penalty_reply(role, event)
-            duration = round(time.time() - start_ts, 3)
-            self.last_reply = reply
-            return {
-                "ok": True,
-                "reply": reply,
-                "role": role,
-                "agent": self._role_to_agent_key(role),
-                "backend": requested_backend,
-                "duration_s": duration,
-                "response_time": duration,
-                "analysis": analysis,
-                "semantic_analysis": analysis,
-                "workflow": {},
-                "workflow_ran": False,
-                "purpose": "discussion",
-                "interaction_mode": "discussion",
-                "model": requested_backend,
-                "policy": dict(self.agent_task_policy),
-            }
-
-        if policy_active and is_training_task and bool(effective_policy.get("frontend_only_training")):
-            reply = self._build_bipolar_training_reply(role)
-            duration = round(time.time() - start_ts, 3)
-            self.last_reply = reply
-            if self.memory_manager:
-                try:
-                    self.memory_manager.save_conversation(
-                        agent_name=role,
-                        user_message=message,
-                        assistant_message=reply,
-                        metadata={
-                            "backend": requested_backend,
-                            "workflow_ran": False,
-                            "mode": "discussion",
-                            "purpose": "discussion",
-                            "policy_mode": "frontend_training_only",
-                        }
-                    )
-                except Exception:
-                    pass
-            return {
-                "ok": True,
-                "reply": reply,
-                "role": role,
-                "agent": self._role_to_agent_key(role),
-                "backend": requested_backend,
-                "duration_s": duration,
-                "response_time": duration,
-                "analysis": analysis,
-                "semantic_analysis": analysis,
-                "workflow": {},
-                "workflow_ran": False,
-                "purpose": "discussion",
-                "interaction_mode": "discussion",
-                "model": requested_backend,
-                "policy": dict(self.agent_task_policy),
-            }
-
-        # 明確任務才啟動 LangGraph；一般總管聊天保持輕量對談。
-        workflow_ran = False
-        should_run_workflow = self._should_run_workflow(message, role, purpose, interaction_mode)
+            return self._build_policy_response(
+                role=role,
+                reply=self._build_policy_penalty_reply(role, event),
+                requested_backend=requested_backend,
+                analysis=analysis,
+            )
         if (
             policy_active
             and is_training_task
-            and bool(effective_policy.get("agent_first"))
-            and bool(effective_policy.get("allow_external_program")) is False
+            and bool(effective_policy.get("frontend_only_training"))
         ):
-            should_run_workflow = False
-        if should_run_workflow:
+            return self._build_policy_response(
+                role=role,
+                reply=self._build_bipolar_training_reply(role),
+                requested_backend=requested_backend,
+                analysis=analysis,
+            )
+        should_run_workflow = self._should_run_workflow(message, role, purpose, interaction_mode)
+        react_loop = self._build_react_loop(
+            message=message,
+            purpose=purpose,
+            interaction_mode=interaction_mode,
+            should_run_workflow=should_run_workflow,
+            analysis=analysis,
+        )
+        workflow_payload["react"] = dict(react_loop)
+
+        if (not should_run_workflow) and self._is_langgraph_status_query(message):
+            reply = self._build_langgraph_status_guard_reply(role)
+            live_llm_meta = {
+                "ok": False,
+                "attempted": False,
+                "fallback_used": True,
+                "provider": requested_backend,
+                "fallback_reason": "langgraph_status_guard",
+            }
+            workflow_payload["llm_live"] = dict(live_llm_meta)
+
+        if (
+            (not should_run_workflow)
+            and self._prophet_should_stay_in_dialog(message, role, interaction_mode)
+            and self._is_dialog_quality_request(message)
+            and not reply.strip()
+        ):
+            reply = self._build_conversational_reply(
+                message=message,
+                role=role,
+                purpose=purpose,
+                requested_backend=requested_backend,
+                interaction_mode=interaction_mode,
+                analysis=analysis,
+                retrieval_brief="",
+            )
+            live_llm_meta = {
+                "ok": False,
+                "attempted": False,
+                "fallback_used": True,
+                "provider": requested_backend,
+                "fallback_reason": "prophet_dialog_first_guard",
+            }
+            workflow_payload["llm_live"] = dict(live_llm_meta)
+
+        if (
+            (not should_run_workflow)
+            and prophet_engineer_handoff
+            and render_prophet_engineer_base_reply
+            and not reply.strip()
+        ):
+            reply = render_prophet_engineer_base_reply(prophet_engineer_handoff)
+            live_llm_meta = {
+                "ok": False,
+                "attempted": False,
+                "fallback_used": True,
+                "provider": requested_backend,
+                "fallback_reason": "prophet_engineer_deterministic_handoff",
+            }
+            workflow_payload["llm_live"] = dict(live_llm_meta)
+
+        # 明確任務才啟動 LangGraph；一般申言者中樞聊天保持輕量對談。
+        if should_run_workflow and not reply.strip():
             try:
                 from core.langgraph_workflow import run_workflow
                 wf_result = run_workflow(message, workspace=str(self.workspace))
                 self.last_workflow_state = wf_result
-                workflow_payload = wf_result
+                if isinstance(wf_result, dict):
+                    workflow_payload.update(wf_result)
+                else:
+                    workflow_payload["raw"] = wf_result
                 workflow_ran = True
-                route = wf_result.get("route", role)
-                result = str(wf_result.get("result", "")).strip()
-                verification = str(wf_result.get("verification_notes", "")).strip()
-                risk_level = str(wf_result.get("risk_level", "L0")).strip()
-                precheck = str(wf_result.get("precheck_owner", "無")).strip()
+                route = workflow_payload.get("route", role)
+                result = str(workflow_payload.get("result", "")).strip()
+                verification = str(workflow_payload.get("verification_notes", "")).strip()
+                risk_level = str(workflow_payload.get("risk_level", "L0")).strip()
+                precheck = str(workflow_payload.get("precheck_owner", "無")).strip()
                 if result:
                     reply = f"【{route}】\n{result}"
                     if verification:
@@ -1132,6 +2548,24 @@ class DesktopBridge:
                         reply += f"\n[風險分級] {risk_level}（前置：{precheck}）"
             except Exception as e:
                 reply = f"【{role}】工作流執行失敗：{e}"
+            live_llm_meta = {
+                "ok": False,
+                "attempted": False,
+                "fallback_used": True,
+                "provider": requested_backend,
+                "fallback_reason": "workflow_mode",
+            }
+            workflow_payload["llm_live"] = dict(live_llm_meta)
+        elif (not should_run_workflow) and (not reply.strip()):
+            live_reply, live_llm_meta = self._generate_live_llm_reply(
+                message=message,
+                role=role,
+                requested_backend=requested_backend,
+                retrieval_brief=retrieval_brief,
+            )
+            if live_reply.strip():
+                reply = live_reply.strip()
+            workflow_payload["llm_live"] = dict(live_llm_meta)
 
         # 後備回覆：一般對談避免暴露巡檢細節；任務失敗才給簡短狀態。
         if not reply.strip():
@@ -1143,6 +2577,7 @@ class DesktopBridge:
                     requested_backend,
                     interaction_mode,
                     analysis,
+                    retrieval_brief,
                 )
             else:
                 reply = (
@@ -1151,6 +2586,101 @@ class DesktopBridge:
                     f"\n- 模式：{interaction_mode}"
                     f"\n- 後端：{requested_backend}"
                 )
+        if (
+            not should_run_workflow
+            and not live_llm_meta.get("attempted")
+            and not live_llm_meta.get("fallback_reason")
+        ):
+            live_llm_meta = {
+                "ok": False,
+                "attempted": False,
+                "fallback_used": True,
+                "provider": requested_backend,
+                "fallback_reason": "no_live_call",
+            }
+            workflow_payload["llm_live"] = dict(live_llm_meta)
+        elif not should_run_workflow and not live_llm_meta.get("ok"):
+            workflow_payload["llm_live"] = dict(live_llm_meta)
+        self.last_live_llm_meta = dict(live_llm_meta)
+
+        reply = self._apply_reply_diversity(
+            message=message,
+            role=role,
+            analysis=analysis,
+            reply=reply,
+            workflow_ran=workflow_ran,
+        )
+
+        completion = self._evaluate_completion(
+            should_run_workflow=should_run_workflow,
+            workflow_payload=workflow_payload,
+            workflow_ran=workflow_ran,
+            reply=reply,
+        )
+        react_loop["observation"] = self._summarize_workflow_observation(
+            workflow_payload=workflow_payload, workflow_ran=workflow_ran, reply=reply
+        )
+        react_loop["refinement"] = (
+            "Escalate to human reviewer." if not completion.get("done") else "Proceed."
+        )
+        workflow_payload["react"] = dict(react_loop)
+
+        escalation_required, escalation_reason = self._should_escalate_to_human(
+            message=message,
+            completion=completion,
+            should_run_workflow=should_run_workflow,
+        )
+        escalation = {
+            "required": bool(escalation_required),
+            "reason": escalation_reason,
+            "fail_streak": int(self.workflow_fail_streak),
+        }
+        if escalation_required:
+            completion["state"] = "escalated"
+            completion["done"] = False
+            reply += "\n\n[人工覆核]\n" + self._build_human_escalation_reply(escalation_reason)
+        elif prophet_engineer_handoff and render_prophet_engineer_reply:
+            try:
+                reply = render_prophet_engineer_reply(reply, prophet_engineer_handoff)
+            except Exception:
+                pass
+
+        self._remember_dialog_turn(
+            user_message=message,
+            assistant_message=reply,
+            analysis=analysis,
+            workflow_ran=workflow_ran,
+        )
+        self._record_turn_artifacts(
+            session_id=session_id,
+            role=role,
+            user_message=message,
+            assistant_message=reply,
+            analysis=analysis,
+            keywords=turn_keywords,
+            retrieval=retrieval_payload,
+            workflow_ran=workflow_ran,
+            backend=requested_backend,
+            purpose=purpose,
+            interaction_mode=interaction_mode,
+        )
+        turn_id = f"{session_id or 'default'}#turn:{self.reply_counter}"
+        if prophet_engineer_handoff:
+            self._record_prophet_engineer_handoff(
+                session_id=session_id,
+                turn_id=turn_id,
+                handoff=prophet_engineer_handoff,
+            )
+        self._persist_training_overlay_sample(
+            session_id=session_id,
+            role=role,
+            user_message=message,
+            assistant_message=reply,
+            analysis=analysis,
+            keywords=turn_keywords,
+            workflow_ran=workflow_ran,
+            backend=requested_backend,
+        )
 
         # 強制存入永久記憶 (Permanent Memory Save)
         if self.memory_manager:
@@ -1163,7 +2693,12 @@ class DesktopBridge:
                         "backend": requested_backend,
                         "workflow_ran": workflow_ran,
                         "mode": interaction_mode,
-                        "purpose": purpose
+                        "purpose": purpose,
+                        "completion_state": completion.get("state", ""),
+                        "escalation_required": bool(escalation_required),
+                        "react_action": react_loop.get("action", ""),
+                        "keywords": turn_keywords[:8],
+                        "retrieval_match_count": int(retrieval_payload.get("match_count", 0) or 0),
                     }
                 )
             except Exception:
@@ -1171,7 +2706,7 @@ class DesktopBridge:
 
         duration = round(time.time() - start_ts, 3)
         self.last_reply = reply
-        
+
         return {
             "ok": True,
             "reply": reply,
@@ -1182,12 +2717,18 @@ class DesktopBridge:
             "response_time": duration,
             "analysis": analysis,
             "semantic_analysis": analysis,
+            "keywords": turn_keywords,
+            "retrieval": retrieval_payload,
             "workflow": workflow_payload,
             "workflow_ran": workflow_ran,
+            "llm_live": live_llm_meta,
             "purpose": purpose,
             "interaction_mode": interaction_mode,
             "model": requested_backend,
-            "policy": dict(self.agent_task_policy),
+            "completion": completion,
+            "escalation": escalation,
+            "react": react_loop,
+            "prophet_engineer_handoff": prophet_engineer_handoff,
         }
 
     def _system_profile(self) -> dict:
@@ -1199,12 +2740,27 @@ class DesktopBridge:
         return {"cpu_percent": 0, "memory_percent": 0}
 
     def _api_health(self) -> dict:
+        if cns_llm_snapshot is not None:
+            try:
+                snapshot = cns_llm_snapshot(self.workspace) or {}
+                return {
+                    "key_source": str(snapshot.get("key_source", "NVAPI_API_KEY")),
+                    "key_state": str(snapshot.get("key_state", "未知")),
+                    "model_state": str(snapshot.get("model", "未設定")),
+                    "open_source_model": str(snapshot.get("open_source_model", "未設定")),
+                }
+            except Exception:
+                pass
         env = self._load_merged_env_data()
-        nv_key = env.get("NVAPI_API_KEY", "")
+        nv_key = str(env.get("NVAPI_API_KEY", "") or "").strip()
+        model = str(env.get("OPENAI_MODEL", "") or "").strip() or "未設定"
         return {
             "key_source": "NVAPI_API_KEY",
             "key_state": "已設定" if len(nv_key) > 20 else "未設定",
-            "model_state": "qwen2.5:7b" if self.oss_is_healthy else "雲端模式"
+            "model_state": model,
+            "open_source_model": str(
+                env.get("OPEN_SOURCE_CHAT_MODEL", env.get("OLLAMA_MODEL", "未設定"))
+            ),
         }
 
     def _git_status_filtered(self, short: bool = True) -> str:
@@ -1221,7 +2777,19 @@ class DesktopBridge:
         }
 
     def get_api_onboarding_info(self) -> dict:
-        return {"providers": PROVIDER_PROFILES} if 'PROVIDER_PROFILES' in globals() else {"providers": []}
+        if cns_frontend_provider_status is not None:
+            try:
+                return {"providers": cns_frontend_provider_status(self.workspace)}
+            except Exception:
+                pass
+        if cns_provider_matrix is not None:
+            try:
+                env = self._load_merged_env_data()
+                rows = cns_provider_matrix(env)
+                return {"providers": {"rows": rows}}
+            except Exception:
+                pass
+        return {"providers": {}}
 
     def _get_available_models(self) -> list:
         return [{"name": "qwen2.5:7b", "size_gb": 4.7}]
@@ -1231,10 +2799,24 @@ class DesktopBridge:
         return True
 
     def rerun_workflow_step(self, task_id: str, tool_name: str, step_index: int) -> dict:
-        return {"ok": False, "message": "此模式暫不支援重跑步驟"}
+        from core.workflow_runtime import rerun_task_step
+
+        result = rerun_task_step(
+            workspace=self.workspace,
+            task_id=task_id,
+            tool_name=tool_name,
+            step_index=step_index if step_index >= 0 else None,
+            include_downstream=True,
+        )
+        state = result.get("task_state", {}) if isinstance(result, dict) else {}
+        return {
+            "ok": str(state.get("overall_status", "")).lower() in {"success", "partial"},
+            "message": "工作流步驟已重新執行",
+            **result,
+        }
 
     def _load_offline_replies(self) -> dict:
-        return {"總管": ["離線模式已就緒"]}
+        return {"申言者": ["離線模式已就緒"]}
 
     def _init_quick_replies(self) -> list:
         return [{"id": "status", "text": "檢查系統狀態"}]
@@ -1260,16 +2842,16 @@ def main():
 
     if args.mode == "web":
         return run_web_server_mode(bridge, bridge.workspace, args.host, args.port, args.open_browser)
-    
+
     # 桌面模式
     try:
         import webview
     except ImportError:
         print("❌ 找不到 pywebview，請執行 pip install pywebview")
         return 1
-        
+
     bridge.window = webview.create_window(
-        "智能體控制中心", 
+        "智能體控制中心",
         url=str(CHAT_SHELL_HTML),
         js_api=bridge,
         width=1200, height=800

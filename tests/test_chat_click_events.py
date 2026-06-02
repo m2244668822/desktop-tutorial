@@ -30,14 +30,16 @@ class ChatClickEventsTests(unittest.TestCase):
         ]:
             self.assertIn(f'function {fn}', self.html)
 
-    def test_agent_aliases_do_not_collapse_general_into_dispatcher(self):
-        self.assertIn('manager: "dispatcher"', self.html)
+    def test_agent_aliases_route_legacy_manager_to_proclaimer(self):
+        self.assertIn('dispatcher: "proclaimer"', self.html)
+        self.assertIn('manager: "proclaimer"', self.html)
         self.assertNotIn('general: "dispatcher"', self.html)
+        self.assertNotIn('manager: "dispatcher"', self.html)
         self.assertIn("selectAgent('general','🤖','通用')", self.html)
 
     def test_backend_frontend_agent_keys_match_sidebar_entries(self):
         for token in [
-            '"總管": "dispatcher"',
+            '"總管": "proclaimer"',
             '"申言者": "proclaimer"',
             '"帽子": "whitehat"',
         ]:

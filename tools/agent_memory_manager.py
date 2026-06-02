@@ -34,6 +34,19 @@ import threading
 import hashlib
 
 
+def _configure_utf8_stdio() -> None:
+    """Keep Windows terminals from crashing on UTF-8 status text."""
+    for stream in (getattr(sys, "stdout", None), getattr(sys, "stderr", None)):
+        try:
+            if hasattr(stream, "reconfigure"):
+                stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
+_configure_utf8_stdio()
+
+
 def _resolve_data_root(base_dir: Path) -> Path:
     primary = base_dir / "data"
     fallback = base_dir / "data_hdd_storage"

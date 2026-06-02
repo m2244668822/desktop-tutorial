@@ -4,7 +4,6 @@ This is the routing layer for old Markdown material. It does not delete files; i
 
 ## Active Spine
 
-- `docs/dev/DAILY_GIT_ALIGNMENT_AND_MD_OPTIMIZATION_2026-05-28.md` -> KEEP_CURRENT_CHECK_CODE_SYNC; in=0; out=2
 - `docs/dev/AGENT_RELATIONSHIP_ENHANCEMENT_PLAYBOOK_2026-05-25.md` -> KEEP_CURRENT_CHECK_CODE_SYNC; in=3; out=3
 - `docs/dev/AGENT_REPLY_OPTIMIZATION_VERIFICATION_2026-05-25.md` -> KEEP_CURRENT_CHECK_CODE_SYNC; in=5; out=3
 - `docs/dev/CROSS_SYSTEM_LINKAGE_AND_DOC_CONSOLIDATION_2026-05-26.md` -> KEEP_CURRENT_CHECK_CODE_SYNC; in=7; out=10
@@ -21,10 +20,10 @@ This is the routing layer for old Markdown material. It does not delete files; i
 
 ## Old Docs Needing Review
 
-- `docs/runbooks/cors-low-restrict-policy.md` -> KEEP_CURRENT_CHECK_CODE_SYNC; signals=gateway,security (validated-2026-05-28)
-- `docs/runbooks/frontend-backend-route-compat.md` -> KEEP_CURRENT_CHECK_CODE_SYNC; signals=gateway (validated-2026-05-28)
-- `docs/runbooks/knowledge_hub_faiss_enablement.md` -> KEEP_CURRENT_CHECK_CODE_SYNC; signals=memory (validated-2026-05-28)
-- `docs/runbooks/startup-command-contract.md` -> KEEP_CURRENT_CHECK_CODE_SYNC; signals=gateway,ops (validated-2026-05-28)
+- `docs/runbooks/cors-low-restrict-policy.md` -> REVIEW_ACTIVE_DOC; signals=none
+- `docs/runbooks/frontend-backend-route-compat.md` -> REVIEW_ACTIVE_DOC; signals=gateway
+- `docs/runbooks/knowledge_hub_faiss_enablement.md` -> REVIEW_ACTIVE_DOC; signals=memory
+- `docs/runbooks/startup-command-contract.md` -> REVIEW_ACTIVE_DOC; signals=gateway
 - `docs/履歷使用指南.md` -> REVIEW_ACTIVE_DOC; signals=none
 - `docs/快速參考.md` -> REVIEW_ACTIVE_DOC; signals=none
 - `docs/智能體快速啟動.md` -> REVIEW_ACTIVE_DOC; signals=none
@@ -76,7 +75,6 @@ This is the routing layer for old Markdown material. It does not delete files; i
 ## Reports Are Snapshots
 
 - `reports/AEG_SHARED_REPORT.md` -> REVIEW_RECENT_REPORT
-- `reports/AGENT_COMMON_STATUS_20260521_CONSOLIDATED.md` -> KEEP_CURRENT_CHECK_CODE_SYNC
 - `reports/AGENT_COMMON_STATUS_20260521_151420.md` -> CONSOLIDATE_OR_ARCHIVE
 - `reports/AGENT_COMMON_STATUS_20260521_153300.md` -> CONSOLIDATE_OR_ARCHIVE
 - `reports/AGENT_COMMON_STATUS_20260521_155404.md` -> CONSOLIDATE_OR_ARCHIVE
@@ -146,6 +144,11 @@ This is the routing layer for old Markdown material. It does not delete files; i
 - `500/llama32-chat/docs/認知能力系統使用指南.md` -> MERGE_IF_STILL_TRUE; signals=none
 ## 2026-05-27 快速交接新增
 - `docs/dev/STARTUP_ENCODING_AND_STRUCTURE_HANDOFF_2026-05-27.md` -> `KEEP_CURRENT_CHECK_CODE_SYNC`; role=startup, encoding, Windows path, Python structure, Git/Obsidian handoff
+
+## 2026-05-28 早班穩定化新增
+- `docs/dev/DAILY_MINIMUM_GRAPH_AND_DIALOG_BACKWRITE_STANDARD_2026-05-28.md` -> `KEEP_CURRENT_CHECK_CODE_SYNC`; role=graph, dialog-backwrite, prophet-engineer handoff, three-link standard
+- `docs/dev/N8N_AND_PROPHET_ENGINEER_STABILITY_REPORT_2026-05-28.md` -> `KEEP_CURRENT_CHECK_CODE_SYNC`; role=n8n watchdog, deterministic handoff, FAISS bilingual memory
+- `docs/dev/WORKDAY_HANDOFF_PROGRESS_2026-05-28_0750.md` -> `KEEP_CURRENT_CHECK_CODE_SYNC`; role=workday handoff, verification summary, Mac continuation
 
 ## 2026-05-28 補強紀錄
 - 已完成 runbook 級補強（可執行驗證版）：
