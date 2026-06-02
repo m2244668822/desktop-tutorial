@@ -5,16 +5,22 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 PYTHON_BIN=""
-if [ -x ".venv/bin/python" ]; then
-  PYTHON_BIN=".venv/bin/python"
-elif [ -x ".venv/Scripts/python.exe" ]; then
-  PYTHON_BIN=".venv/Scripts/python.exe"
-fi
+for candidate in \
+  ".venv312/bin/python3" \
+  ".venv312/bin/python" \
+  ".venv/bin/python3" \
+  ".venv/bin/python" \
+  "$(command -v python3 || true)"
+do
+  if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+    PYTHON_BIN="$candidate"
+    break
+  fi
+done
 
 if [ -z "$PYTHON_BIN" ]; then
-  echo "❌ 找不到 .venv/bin/python"
-  echo "   也找不到 .venv/Scripts/python.exe"
-  echo "   請先建立或修復 .venv（macOS/Linux 或 Windows）。"
+  echo "❌ 找不到可執行的 macOS/Linux Python。"
+  echo "   Windows 的 .venv/Scripts/python.exe 不可在 macOS 直接使用。"
   exit 1
 fi
 

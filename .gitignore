@@ -94,6 +94,7 @@ reports/evals/
 
 # Local assistant/tooling state from desktop runs
 .claude/settings.local.json
+.openclaw/
 .playwright-cli/
 .tmp_*.py
 message.txt

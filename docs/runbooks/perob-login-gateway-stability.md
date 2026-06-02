@@ -1,6 +1,6 @@
 # Perob 登入入口穩定度 Runbook（Git 對齊版）
 
-更新日期：2026-05-29  
+更新日期：2026-06-03
 適用目標：快速啟動「前端大門 + 後端廚房 + HTTPS 入口」並降低 `ERR_CONNECTION_REFUSED`
 
 ## 1) 核心結論（先看這段）
@@ -21,11 +21,14 @@ flowchart LR
   B --> C["Backend API\n127.0.0.1:5001"]
   C --> D["LLM Router / Agents"]
   C --> E["SQLite / FAISS / Reports"]
+  C --> F["OpenClaw Gateway\n127.0.0.1:18789"]
+  F --> G["Lobster workflows"]
 ```
 
 重點：
 - 前端畫面只是入口，實際回應要靠 `5001`。
 - `5443` 只是 HTTPS 門面，內部轉發到 `5001`。
+- `18789` 是 OpenClaw 協作控制平面；即使它降級，Perob 原生 Bridge 仍保留回退能力。
 
 ## 3) Git 對齊規範（登入前）
 
@@ -44,6 +47,8 @@ git status -sb
 ```bash
 # A. 後端
 curl -sS -m 4 http://127.0.0.1:5001/status
+curl -sS -m 4 http://127.0.0.1:5001/health/live
+curl -sS -m 4 http://127.0.0.1:5001/health/ready
 
 # B. HTTPS 代理（強制走本機）
 curl -k -sS -m 6 --resolve perob.com:5443:127.0.0.1 \
@@ -66,8 +71,10 @@ bash tools/manage_perob_stack.sh restart
 ```
 
 補充：
-- 這個指令會重啟後端、HTTPS 代理與前端代理服務（LaunchAgent 管理）。
+- 這個指令會重啟後端與 HTTPS 代理。前端由 `5001` 同一服務提供，不再額外啟動 `5002`。
 - 如果你只想看狀態：`bash tools/manage_perob_stack.sh status`
+- 正式工作區位於外接硬碟時，預設使用 Terminal-safe 背景模式，避免 macOS `launchd` 權限迴圈。
+- 若已在「系統設定 → 隱私權與安全性 → 完整磁碟存取」允許 Python，可用 `PEROB_USE_LAUNCHAGENT=1 bash tools/manage_perob_stack.sh restart` 切換回 LaunchAgent。
 
 ## 6) 若出現 `ERR_CONNECTION_REFUSED`（分流）
 
@@ -80,7 +87,7 @@ lsof -nP -iTCP:5443 -sTCP:LISTEN
 ### Step 2：若 `5001` 沒在聽
 ```bash
 cd /Volumes/智能體/城城城程式
-python3 desktop_chat_app.py web --host 127.0.0.1 --port 5001 --energy-lite
+python3 system_main.py web --host 127.0.0.1 --port 5001 --energy-lite
 ```
 
 ### Step 3：若 `5443` 沒在聽
@@ -114,6 +121,7 @@ git fetch origin
 git status -sb
 bash tools/manage_perob_stack.sh restart
 curl -sS http://127.0.0.1:5001/status
+curl -sS http://127.0.0.1:5001/health/ready
 curl -k -sS --resolve perob.com:5443:127.0.0.1 https://perob.com:5443/status
 ```
 

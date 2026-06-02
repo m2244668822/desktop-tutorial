@@ -46,10 +46,12 @@ while [[ $attempt -lt $max_attempt ]]; do
   done
 
   if lsof -nP -iTCP:5001 -sTCP:LISTEN >/dev/null 2>&1; then
-    echo "[start] success pid=$pid"
-    lsof -nP -iTCP:5001 -sTCP:LISTEN || true
-    curl -sS http://127.0.0.1:5001/status || true
-    exit 0
+    if curl -fsS -m 5 http://127.0.0.1:5001/health/live >/dev/null 2>&1; then
+      echo "[start] success pid=$pid"
+      lsof -nP -iTCP:5001 -sTCP:LISTEN || true
+      curl -sS http://127.0.0.1:5001/health/ready || true
+      exit 0
+    fi
   fi
 
   echo "[start] failed, log tail:"

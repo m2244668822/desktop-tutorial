@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+echo "[pre-push] Agent Git Autopilot guard..."
+if [[ "${GIT_AUTOPILOT_STRICT_PUSH:-0}" == "1" ]]; then
+  python3 tools/agent_git_autopilot.py guard --strict --cwd "$REPO_ROOT"
+else
+  python3 tools/agent_git_autopilot.py guard --cwd "$REPO_ROOT"
+fi
+
+echo "[pre-push] OK"
+exit 0

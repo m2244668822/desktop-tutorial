@@ -20,7 +20,18 @@ class OpenClawAdapter:
         self.workspace = Path(workspace).expanduser().resolve()
         self.host = os.getenv("OPENCLAW_GATEWAY_HOST", "127.0.0.1").strip() or "127.0.0.1"
         self.port = int(os.getenv("OPENCLAW_GATEWAY_PORT", "18789") or 18789)
+        token_file = Path(
+            os.getenv(
+                "OPENCLAW_GATEWAY_TOKEN_FILE",
+                str(Path.home() / ".openclaw" / "perob-gateway-token"),
+            )
+        ).expanduser()
         self.token = os.getenv("OPENCLAW_GATEWAY_TOKEN", "").strip()
+        if not self.token and token_file.is_file():
+            try:
+                self.token = token_file.read_text(encoding="utf-8").strip()
+            except OSError:
+                self.token = ""
         self.task_endpoint = os.getenv("OPENCLAW_TASK_ENDPOINT", "").strip()
         self.enabled = os.getenv("OPENCLAW_ENABLED", "false").strip().lower() == "true"
 

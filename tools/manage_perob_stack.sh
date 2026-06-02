@@ -3,12 +3,35 @@ set -euo pipefail
 
 ACTION="${1:-status}"
 UID_NUM="$(id -u)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LOG_DIR="$ROOT/logs/launchagents"
+PID_DIR="$ROOT/logs/pids"
 
 BACKEND_LABEL="com.user.perob-backend"
 HTTPS_LABEL="com.user.perob-https"
 
 BACKEND_PLIST="$HOME/Library/LaunchAgents/${BACKEND_LABEL}.plist"
 HTTPS_PLIST="$HOME/Library/LaunchAgents/${HTTPS_LABEL}.plist"
+BACKEND_PIDFILE="$PID_DIR/perob-backend-manual.pid"
+HTTPS_PIDFILE="$PID_DIR/perob-https-manual.pid"
+
+mkdir -p "$LOG_DIR" "$PID_DIR"
+
+PYTHON_BIN=""
+for candidate in \
+  "$ROOT/.venv312/bin/python3" \
+  "$ROOT/.venv312/bin/python" \
+  "$ROOT/.venv/bin/python3" \
+  "$ROOT/.venv/bin/python" \
+  "$(command -v python3 || true)"
+do
+  if [[ -n "$candidate" && -x "$candidate" ]]; then
+    PYTHON_BIN="$candidate"
+    break
+  fi
+done
+
+[[ -n "$PYTHON_BIN" ]] || { echo "[error] no runnable Python found" >&2; exit 1; }
 
 load_agent() {
   local label="$1"
@@ -22,6 +45,56 @@ load_agent() {
 unload_agent() {
   local label="$1"
   launchctl bootout "gui/${UID_NUM}/${label}" >/dev/null 2>&1 || true
+}
+
+stop_pidfile() {
+  local pidfile="$1"
+  if [[ -f "$pidfile" ]]; then
+    local pid
+    pid="$(cat "$pidfile" 2>/dev/null || true)"
+    if [[ -n "$pid" ]]; then
+      kill "$pid" >/dev/null 2>&1 || true
+    fi
+    rm -f "$pidfile"
+  fi
+}
+
+stop_port() {
+  local port="$1"
+  local pids
+  pids="$(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)"
+  if [[ -n "$pids" ]]; then
+    echo "$pids" | xargs kill >/dev/null 2>&1 || true
+  fi
+}
+
+start_manual_backend() {
+  echo "[fallback] launchd cannot access the external-volume workspace; starting backend with nohup"
+  (
+    cd "$ROOT"
+    nohup env OPENCLAW_ENABLED=true PYTHONUNBUFFERED=1 PYTHONUTF8=1 \
+      "$PYTHON_BIN" -u "$ROOT/system_main.py" web \
+      --host 127.0.0.1 --port 5001 --energy-lite --skip-health \
+      >"$LOG_DIR/perob-backend.out" 2>"$LOG_DIR/perob-backend.err" &
+    echo "$!" >"$BACKEND_PIDFILE"
+  )
+}
+
+start_manual_https() {
+  echo "[fallback] starting HTTPS proxy with nohup"
+  (
+    cd "$ROOT"
+    nohup "$PYTHON_BIN" -u "$ROOT/tools/https_local_proxy.py" \
+      --listen-host 0.0.0.0 \
+      --listen-port 5443 \
+      --upstream-host 127.0.0.1 \
+      --upstream-port 5001 \
+      --certfile "$ROOT/certs/local-https.crt" \
+      --keyfile "$ROOT/certs/local-https.key" \
+      --external-https-base https://perob.com:5443 \
+      >"$LOG_DIR/perob-https.out" 2>"$LOG_DIR/perob-https.err" &
+    echo "$!" >"$HTTPS_PIDFILE"
+  )
 }
 
 print_agent() {
@@ -43,8 +116,9 @@ status_ports() {
 wait_http() {
   local url="$1"
   local name="$2"
-  for _ in $(seq 1 30); do
-    if curl -fsS -m 3 "$url" >/dev/null 2>&1; then
+  local attempts="${3:-30}"
+  for _ in $(seq 1 "$attempts"); do
+    if curl -kfsS -m 3 "$url" >/dev/null 2>&1; then
       echo "[ok] ${name}: ${url}"
       return 0
     fi
@@ -58,8 +132,30 @@ start_all() {
   [[ -f "$BACKEND_PLIST" ]] || { echo "[error] missing: $BACKEND_PLIST"; exit 1; }
   [[ -f "$HTTPS_PLIST" ]] || { echo "[error] missing: $HTTPS_PLIST"; exit 1; }
 
-  load_agent "$BACKEND_LABEL" "$BACKEND_PLIST"
-  load_agent "$HTTPS_LABEL" "$HTTPS_PLIST"
+  if [[ "$ROOT" == /Volumes/* && "${PEROB_USE_LAUNCHAGENT:-0}" != "1" ]]; then
+    echo "[info] external-volume workspace detected; using Terminal-safe background mode"
+    start_manual_backend
+    wait_http "http://127.0.0.1:5001/health/live" "backend fallback live"
+  else
+    load_agent "$BACKEND_LABEL" "$BACKEND_PLIST"
+    if ! wait_http "http://127.0.0.1:5001/health/live" "backend live" 6; then
+      unload_agent "$BACKEND_LABEL"
+      stop_port 5001
+      start_manual_backend
+      wait_http "http://127.0.0.1:5001/health/live" "backend fallback live"
+    fi
+  fi
+
+  if [[ "$ROOT" == /Volumes/* && "${PEROB_USE_LAUNCHAGENT:-0}" != "1" ]]; then
+    start_manual_https
+  else
+    load_agent "$HTTPS_LABEL" "$HTTPS_PLIST"
+    if ! wait_http "https://127.0.0.1:5443/status" "https proxy" 6; then
+      unload_agent "$HTTPS_LABEL"
+      stop_port 5443
+      start_manual_https
+    fi
+  fi
 
   wait_http "http://127.0.0.1:5001/health/ready" "backend + frontend" || true
   curl -kfsS -m 5 https://127.0.0.1:5443/status >/dev/null 2>&1 \
@@ -70,6 +166,10 @@ start_all() {
 stop_all() {
   unload_agent "$HTTPS_LABEL"
   unload_agent "$BACKEND_LABEL"
+  stop_pidfile "$HTTPS_PIDFILE"
+  stop_pidfile "$BACKEND_PIDFILE"
+  stop_port 5443
+  stop_port 5001
 }
 
 status_all() {

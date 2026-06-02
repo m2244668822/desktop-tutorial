@@ -19,11 +19,13 @@ HOP_BY_HOP_HEADERS = {
     "upgrade",
     "host",
 }
+# The proxy recalculates Content-Length after reading the upstream body.
+UPSTREAM_METADATA_HEADERS = {"server", "date", "content-length"}
 
 
 class ProxyHandler(BaseHTTPRequestHandler):
     upstream_host: str = "127.0.0.1"
-    upstream_port: int = 5002
+    upstream_port: int = 5001
     external_https_base: str = "https://127.0.0.1:5443"
 
     protocol_version = "HTTP/1.1"
@@ -39,7 +41,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             return value
 
         normalized_port = parsed.port
-        if normalized_port not in {5001, 5002, cls.upstream_port}:
+        if normalized_port not in {5001, cls.upstream_port}:
             return value
 
         base = urlsplit(cls.external_https_base.rstrip("/"))
@@ -88,7 +90,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             self.send_response(resp.status, resp.reason)
             for k, v in resp.getheaders():
                 lk = k.lower()
-                if lk in HOP_BY_HOP_HEADERS:
+                if lk in HOP_BY_HOP_HEADERS or lk in UPSTREAM_METADATA_HEADERS:
                     continue
                 if lk == "location":
                     v = self._rewrite_location(v)
@@ -137,7 +139,7 @@ def main() -> None:
     parser.add_argument("--listen-host", default="0.0.0.0")
     parser.add_argument("--listen-port", type=int, default=5443)
     parser.add_argument("--upstream-host", default="127.0.0.1")
-    parser.add_argument("--upstream-port", type=int, default=5002)
+    parser.add_argument("--upstream-port", type=int, default=5001)
     parser.add_argument("--certfile", required=True)
     parser.add_argument("--keyfile", required=True)
     parser.add_argument("--external-https-base", default="")

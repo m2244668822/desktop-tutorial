@@ -6,11 +6,14 @@ System Diagnostic Tool - Complete System Health Check
 """
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
 from datetime import datetime
 import time
+
+BASE_DIR = Path(__file__).resolve().parent
 
 
 def run_command(cmd):
@@ -67,29 +70,35 @@ def check_ollama_api():
 
 
 def check_system_memory():
-    """檢查系統內存"""
+    """檢查系統內存；避免用單一 unused MB 快照誤判。"""
     print("\n【3. 系統內存檢查】")
-    output, code = run_command("top -l 1 | grep PhysMem")
-
-    if code == 0 and output:
-        print(f"  ✅ {output}")
-        # 提取無使用內存
-        if "unused" in output:
-            unused = output.split("unused")[0].split()[-1]
-            unused_mb = int(unused.rstrip("M"))
-            if unused_mb > 100:
-                print(f"     狀態: 內存充足")
+    pressure, pressure_code = run_command("memory_pressure -Q")
+    swap, _ = run_command("sysctl vm.swapusage")
+    top_line, _ = run_command("top -l 1 | grep PhysMem")
+    if top_line:
+        print(f"  ℹ️ {top_line}")
+    if swap:
+        print(f"  ℹ️ {swap}")
+    if pressure_code == 0 and pressure:
+        match = re.search(r"System-wide memory free percentage:\\s*(\\d+)%", pressure)
+        if match:
+            free_percent = int(match.group(1))
+            print(f"  ✅ 系統可用記憶體比例: {free_percent}%")
+            if free_percent >= 15:
+                print("     狀態: 可運作；大型索引重建仍建議使用背景批次")
                 return True
-            else:
-                print(f"     警告: 內存不足 ({unused_mb}MB)")
-                return False
+            print("     警告: 記憶體壓力偏高，請暫停大型 JSON 與 FAISS 重建")
+            return False
+    print("  ⚠️ 無法讀取 memory_pressure，降級採用即時快照")
+    if top_line and "unused" in top_line:
+        return True
     return False
 
 
 def check_knowledge_base():
     """檢查知識庫文件"""
     print("\n【4. 知識庫文件檢查】")
-    base_path = Path("/Volumes/智能體/城城城程式/500/llama32-chat/data/local_knowledge")
+    base_path = BASE_DIR / "500" / "llama32-chat" / "data" / "local_knowledge"
 
     required_files = [
         "complete_chatgpt_database.json",
@@ -111,20 +120,23 @@ def check_knowledge_base():
 
 
 def check_chat_system():
-    """檢查聊天系統文件"""
+    """檢查目前主線；舊離線腳本僅作 legacy 參考，不再視為必要檔。"""
     print("\n【5. 聊天系統文件檢查】")
-    base_path = Path("/Volumes/智能體/城城城程式/500/llama32-chat")
-
-    required_files = ["offline_local_chat.py", "offline_local_chat_fixed.py"]
+    required_files = [
+        BASE_DIR / "system_main.py",
+        BASE_DIR / "desktop_chat_app.py",
+        BASE_DIR / "core" / "web_server.py",
+        BASE_DIR / "core" / "knowledge_hub.py",
+    ]
 
     all_exist = True
-    for file_name in required_files:
-        file_path = base_path / file_name
+    for file_path in required_files:
         if file_path.exists():
-            print(f"  ✅ {file_name}")
+            print(f"  ✅ {file_path.relative_to(BASE_DIR)}")
         else:
-            print(f"  ❌ {file_name} 不存在")
+            print(f"  ❌ {file_path.relative_to(BASE_DIR)} 不存在")
             all_exist = False
+    print("  ℹ️ 舊 offline_local_chat*.py 已退出正式主線，不再作為啟動必要條件")
 
     return all_exist
 
@@ -145,9 +157,9 @@ def print_summary(results):
 
     if all_good:
         print("\n🟢 系統完全就緒！")
-        print("\n下一步: 運行以下命令启動聊天系統")
-        print("   cd /Volumes/智能體/城城城程式/500/llama32-chat")
-        print("   python3 offline_local_chat.py")
+        print("\n下一步: 運行以下命令啟動聊天系統")
+        print(f"   cd {BASE_DIR}")
+        print("   python3 system_main.py web --host 127.0.0.1 --port 5001 --energy-lite")
     else:
         print("\n🔴 系統存在問題，請檢查上方的詳細報告")
 

@@ -13,6 +13,7 @@ for _ in 1 2 3 4 5; do
 done
 
 mkdir -p certs
+LAN_IP="${PEROB_LAN_IP:-}"
 cat > certs/openssl_perob.cnf <<'EOF'
 [ req ]
 default_bits       = 2048
@@ -34,14 +35,17 @@ extendedKeyUsage = serverAuth
 DNS.1 = perob.com
 DNS.2 = localhost
 IP.1 = 127.0.0.1
-IP.2 = 172.20.10.2
 EOF
+if [[ -n "$LAN_IP" ]]; then
+  printf 'IP.2 = %s\n' "$LAN_IP" >> certs/openssl_perob.cnf
+fi
 
 echo "[3/6] regenerate local-https certificate"
 openssl req -x509 -nodes -days 825 -newkey rsa:2048 \
   -keyout certs/local-https.key \
   -out certs/local-https.crt \
   -config certs/openssl_perob.cnf
+chmod 600 certs/local-https.key
 
 echo "[4/6] trust certificate in macOS login keychain (may prompt for password)"
 security add-trusted-cert -d -r trustRoot \

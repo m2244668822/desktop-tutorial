@@ -25,8 +25,25 @@ class KnowledgeHub:
         self._lock = threading.Lock()
         self._last_rebuild_at = ""
         self._last_error = ""
+        self._rebuild_thread: threading.Thread | None = None
+        self._last_status: dict[str, Any] = {}
+        self._rebuild_state: dict[str, Any] = {
+            "running": False,
+            "started_at": "",
+            "finished_at": "",
+            "result": {},
+        }
 
     def status(self) -> dict[str, Any]:
+        if self._rebuild_thread and self._rebuild_thread.is_alive():
+            return {
+                **self._last_status,
+                "ok": True,
+                "workspace": str(self.workspace),
+                "last_rebuild_at": self._last_rebuild_at,
+                "last_error": self._last_error,
+                "rebuild_job": dict(self._rebuild_state),
+            }
         with self._lock:
             stats = self._memory.stats()
             paths = ProjectPaths(self.workspace)
@@ -42,7 +59,7 @@ class KnowledgeHub:
             total_items = int(stats.get("total_items", 0) or 0)
             sqlite_ready = sqlite_path.exists() and total_items > 0
             faiss_ready = faiss_path.exists() and meta_path.exists() and total_items > 0
-            return {
+            payload = {
                 "ok": True,
                 "workspace": str(self.workspace),
                 "total_items": total_items,
@@ -60,7 +77,10 @@ class KnowledgeHub:
                 "manifest_exists": paths.knowledge_manifest.exists(),
                 "last_rebuild_at": self._last_rebuild_at,
                 "last_error": self._last_error,
+                "rebuild_job": dict(self._rebuild_state),
             }
+            self._last_status = dict(payload)
+            return payload
 
     def search(self, query: str, top_k: int = 5) -> dict[str, Any]:
         q = str(query or "").strip()
@@ -108,3 +128,41 @@ class KnowledgeHub:
                     "error": str(exc),
                     "sources_count": 0,
                 }
+
+    def rebuild_async(self) -> dict[str, Any]:
+        """Schedule a heavy rebuild without blocking the web request thread."""
+        if self._rebuild_thread and self._rebuild_thread.is_alive():
+            return {
+                "ok": True,
+                "scheduled": False,
+                "message": "knowledge_hub_rebuild_already_running",
+                "job": dict(self._rebuild_state),
+            }
+
+        def _worker() -> None:
+            self._rebuild_state = {
+                "running": True,
+                "started_at": datetime.now().isoformat(),
+                "finished_at": "",
+                "result": {},
+            }
+            result = self.rebuild()
+            self._rebuild_state = {
+                **self._rebuild_state,
+                "running": False,
+                "finished_at": datetime.now().isoformat(),
+                "result": result,
+            }
+
+        self._rebuild_thread = threading.Thread(
+            target=_worker,
+            daemon=True,
+            name="knowledge-hub-rebuild",
+        )
+        self._rebuild_thread.start()
+        return {
+            "ok": True,
+            "scheduled": True,
+            "message": "knowledge_hub_rebuild_scheduled",
+            "job": dict(self._rebuild_state),
+        }

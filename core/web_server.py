@@ -195,7 +195,8 @@ class WebServerMode:
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
-                self.wfile.write(body)
+                if self.command != "HEAD":
+                    self.wfile.write(body)
 
             def _send_text(self, text: str, content_type: str = "text/html; charset=utf-8", status: int = HTTPStatus.OK):
                 data = text.encode("utf-8")
@@ -204,7 +205,8 @@ class WebServerMode:
                 self.send_header("Content-Type", content_type)
                 self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
-                self.wfile.write(data)
+                if self.command != "HEAD":
+                    self.wfile.write(data)
 
             def _send_redirect(self, location: str, status: int = HTTPStatus.FOUND):
                 self.send_response(status)
@@ -510,6 +512,10 @@ class WebServerMode:
                         return
 
                 self._send_text("Not Found", status=HTTPStatus.NOT_FOUND)
+
+            def do_HEAD(self):
+                """Reuse GET routing while suppressing the response body."""
+                self.do_GET()
 
             def do_POST(self):
                 parsed = urlparse(self.path)

@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+MSG_FILE="${1:-}"
+if [[ -z "${MSG_FILE}" || ! -f "${MSG_FILE}" ]]; then
+  echo "[commit-msg] missing commit message file"
+  exit 1
+fi
+
+MSG="$(head -n1 "$MSG_FILE" | tr -d '\r')"
+PATTERN='^(feat|fix|refactor|chore|docs|test)(\([a-z0-9._-]+\))?: .+'
+
+if ! echo "$MSG" | rg -q "$PATTERN"; then
+  echo "[commit-msg] invalid message format."
+  echo "expected: <type>(optional-scope): summary"
+  echo "example : feat(backend): add postgres-first health metadata"
+  exit 1
+fi
+
+exit 0

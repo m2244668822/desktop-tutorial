@@ -670,7 +670,7 @@ class DesktopBridge:
         if not self.knowledge_hub:
             return {"ok": False, "error": "knowledge_hub_unavailable", "rebuilt": False}
         try:
-            return self.knowledge_hub.rebuild()
+            return self.knowledge_hub.rebuild_async()
         except Exception as exc:
             return {"ok": False, "error": str(exc), "rebuilt": False}
 
