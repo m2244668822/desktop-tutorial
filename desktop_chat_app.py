@@ -1651,8 +1651,53 @@ class DesktopBridge:
             "鬼打牆", "重複", "單一", "回覆化", "同內容", "同樣內容", "罐頭", "模板",
             "回答方式", "語氣", "回應低下", "過度單一", "對談模式", "不要重覆",
             "直接任務", "任務化", "工具結果", "工程交接", "先進行對話", "基礎對話",
+            "未找到直接命中", "沒有直接命中", "直接命中", "前後文", "需求服務",
+            "精準抓到", "抓到我的需求", "更好的解法",
         )
         return any(token in text for token in tokens)
+
+    def _build_dialog_quality_reply(
+        self,
+        message: str,
+        role: str,
+        analysis: dict | None,
+        retrieval_brief: str = "",
+    ) -> str:
+        text = str(message or "").strip()
+        focus = self._focus_topic(text, analysis or {})
+        keywords = self._derive_turn_keywords(text, analysis or {}, limit=5)
+        if not keywords:
+            keywords = ["需求分流", "前後文", "對話品質"]
+
+        retrieval_note = ""
+        clean_retrieval = " ".join(str(retrieval_brief or "").split())
+        if clean_retrieval:
+            retrieval_note = f"\n- 可用記憶線索：{clean_retrieval[:180]}"
+
+        return (
+            f"【{role or '申言者'}】我抓到的不是單一 bug，而是「需求理解管線」卡住。\n"
+            "\n"
+            "生活化講：你走進櫃台說「我這次不是要辦表格，我是要你先看懂我卡在哪」。"
+            "但舊流程的櫃台只會查表格標題；查不到完全一樣的標題，就回你「目前未找到直接命中」。"
+            "這會讓你覺得智能體一直鬼打牆。\n"
+            "\n"
+            "真正出問題的地方有三個：\n"
+            "1. 只看關鍵字直接命中，沒有把前後文、長期記憶與弱關聯一起判讀。\n"
+            "2. 沒有先分辨你要的是「聊天釐清、研究整理、工程修復、風險審核」哪一種服務。\n"
+            "3. 未命中時不該停住或丟模板，而應該降級成低信心分析，列出可疑線索與下一步問題。\n"
+            "\n"
+            f"這輪我判定焦點是：{focus}\n"
+            f"- 建議檢索詞：{'、'.join(keywords)}"
+            f"{retrieval_note}\n"
+            "\n"
+            "更好的解法：\n"
+            "- 第一步：先把你的話拆成「症狀、想要結果、限制、是否要動手」。\n"
+            "- 第二步：若是理解問題，申言者先回覆生活化診斷，不直接派工。\n"
+            "- 第三步：若你說「執行、修復、檢查、上傳、重啟」，才交給工程師或其他智能體。\n"
+            "- 第四步：若資料沒有高信心命中，要明講「低信心」，並提供下一組關鍵詞，不可以假裝找到了。\n"
+            "\n"
+            "所以這次的修正方向不是把問題蓋掉，而是讓未命中變成「前後文分析入口」，不是死胡同。"
+        )
 
     def _is_langgraph_status_query(self, message: str) -> bool:
         text = str(message or "").strip().lower()
@@ -1737,20 +1782,11 @@ class DesktopBridge:
         role_name = role or "申言者"
 
         if role_name == "申言者" and self._is_dialog_quality_request(text):
-            return self._pick_variant(
-                [
-                    (
-                        "【申言者】你說得對，這輪應該先對話，不該直接變成任務報告。\n"
-                        "生活化講：申言者像櫃台先聽你描述問題，確認你真的要辦理後，才把單子交給工程師。\n"
-                        "所以我現在先停在「理解與確認」：你要我下一步把它轉成工程師任務時，請說「我確認，請轉成工程師任務」。"
-                    ),
-                    (
-                        "【申言者】這個判斷是對的：對談不是施工單。\n"
-                        "正確流程應該是先聊天釐清意思，再問你要不要轉譯；只有你確認後，我才輸出工程交接單。\n"
-                        "目前我先不跑工具、不丟驗證報告，只先把規則修正成「對話優先、確認後轉譯」。"
-                    ),
-                ],
-                text,
+            return self._build_dialog_quality_reply(
+                message=text,
+                role=role_name,
+                analysis=analysis,
+                retrieval_brief=retrieval_brief,
             )
 
         if compact in {"你好", "嗨", "hi", "hello", "在嗎"}:
@@ -2486,7 +2522,7 @@ class DesktopBridge:
 
         if (
             (not should_run_workflow)
-            and self._prophet_should_stay_in_dialog(message, role, interaction_mode)
+            and self._normalize_role_name(role) == "申言者"
             and self._is_dialog_quality_request(message)
             and not reply.strip()
         ):

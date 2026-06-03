@@ -349,15 +349,71 @@ def _format_security_result(tool_outputs: dict[str, Any]) -> str:
     )
 
 
-def _format_prophet_result(tool_outputs: dict[str, Any]) -> str:
+def _score_memory_match(item: dict[str, Any]) -> float:
+    scores = []
+    for key in ("exact_match", "semantic_score", "lexical_score", "combined_score", "score"):
+        try:
+            scores.append(float(item.get(key, 0) or 0))
+        except (TypeError, ValueError):
+            continue
+    return max(scores) if scores else 0.0
+
+
+def _memory_summary_line(item: dict[str, Any], idx: int) -> str:
+    source = str(item.get("source", "unknown") or "unknown")
+    timestamp = str(item.get("timestamp", "") or "")[:19]
+    summary = " ".join(str(item.get("summary") or item.get("content") or "").split())
+    score = _score_memory_match(item)
+    time_part = f" · {timestamp}" if timestamp else ""
+    score_part = f" · 關聯分數 {score:.2f}" if score else " · 弱關聯"
+    return f"  - [{idx}] {source}{time_part}{score_part}：{summary[:140]}"
+
+
+def _format_contextual_miss_guidance(user_input: str, memories: list[dict[str, Any]]) -> list[str]:
+    text = str(user_input or "").strip()
+    lines = [
+        "- 目前沒有高信心直接命中；已改用「前後文 + 長期記憶 + 弱關聯」分析，不再硬導向無關索引。",
+    ]
+    if memories:
+        lines.append("- 可用的弱關聯記憶片段（前 3 筆）：")
+        for idx, item in enumerate(memories[:3], start=1):
+            if isinstance(item, dict):
+                lines.append(_memory_summary_line(item, idx))
+    else:
+        lines.append("- 長期記憶也沒有可用片段；這代表需要先建立本題的種子筆記。")
+
+    focus_terms = [
+        token
+        for token in ("鬼打牆", "需求分流", "前後文", "關鍵字", "RAG", "AEG", "智能體", "對話品質", "路由", "fallback")
+        if token.lower() in text.lower()
+    ]
+    if not focus_terms:
+        focus_terms = ["需求分流", "前後文", "對話品質", "RAG 檢索"]
+    lines.extend(
+        [
+            "- 更好的處理方式：先把你的需求拆成「症狀、想要結果、限制、是否要動手」四格，再決定交給哪個智能體。",
+            "- 建議補查關鍵詞：" + "、".join(focus_terms[:6]),
+            "- 如果下一輪仍低信心，應回問一個具體缺口，而不是重複模板或假裝已命中。",
+        ]
+    )
+    return lines
+
+
+def _format_prophet_result(tool_outputs: dict[str, Any], user_input: str = "") -> str:
     hub = tool_outputs.get("knowledge_hub", {})
     memories = tool_outputs.get("long_term_memory", {})
     workspace_hits = tool_outputs.get("workspace_search", {}).get("matches", [])
     catalog = tool_outputs.get("catalog", {})
+    memory_matches = [
+        item for item in memories.get("matches", []) if isinstance(item, dict)
+    ]
+    direct_memory_hits = [
+        item for item in memory_matches if _score_memory_match(item) >= 0.35
+    ]
     lines = [
         "申言者工具結果：",
         f"- 知識中樞：{'就緒' if hub.get('exists') else '未就緒'}",
-        f"- 長期記憶命中：{len(memories.get('matches', []))} 筆",
+        f"- 長期記憶命中：{len(memory_matches)} 筆",
     ]
     if workspace_hits:
         lines.append("- 工作區關鍵命中（前 5 筆）：")
@@ -367,8 +423,12 @@ def _format_prophet_result(tool_outputs: dict[str, Any]) -> str:
         for item in catalog.get("matches", [])[:3]:
             lines.append(f"  - {item.get('name')} | {item.get('focus')}")
             lines.append(f"    {item.get('url')}")
-    if not workspace_hits and not catalog.get("matches"):
-        lines.append("- 目前未找到直接命中，建議補充 Elijah/聖經資料索引後再查詢。")
+    if direct_memory_hits and not workspace_hits and not catalog.get("matches"):
+        lines.append("- 長期記憶高信心命中（前 3 筆）：")
+        for idx, item in enumerate(direct_memory_hits[:3], start=1):
+            lines.append(_memory_summary_line(item, idx))
+    if not workspace_hits and not catalog.get("matches") and not direct_memory_hits:
+        lines.extend(_format_contextual_miss_guidance(user_input, memory_matches))
     return "\n".join(lines)
 
 
@@ -415,7 +475,7 @@ def executor_node(state: WorkflowState) -> WorkflowState:
     if route == "研究員":
         result = _format_research_result(tool_outputs)
     elif route == "申言者":
-        result = _format_prophet_result(tool_outputs)
+        result = _format_prophet_result(tool_outputs, user_input=user_input)
     elif route == "工程師":
         result = _format_engineering_result(tool_outputs)
     elif route == "帽子":

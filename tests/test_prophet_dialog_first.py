@@ -52,8 +52,34 @@ def test_prophet_dialog_quality_reply_does_not_emit_tool_report():
         assert not result["prophet_engineer_handoff"]
         assert "[申言者->工程師交接]" not in reply
         assert "工具結果" not in reply
-        assert "確認" in reply
-        assert "工程師任務" in reply
+        assert "需求理解管線" in reply
+        assert "聊天釐清、研究整理、工程修復、風險審核" in reply
+        assert "執行、修復、檢查、上傳、重啟" in reply
         assert result["llm_live"]["fallback_reason"] == "prophet_dialog_first_guard"
+    finally:
+        bridge.stop_background_monitor()
+
+
+def test_prophet_contextual_miss_question_uses_local_diagnosis_not_cloud_generic_reply():
+    bridge = DesktopBridge()
+    try:
+        result = bridge.send_message(
+            message="分析智能體對話鬼打牆沒辦法精準抓到我的需求服務的問題，例如目前未找到直接命中，分析前後文內容給出更好的解法。",
+            role="申言者",
+            session_id="test-prophet-contextual-miss-dialog",
+            model_key="groq",
+            interaction_mode="auto",
+        )
+        reply = result["reply"]
+        assert result["ok"]
+        assert not result["workflow_ran"]
+        assert not result["llm_live"]["attempted"]
+        assert result["llm_live"]["fallback_reason"] == "prophet_dialog_first_guard"
+        assert "需求理解管線" in reply
+        assert "目前未找到直接命中" in reply
+        assert "前後文" in reply
+        assert "症狀、想要結果、限制、是否要動手" in reply
+        assert "Elijah" not in reply
+        assert "聖經資料索引" not in reply
     finally:
         bridge.stop_background_monitor()
