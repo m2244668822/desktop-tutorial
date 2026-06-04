@@ -581,6 +581,8 @@ class DesktopBridge:
             "state": "ready" if status.get("faiss_ready") else "sqlite_only",
             "total_items": int(status.get("total_items", 0) or 0),
             "sqlite_ready": bool(status.get("sqlite_ready")),
+            "faiss_available": bool(status.get("faiss_available")),
+            "faiss_file_exists": bool(status.get("faiss_file_exists")),
             "faiss_ready": bool(status.get("faiss_ready")),
             "chatgpt_database_ready": bool(status.get("chatgpt_database_ready")),
             "chatgpt_database_path": status.get("chatgpt_database_path", ""),
@@ -648,14 +650,89 @@ class DesktopBridge:
                 "ready": aeg_ready,
                 "path": str(aeg_path),
                 "sources_seen": int(aeg_payload.get("sources_seen", 0) or 0),
+                "source_breakdown": aeg_payload.get("source_breakdown", {}),
                 "text_items": int(aeg_payload.get("text_items", 0) or 0),
                 "keywords_count": int(aeg_payload.get("keywords_count", 0) or 0),
+                "readable_ratio": float(aeg_payload.get("readable_ratio", 0) or 0),
             },
             "notes": [
                 "所有角色共用同一個 KnowledgeHub/AEG 搜尋層。",
                 "永久對話記憶以 role/agent_name 分流保存，不是各自孤立資料庫。",
                 "工程語譯 handoff 是附加能力，不覆蓋申言者原本治理能力。",
             ],
+        }
+
+    def get_memory_autosave_status(self) -> dict:
+        """Expose autosave noise-control status to health checks."""
+        manager = getattr(self, "memory_manager", None)
+        if not manager or not hasattr(manager, "get_save_status"):
+            return {"ok": False, "state": "unavailable"}
+        try:
+            status = manager.get_save_status()
+            return {
+                "ok": True,
+                "state": "dirty" if status.get("dirty") else "clean",
+                **status,
+            }
+        except Exception as exc:
+            return {"ok": False, "state": "error", "error": str(exc)}
+
+    def get_aeg_training_status(self) -> dict:
+        """Expose AEG/RAG data-layer training freshness without touching Git."""
+        aeg_path = self.paths.data / "knowledge_hub" / "aeg_keyword_graph.json"
+        runtime_report = (
+            self.paths.data
+            / "knowledge_hub"
+            / "reports"
+            / "AEG_SHARED_REPORT_LATEST.md"
+        )
+        canonical_report = self.workspace / "reports" / "AEG_SHARED_REPORT.md"
+        payload: dict[str, Any] = {}
+        if aeg_path.exists():
+            try:
+                payload = json.loads(aeg_path.read_text(encoding="utf-8"))
+            except Exception as exc:
+                return {
+                    "ok": False,
+                    "state": "parse_error",
+                    "path": str(aeg_path),
+                    "error": str(exc),
+                }
+        source_breakdown = payload.get("source_breakdown", {}) if isinstance(payload, dict) else {}
+        text_items = int(payload.get("text_items", 0) or 0) if payload else 0
+        ready = bool(text_items > 0 and source_breakdown)
+        return {
+            "ok": ready,
+            "state": "ready" if ready else "missing",
+            "path": str(aeg_path),
+            "generated_at": payload.get("generated_at", ""),
+            "sources_seen": int(payload.get("sources_seen", 0) or 0),
+            "source_breakdown": source_breakdown,
+            "text_items": text_items,
+            "keywords_count": int(payload.get("keywords_count", 0) or 0) if payload else 0,
+            "edges_count": int(payload.get("edges_count", 0) or 0) if payload else 0,
+            "readable_ratio": float(payload.get("readable_ratio", 0) or 0) if payload else 0,
+            "runtime_report": {
+                "path": str(runtime_report),
+                "exists": runtime_report.exists(),
+                "mtime": datetime.fromtimestamp(runtime_report.stat().st_mtime).isoformat()
+                if runtime_report.exists()
+                else "",
+            },
+            "canonical_report": {
+                "path": str(canonical_report),
+                "exists": canonical_report.exists(),
+                "mtime": datetime.fromtimestamp(canonical_report.stat().st_mtime).isoformat()
+                if canonical_report.exists()
+                else "",
+            },
+            "n8n": {
+                "role": "optional_scheduler",
+                "degrades_core_chat": False,
+                "status": (payload.get("metadata", {}) or {}).get("n8n_runtime", "unknown")
+                if payload
+                else "unknown",
+            },
         }
 
     def _knowledge_search(self, query: str, top_k: int = 5) -> dict:

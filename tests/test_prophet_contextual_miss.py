@@ -27,9 +27,12 @@ class ProphetContextualMissTests(unittest.TestCase):
         )
 
         self.assertIn("目前沒有高信心直接命中", result)
+        self.assertIn("信心等級：低信心", result)
+        self.assertIn("弱關聯來源", result)
         self.assertIn("弱關聯記憶片段", result)
         self.assertIn("需求分流", result)
         self.assertIn("前後文", result)
+        self.assertIn("下一個應問的具體缺口", result)
         self.assertNotIn("Elijah", result)
         self.assertNotIn("聖經資料索引", result)
 

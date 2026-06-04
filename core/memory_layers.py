@@ -36,13 +36,21 @@ except Exception:  # pragma: no cover - runtime guarded by caller
 EMBED_DIM = 1024
 TOKEN_RE = re.compile(r"[\w\u4e00-\u9fff]{2,}")
 SOURCE_WEIGHTS = {
-    "agent_memory_assistant": 0.22,
-    "agent_memory_user": 0.12,
-    "chatgpt_local_knowledge": 0.04,
+    "agent_memory_assistant": 0.24,
+    "agent_memory_user": 0.20,
+    "gpt_history_assistant": 0.16,
+    "gpt_history_user": 0.16,
+    "chatgpt_database_user": 0.12,
+    "chatgpt_database_assistant": 0.10,
+    "chatgpt_local_knowledge": 0.06,
 }
 SOURCE_PRIORITIES = {
-    "agent_memory_assistant": 3,
-    "agent_memory_user": 2,
+    "agent_memory_assistant": 6,
+    "agent_memory_user": 5,
+    "gpt_history_assistant": 4,
+    "gpt_history_user": 4,
+    "chatgpt_database_user": 3,
+    "chatgpt_database_assistant": 2,
     "chatgpt_local_knowledge": 1,
 }
 
@@ -530,7 +538,9 @@ class ThreeLayerMemory:
             "meta_path": str(self.paths.meta_path),
             "total_items": total,
             "by_source": {row["source"]: row["c"] for row in by_source},
-            "faiss_ready": self.paths.faiss_path.exists(),
+            "faiss_available": faiss is not None,
+            "faiss_file_exists": self.paths.faiss_path.exists(),
+            "faiss_ready": faiss is not None and self.paths.faiss_path.exists(),
             "source_weights": SOURCE_WEIGHTS,
         }
 
@@ -540,25 +550,110 @@ def collect_memory_sources(workspace: str | Path) -> list[dict[str, Any]]:
     paths = ProjectPaths(workspace)
     sources: list[dict[str, Any]] = []
 
+    def append_source(
+        source: str,
+        source_id: str,
+        role: str,
+        content: str,
+        timestamp: str = "",
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        text = " ".join(str(content or "").split()).strip()
+        if len(text) < 8:
+            return
+        if len(text) > 5000:
+            text = text[:5000]
+        sources.append(
+            {
+                "source": source,
+                "source_id": source_id,
+                "role": role,
+                "content": text,
+                "summary": ThreeLayerMemory._summarize_text(text),
+                "timestamp": str(timestamp or ""),
+                "metadata": dict(metadata or {}),
+            }
+        )
+
     local_kb = paths.llama_data / "local_knowledge" / "local_knowledge_base.json"
     if local_kb.exists():
         try:
             data = json.loads(local_kb.read_text(encoding="utf-8"))
             for item in data:
                 content = str(item.get("content", "")).strip()
-                if not content or len(content) < 8:
-                    continue
-                sources.append(
-                    {
-                        "source": "chatgpt_local_knowledge",
-                        "source_id": item.get("message_id") or f"lk_{len(sources)}",
-                        "role": item.get("role", ""),
-                        "content": content,
-                        "summary": ThreeLayerMemory._summarize_text(content),
-                        "timestamp": str(item.get("timestamp", "")),
-                        "metadata": {"conversation_id": item.get("conversation_id", "")},
-                    }
+                append_source(
+                    "chatgpt_local_knowledge",
+                    str(item.get("message_id") or f"lk_{len(sources)}"),
+                    str(item.get("role", "")),
+                    content,
+                    str(item.get("timestamp", "")),
+                    {"conversation_id": item.get("conversation_id", "")},
                 )
+        except Exception:
+            pass
+
+    chatgpt_db = paths.llama_data / "local_knowledge" / "complete_chatgpt_database.json"
+    if chatgpt_db.exists():
+        try:
+            payload = json.loads(chatgpt_db.read_text(encoding="utf-8"))
+            conversations = payload.get("data", {}).get("conversations", [])
+            if not isinstance(conversations, list):
+                conversations = []
+            for conv_idx, conv in enumerate(conversations):
+                if not isinstance(conv, dict):
+                    continue
+                conv_id = str(conv.get("id") or conv.get("conversation_id") or f"conv_{conv_idx}")
+                title = str(conv.get("title") or "")
+                timestamp = str(conv.get("create_time") or conv.get("update_time") or "")
+                user_chunks: list[str] = []
+                assistant_chunks: list[str] = []
+                mapping = conv.get("mapping", {})
+                if isinstance(mapping, dict):
+                    iterable = mapping.values()
+                elif isinstance(mapping, list):
+                    iterable = mapping
+                else:
+                    iterable = []
+                for msg_data in iterable:
+                    if not isinstance(msg_data, dict):
+                        continue
+                    message = msg_data.get("message") if "message" in msg_data else msg_data
+                    if not isinstance(message, dict):
+                        continue
+                    role = str(message.get("author", {}).get("role", "")).strip()
+                    content = message.get("content", {})
+                    parts = content.get("parts", []) if isinstance(content, dict) else []
+                    text_parts = [part for part in parts if isinstance(part, str) and part.strip()]
+                    text = "\n".join(text_parts).strip()
+                    if not text:
+                        continue
+                    if role == "user":
+                        user_chunks.append(text)
+                    elif role == "assistant":
+                        assistant_chunks.append(text)
+                common_meta = {
+                    "conversation_id": conv_id,
+                    "title": title,
+                    "source_kind": "complete_chatgpt_database",
+                }
+                if user_chunks:
+                    append_source(
+                        "chatgpt_database_user",
+                        f"chatgptdb:{conv_id}:user",
+                        "user",
+                        "\n---\n".join([title, *user_chunks]) if title else "\n---\n".join(user_chunks),
+                        timestamp,
+                        {**common_meta, "message_count": len(user_chunks)},
+                    )
+                if assistant_chunks:
+                    append_source(
+                        "chatgpt_database_assistant",
+                        f"chatgptdb:{conv_id}:assistant",
+                        "assistant",
+                        "\n---\n".join([title, *assistant_chunks]) if title else "\n---\n".join(assistant_chunks),
+                        timestamp,
+                        {**common_meta, "message_count": len(assistant_chunks)},
+                    )
         except Exception:
             pass
 
@@ -572,28 +667,22 @@ def collect_memory_sources(workspace: str | Path) -> list[dict[str, Any]]:
                     assistant = str(msg.get("assistant", "")).strip()
                     timestamp = str(msg.get("timestamp", ""))
                     if user and len(user) >= 8:
-                        sources.append(
-                            {
-                                "source": "agent_memory_user",
-                                "source_id": f"{conv_id}:u:{idx}",
-                                "role": "user",
-                                "content": user,
-                                "summary": ThreeLayerMemory._summarize_text(user),
-                                "timestamp": timestamp,
-                                "metadata": {"agent_name": conv.get("agent_name", "")},
-                            }
+                        append_source(
+                            "agent_memory_user",
+                            f"{conv_id}:u:{idx}",
+                            "user",
+                            user,
+                            timestamp,
+                            {"agent_name": conv.get("agent_name", "")},
                         )
                     if assistant and len(assistant) >= 8:
-                        sources.append(
-                            {
-                                "source": "agent_memory_assistant",
-                                "source_id": f"{conv_id}:a:{idx}",
-                                "role": "assistant",
-                                "content": assistant,
-                                "summary": ThreeLayerMemory._summarize_text(assistant),
-                                "timestamp": timestamp,
-                                "metadata": {"agent_name": conv.get("agent_name", "")},
-                            }
+                        append_source(
+                            "agent_memory_assistant",
+                            f"{conv_id}:a:{idx}",
+                            "assistant",
+                            assistant,
+                            timestamp,
+                            {"agent_name": conv.get("agent_name", "")},
                         )
         except Exception:
             pass
@@ -615,25 +704,23 @@ def collect_memory_sources(workspace: str | Path) -> list[dict[str, Any]]:
                     agent = row["agent_type"] or "unknown"
                     
                     if user_msg and len(user_msg) >= 8:
-                        sources.append({
-                            "source": "gpt_history_user",
-                            "source_id": f"gh:{msg_id}:u",
-                            "role": "user",
-                            "content": user_msg,
-                            "summary": ThreeLayerMemory._summarize_text(user_msg),
-                            "timestamp": ts,
-                            "metadata": {"agent": agent, "model": row["model_used"]}
-                        })
+                        append_source(
+                            "gpt_history_user",
+                            f"gh:{msg_id}:u",
+                            "user",
+                            user_msg,
+                            ts,
+                            {"agent": agent, "model": row["model_used"]},
+                        )
                     if ai_resp and len(ai_resp) >= 8:
-                        sources.append({
-                            "source": "gpt_history_assistant",
-                            "source_id": f"gh:{msg_id}:a",
-                            "role": "assistant",
-                            "content": ai_resp,
-                            "summary": ThreeLayerMemory._summarize_text(ai_resp),
-                            "timestamp": ts,
-                            "metadata": {"agent": agent, "model": row["model_used"]}
-                        })
+                        append_source(
+                            "gpt_history_assistant",
+                            f"gh:{msg_id}:a",
+                            "assistant",
+                            ai_resp,
+                            ts,
+                            {"agent": agent, "model": row["model_used"]},
+                        )
         except Exception:
             pass
 

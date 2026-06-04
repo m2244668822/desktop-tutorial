@@ -371,8 +371,18 @@ def _memory_summary_line(item: dict[str, Any], idx: int) -> str:
 
 def _format_contextual_miss_guidance(user_input: str, memories: list[dict[str, Any]]) -> list[str]:
     text = str(user_input or "").strip()
+    source_counts: dict[str, int] = {}
+    for item in memories:
+        if isinstance(item, dict):
+            source = str(item.get("source", "unknown") or "unknown")
+            source_counts[source] = source_counts.get(source, 0) + 1
+    source_text = "、".join(
+        f"{source}({count})" for source, count in sorted(source_counts.items())
+    ) or "無"
     lines = [
-        "- 目前沒有高信心直接命中；已改用「前後文 + 長期記憶 + 弱關聯」分析，不再硬導向無關索引。",
+        "- 信心等級：低信心（目前沒有高信心直接命中）。",
+        "- 處理方式：已改用「前後文 + 長期記憶 + 弱關聯」分析，不再硬導向無關索引。",
+        f"- 弱關聯來源：{source_text}",
     ]
     if memories:
         lines.append("- 可用的弱關聯記憶片段（前 3 筆）：")
@@ -393,6 +403,7 @@ def _format_contextual_miss_guidance(user_input: str, memories: list[dict[str, A
         [
             "- 更好的處理方式：先把你的需求拆成「症狀、想要結果、限制、是否要動手」四格，再決定交給哪個智能體。",
             "- 建議補查關鍵詞：" + "、".join(focus_terms[:6]),
+            "- 下一個應問的具體缺口：你要我先做「診斷說明」、直接「修改程式」、還是先「整理成可追蹤任務」？",
             "- 如果下一輪仍低信心，應回問一個具體缺口，而不是重複模板或假裝已命中。",
         ]
     )

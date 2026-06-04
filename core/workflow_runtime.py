@@ -6,6 +6,8 @@ import os
 import re
 import subprocess
 import uuid
+import contextlib
+import io
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
@@ -353,7 +355,7 @@ def _verify_workspace_search(output: dict[str, Any]) -> tuple[bool, str]:
 
 
 def _tool_aeg_keyword_graph(workspace: Path, payload: dict[str, Any]) -> dict[str, Any]:
-    """Build AEG keyword graph from local thread memory and legacy chat logs."""
+    """Build AEG keyword graph from local memory, ChatGPT DB, Git and n8n context."""
     limit = max(20, int(payload.get("limit", 80) or 80))
     token_re = re.compile(r"[A-Za-z][A-Za-z0-9_\-]{1,}|[\u4e00-\u9fff]{2,6}")
     stop_words = {
@@ -379,8 +381,21 @@ def _tool_aeg_keyword_graph(workspace: Path, payload: dict[str, Any]) -> dict[st
         return "??" in raw or "�" in raw
 
     paths = ProjectPaths(workspace)
-    texts: list[str] = []
-    sources_seen = 0
+    text_items: list[dict[str, str]] = []
+    source_files_seen: set[str] = set()
+
+    def add_text(source: str, text: str, source_id: str = "", meta: dict[str, Any] | None = None) -> None:
+        clean = " ".join(str(text or "").split()).strip()
+        if len(clean) < 8:
+            return
+        text_items.append(
+            {
+                "source": source,
+                "source_id": source_id,
+                "text": clean[:5000],
+                "meta": json.dumps(meta or {}, ensure_ascii=False),
+            }
+        )
 
     conversation_candidates = [
         paths.data / "agent_memories" / "conversations.json",
@@ -392,30 +407,94 @@ def _tool_aeg_keyword_graph(workspace: Path, payload: dict[str, Any]) -> dict[st
         data = _load_json(conv_path, {})
         if not isinstance(data, dict):
             continue
-        sources_seen += 1
+        source_files_seen.add(str(conv_path))
         for conv in data.values():
             if not isinstance(conv, dict):
                 continue
             for msg in conv.get("messages", []):
-                texts.append(str(msg.get("user", "")))
-                texts.append(str(msg.get("assistant", "")))
+                add_text(
+                    "agent_memory",
+                    str(msg.get("user", "")),
+                    str(conv.get("id", "")),
+                    {"agent_name": conv.get("agent_name", "")},
+                )
+                add_text(
+                    "agent_memory",
+                    str(msg.get("assistant", "")),
+                    str(conv.get("id", "")),
+                    {"agent_name": conv.get("agent_name", "")},
+                )
 
     legacy = paths.llama_data / "conversations.json"
     if legacy.exists():
         rows = _load_json(legacy, [])
         if isinstance(rows, list):
-            sources_seen += 1
+            source_files_seen.add(str(legacy))
             for row in rows:
                 if not isinstance(row, dict):
                     continue
-                texts.append(str(row.get("prompt", "")))
-                texts.append(str(row.get("response", "")))
+                add_text("gpt_history", str(row.get("prompt", "")), str(row.get("id", "")))
+                add_text("gpt_history", str(row.get("response", "")), str(row.get("id", "")))
+
+    if LocalMemoryAPI is not None:
+        try:
+            # LocalMemoryAPI(chatgpt_limit=None) is the canonical loader for the
+            # exported ChatGPT database. Redirect its progress output so the
+            # scheduler does not bring back the noisy console problem we are fixing.
+            with contextlib.redirect_stdout(io.StringIO()):
+                api = LocalMemoryAPI(str(workspace), chatgpt_limit=None)
+                conversations = api.get_all_conversations(refresh=True)
+            for conv in conversations:
+                if not isinstance(conv, dict) or conv.get("source") != "chatgpt_database":
+                    continue
+                conv_id = str(conv.get("id", ""))
+                title = str(conv.get("title", ""))
+                meta = dict(conv.get("metadata", {}) or {})
+                meta["title"] = title
+                add_text(
+                    "chatgpt_database",
+                    "\n".join(part for part in (title, str(conv.get("user_input", ""))) if part),
+                    f"{conv_id}:user",
+                    meta,
+                )
+                add_text(
+                    "chatgpt_database",
+                    "\n".join(part for part in (title, str(conv.get("assistant_response", ""))) if part),
+                    f"{conv_id}:assistant",
+                    meta,
+                )
+            source_files_seen.add("LocalMemoryAPI(chatgpt_limit=None)")
+        except Exception:
+            pass
+
+    git_context = _git_summary(workspace)
+    add_text("git_context", git_context, "git:status")
+
+    n8n_status = "n8n optional scheduler"
+    try:
+        proc = subprocess.run(
+            ["bash", "-lc", "lsof -nP -iTCP:5678 -sTCP:LISTEN | head -n 2"],
+            cwd=str(workspace),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=3,
+            check=False,
+        )
+        n8n_status = "n8n_runtime listening" if (proc.stdout or "").strip() else "n8n_runtime degraded optional"
+    except Exception:
+        n8n_status = "n8n_runtime unknown optional"
+    add_text("n8n_runtime", n8n_status, "n8n:5678")
 
     keyword_counter: Counter[str] = Counter()
     edge_counter: defaultdict[tuple[str, str], int] = defaultdict(int)
     skipped_garbled = 0
+    readable_tokens = 0
+    source_breakdown: Counter[str] = Counter(item["source"] for item in text_items)
 
-    for text_row in texts:
+    for item in text_items:
+        text_row = item["text"]
         tokens = [t.lower() for t in token_re.findall(text_row or "") if len(t) >= 2]
         clean_tokens = []
         for token in tokens:
@@ -425,6 +504,7 @@ def _tool_aeg_keyword_graph(workspace: Path, payload: dict[str, Any]) -> dict[st
                 skipped_garbled += 1
                 continue
             clean_tokens.append(token)
+            readable_tokens += 1
 
         uniq = list(dict.fromkeys(clean_tokens))[:12]
         for token in uniq:
@@ -436,20 +516,30 @@ def _tool_aeg_keyword_graph(workspace: Path, payload: dict[str, Any]) -> dict[st
 
     top_keywords = [{"keyword": k, "count": c} for k, c in keyword_counter.most_common(limit)]
     top_edges = [
-        {"a": a, "b": b, "weight": w}
+        {"a": a, "b": b, "weight": w, "relation": "shared_keyword"}
         for (a, b), w in sorted(edge_counter.items(), key=lambda item: item[1], reverse=True)[:limit]
     ]
+    denominator = max(1, readable_tokens + skipped_garbled)
+    readable_ratio = round(readable_tokens / denominator, 4)
 
     out_dir = paths.data / "knowledge_hub"
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "aeg_keyword_graph.json"
     out_payload = {
         "generated_at": _now_iso(),
-        "sources_seen": sources_seen,
-        "text_items": len(texts),
+        "sources_seen": len(source_files_seen),
+        "source_breakdown": dict(source_breakdown),
+        "text_items": len(text_items),
         "keywords_count": len(top_keywords),
         "edges_count": len(top_edges),
         "skipped_garbled_tokens": skipped_garbled,
+        "readable_ratio": readable_ratio,
+        "metadata": {
+            "git_summary": git_context,
+            "n8n_runtime": n8n_status,
+            "runtime_report": "data/knowledge_hub/reports/AEG_SHARED_REPORT_LATEST.md",
+            "canonical_report": "reports/AEG_SHARED_REPORT.md",
+        },
         "keywords": top_keywords,
         "edges": top_edges,
     }
@@ -459,11 +549,13 @@ def _tool_aeg_keyword_graph(workspace: Path, payload: dict[str, Any]) -> dict[st
     )
     return {
         "path": str(out_path),
-        "sources_seen": sources_seen,
-        "text_items": len(texts),
+        "sources_seen": len(source_files_seen),
+        "source_breakdown": dict(source_breakdown),
+        "text_items": len(text_items),
         "keywords_count": len(top_keywords),
         "edges_count": len(top_edges),
         "skipped_garbled_tokens": skipped_garbled,
+        "readable_ratio": readable_ratio,
         "top_keywords": top_keywords[:15],
     }
 
@@ -1026,5 +1118,4 @@ __all__ = [
     "run_task_plan",
     "rerun_task_step",
 ]
-
 

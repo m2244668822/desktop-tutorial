@@ -96,12 +96,19 @@ class AgentMemoryManager:
         # 最後保存時間
         self._last_save_time = datetime.now()
         self._save_interval = timedelta(seconds=30)  # 自動保存間隔
+        self._save_summary_interval = timedelta(minutes=5)
+        self._last_save_summary_time = datetime.now()
 
         # 保存失敗追蹤與重試機制
         self._save_failures = 0
         self._max_save_failures = 3
         self._last_save_error = None
         self._save_retry_pending = False
+        self._dirty = False
+        self._dirty_reasons: defaultdict[str, int] = defaultdict(int)
+        self._save_success_since_start = 0
+        self._save_skipped_since_start = 0
+        self._save_failure_since_start = 0
         self._backup_dir = self.memory_dir / "backups"
         self._backup_dir.mkdir(parents=True, exist_ok=True)
 
@@ -250,7 +257,7 @@ class AgentMemoryManager:
                 try:
                     time_module.sleep(self._save_interval.total_seconds())
                     if self._should_save():
-                        self._save_all()
+                        self._save_all(reason="auto")
                 except Exception as e:
                     print(f"   ⚠️ 自動保存失敗: {e}")
 
@@ -265,17 +272,52 @@ class AgentMemoryManager:
         if self._save_retry_pending:
             self._save_retry_pending = False
             return True
-        return datetime.now() - self._last_save_time > self._save_interval
+        if datetime.now() - self._last_save_time <= self._save_interval:
+            return False
+        if not self._dirty:
+            self._save_skipped_since_start += 1
+            self._maybe_emit_save_summary()
+            return False
+        return True
 
-    def _save_all(self):
+    def _mark_dirty_unlocked(self, reason: str) -> None:
+        """Mark in-memory state as changed without taking the lock."""
+        self._dirty = True
+        self._dirty_reasons[str(reason or "unknown")] += 1
+
+    def _clear_dirty_unlocked(self) -> None:
+        self._dirty = False
+        self._dirty_reasons.clear()
+
+    def _maybe_emit_save_summary(self) -> None:
+        """Emit one compact autosave summary per interval instead of per tick."""
+        now = datetime.now()
+        if now - self._last_save_summary_time < self._save_summary_interval:
+            return
+        self._last_save_summary_time = now
+        last_saved = self._last_save_time.isoformat() if self._last_save_time else "never"
+        print(
+            "   🧾 記憶保存彙總: "
+            f"成功 {self._save_success_since_start}、"
+            f"略過 {self._save_skipped_since_start}、"
+            f"失敗 {self._save_failure_since_start}、"
+            f"最後保存 {last_saved}"
+        )
+
+    def _save_all(self, reason: str = "manual"):
         """保存所有記憶數據"""
         with self._lock:
+            if not self._dirty and not self._save_retry_pending:
+                self._save_skipped_since_start += 1
+                self._maybe_emit_save_summary()
+                return
             try:
                 self._save_agent_memories()
                 self._save_conversations()
                 self._save_ide_context()
                 self._save_sessions()
                 self._last_save_time = datetime.now()
+                self._save_success_since_start += 1
                 # 保存成功，重置失敗計數
                 if self._save_failures > 0:
                     print(
@@ -283,9 +325,11 @@ class AgentMemoryManager:
                     )
                 self._save_failures = 0
                 self._last_save_error = None
-                print(f"   💾 記憶已自動保存")
+                self._clear_dirty_unlocked()
+                print(f"   💾 記憶已保存 ({reason})")
             except Exception as e:
                 self._save_failures += 1
+                self._save_failure_since_start += 1
                 self._last_save_error = str(e)
                 print(
                     f"   ⚠️ 保存失敗 ({self._save_failures}/{self._max_save_failures}): {e}"
@@ -370,11 +414,18 @@ class AgentMemoryManager:
             "last_save_time": self._last_save_time.isoformat()
             if self._last_save_time
             else None,
+            "dirty": bool(self._dirty),
+            "dirty_reasons": dict(self._dirty_reasons),
             "save_failures": self._save_failures,
             "max_failures": self._max_save_failures,
             "last_error": self._last_save_error,
             "retry_pending": self._save_retry_pending,
             "auto_save_enabled": self.auto_save,
+            "save_interval_seconds": int(self._save_interval.total_seconds()),
+            "summary_interval_seconds": int(self._save_summary_interval.total_seconds()),
+            "save_success_since_start": self._save_success_since_start,
+            "skipped_since_start": self._save_skipped_since_start,
+            "failure_since_start": self._save_failure_since_start,
         }
 
     def _atomic_write_json(self, path: Path, data: Any) -> None:
@@ -441,10 +492,11 @@ class AgentMemoryManager:
             if len(self._agent_memories[agent_name]["memories"]) > 100:
                 self._agent_memories[agent_name]["memories"] = self._agent_memories[
                     agent_name
-                ]["memaries"][-100:]
+                ]["memories"][-100:]
+            self._mark_dirty_unlocked("agent_memories")
 
         if force_save:
-            self._save_all()
+            self._save_all(reason="force_agent_memory")
 
     def get_agent_memory(self, agent_name: str, limit: int = None) -> List[Dict]:
         """
@@ -490,9 +542,10 @@ class AgentMemoryManager:
             self._agent_memories[agent_name]["last_updated"] = (
                 datetime.now().isoformat()
             )
+            self._mark_dirty_unlocked("agent_preferences")
 
         if force_save:
-            self._save_all()
+            self._save_all(reason="force_agent_preference")
 
     # ==================== 對話上下文 API ====================
 
@@ -547,9 +600,10 @@ class AgentMemoryManager:
                 )
                 for old_id, _ in sorted_convs[:100]:
                     del self._conversations[old_id]
+            self._mark_dirty_unlocked("conversations")
 
         if force_save:
-            self._save_all()
+            self._save_all(reason="force_conversation")
 
     def _generate_conversation_id(self, agent_name: str, message: str) -> str:
         """生成對話ID"""
@@ -678,9 +732,10 @@ class AgentMemoryManager:
             # 只保留最近50條歷史
             if len(self._ide_context["history"]) > 50:
                 self._ide_context["history"] = self._ide_context["history"][-50:]
+            self._mark_dirty_unlocked("ide_context")
 
         if force_save:
-            self._save_all()
+            self._save_all(reason="force_ide_context")
 
     def get_ide_context(self) -> Dict:
         """獲取最新的IDE上下文"""
@@ -709,9 +764,10 @@ class AgentMemoryManager:
 
             self._ide_context["vscode"].update(vscode_data)
             self._ide_context["vscode"]["last_updated"] = datetime.now().isoformat()
+            self._mark_dirty_unlocked("vscode_status")
 
         if force_save:
-            self._save_all()
+            self._save_all(reason="force_vscode_status")
 
     def get_vscode_status(self) -> Dict:
         """獲取VSCode狀態"""
@@ -733,9 +789,10 @@ class AgentMemoryManager:
 
             self._ide_context["workspace"].update(workspace_data)
             self._ide_context["workspace"]["last_updated"] = datetime.now().isoformat()
+            self._mark_dirty_unlocked("workspace_state")
 
         if force_save:
-            self._save_all()
+            self._save_all(reason="force_workspace_state")
 
     def get_workspace_state(self) -> Dict:
         """獲取工作區狀態"""
@@ -765,6 +822,7 @@ class AgentMemoryManager:
                 "data": session_data or {},
                 "message_count": 0,
             }
+            self._mark_dirty_unlocked("sessions")
 
         return session_id
 
@@ -791,12 +849,14 @@ class AgentMemoryManager:
 
                 if data:
                     self._sessions[session_id]["data"].update(data)
+                self._mark_dirty_unlocked("sessions")
 
     def end_session(self, session_id: str):
         """結束會話"""
         with self._lock:
             if session_id in self._sessions:
                 self._sessions[session_id]["ended_at"] = datetime.now().isoformat()
+                self._mark_dirty_unlocked("sessions")
 
     def get_active_sessions(self) -> List[Dict]:
         """獲取活動會話"""

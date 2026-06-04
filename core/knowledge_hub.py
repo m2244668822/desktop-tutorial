@@ -58,12 +58,21 @@ class KnowledgeHub:
             )
             total_items = int(stats.get("total_items", 0) or 0)
             sqlite_ready = sqlite_path.exists() and total_items > 0
-            faiss_ready = faiss_path.exists() and meta_path.exists() and total_items > 0
+            faiss_available = bool(stats.get("faiss_available"))
+            faiss_file_exists = bool(stats.get("faiss_file_exists"))
+            faiss_ready = (
+                faiss_available
+                and faiss_file_exists
+                and meta_path.exists()
+                and total_items > 0
+            )
             payload = {
                 "ok": True,
                 "workspace": str(self.workspace),
                 "total_items": total_items,
                 "sqlite_ready": sqlite_ready,
+                "faiss_available": faiss_available,
+                "faiss_file_exists": faiss_file_exists,
                 "faiss_ready": faiss_ready,
                 "chatgpt_database_ready": chatgpt_database_path.exists()
                 or chatgpt_local_index_path.exists(),

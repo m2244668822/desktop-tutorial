@@ -126,6 +126,8 @@ class WebServerMode:
     def readiness_payload(self) -> dict:
         bridge_ready = bool(getattr(self.bridge, "is_ready", False))
         knowledge_hub = self.bridge._knowledge_status_summary()
+        memory_autosave = self.bridge.get_memory_autosave_status()
+        aeg_training = self.bridge.get_aeg_training_status()
         openclaw = self.openclaw.status()
         tls_up = self._tcp_up("127.0.0.1", 5443)
         db_ready = bool(getattr(self.bridge, "memory_manager", None))
@@ -137,6 +139,8 @@ class WebServerMode:
             degraded_reasons.append("tls_proxy_not_ready")
         if not openclaw.get("ok"):
             degraded_reasons.append("openclaw_not_ready")
+        if not aeg_training.get("ok"):
+            degraded_reasons.append("aeg_training_not_ready")
         return {
             "ok": required_ready,
             "status": "ready" if required_ready and not degraded_reasons else "degraded",
@@ -144,6 +148,8 @@ class WebServerMode:
             "bridge_ready": bridge_ready,
             "database_ready": db_ready,
             "knowledge_hub": knowledge_hub,
+            "memory_autosave": memory_autosave,
+            "aeg_training": aeg_training,
             "tls_proxy": {"up": tls_up, "port": 5443},
             "openclaw": openclaw,
             "degraded_reasons": degraded_reasons,
@@ -388,6 +394,8 @@ class WebServerMode:
                             "communication": {"ok": True},
                             "monitor": status_payload,
                             "knowledge_hub": server_instance.bridge._knowledge_status_summary(),
+                            "memory_autosave": server_instance.bridge.get_memory_autosave_status(),
+                            "aeg_training": server_instance.bridge.get_aeg_training_status(),
                             "agent_memory_aeg": server_instance.bridge.get_agent_memory_aeg_status(),
                             "history_count": len(
                                 getattr(getattr(server_instance.bridge, "memory_manager", None), "_conversations", {}) or {}
