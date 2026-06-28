@@ -123,6 +123,11 @@ except Exception:
     render_prophet_engineer_reply = None
 
 try:
+    from core.openclaw_bridge import detect_openclaw_status
+except Exception:
+    detect_openclaw_status = None
+
+try:
     from core.llm_cns import (
         describe_key_state as cns_describe_key_state,
         frontend_provider_status as cns_frontend_provider_status,
@@ -142,7 +147,7 @@ except Exception:
     cns_resolve_provider_config = None
 
 CHAT_HTML = PATHS.templates / "chat.html"
-CHAT_SHELL_HTML = PATHS.templates / "chat_shell.html"
+CHAT_SHELL_HTML = CHAT_HTML
 MONITOR_SHELL_HTML = PATHS.templates / "monitor_shell.html"
 AGENT_SHELL_HTML = PATHS.templates / "agent_shell.html"
 RESEARCH_REPORT_MD = PATHS.reports / "open_source_agent_research_20260319.md"
@@ -1137,7 +1142,14 @@ class DesktopBridge:
         if self.last_workflow_state.get("task_state", {}).get("tool_outputs", {}).get("tiered_storage_health"):
             storage = self.last_workflow_state["task_state"]["tool_outputs"]["tiered_storage_health"]
             lines.append(f"存儲: {'SSD加速' if storage.get('ssd_mounted') else 'HDD降級'}")
-            
+        openclaw = self._openclaw_status()
+        if openclaw.get("installed"):
+            lines.append(
+                f"OpenClaw: {openclaw.get('version', 'installed')} / daemon={openclaw.get('daemon_state', 'unknown')}"
+            )
+        else:
+            lines.append("OpenClaw: 未偵測")
+             
         return "\n".join(lines)
 
     def _compose_model_message(
@@ -1451,6 +1463,31 @@ class DesktopBridge:
             "sqlite", "faiss", "資料庫", "記憶庫", "前端", "後端", "程式", "代碼", "code", "log",
         )
         return any(token in text for token in tokens)
+
+    def _is_openclaw_request(self, message: str) -> bool:
+        text = str(message or "").strip().lower()
+        if not text:
+            return False
+        tokens = (
+            "openclaw",
+            "claw",
+            "daemon",
+            "gateway",
+            "onboard",
+            "install-daemon",
+            "openclaw gateway",
+        )
+        return any(token in text for token in tokens)
+
+    def _build_openclaw_governance_reply(self, role: str) -> str:
+        role_name = self._normalize_role_name(role)
+        return (
+            f"【{role_name}】這個申請屬於 OpenClaw 系統層操作，不能繞過申言者決策。\n"
+            "我先提供資源與資料提示，但不直接執行變更：\n"
+            "- 你先切到申言者角色，下指令：「我確認，請申言者決策後再交工程師執行 OpenClaw 整合」。\n"
+            "- 可先提供的資料：目前工作目錄、預期模型供應商、是否要常駐 daemon、是否要接入任務板。\n"
+            "- 我會在申言者確認後，輸出固定交接格式再執行。"
+        )
 
     def _is_light_dialog_turn(self, message: str, purpose: str, interaction_mode: str) -> bool:
         text = str(message or "").strip()
@@ -2147,6 +2184,31 @@ class DesktopBridge:
     def send_message(self, message: str, role: str = "申言者", session_id: str = "", model_key: str = "auto", interaction_mode: str = "auto") -> dict:
         start_ts = time.time()
         role = self._normalize_role_name(role)
+        if self._is_openclaw_request(message) and role != "申言者":
+            guarded = self._build_openclaw_governance_reply(role)
+            return {
+                "ok": True,
+                "reply": guarded,
+                "role": role,
+                "agent": self._role_to_agent_key(role),
+                "backend": model_key if model_key != "auto" else "nvidia",
+                "duration_s": round(time.time() - start_ts, 3),
+                "response_time": round(time.time() - start_ts, 3),
+                "analysis": {"intent": "governance_guard_openclaw"},
+                "semantic_analysis": {"intent": "governance_guard_openclaw"},
+                "keywords": ["openclaw", "governance", "prophet_required"],
+                "retrieval": {"ok": True, "match_count": 0, "items": []},
+                "workflow": {"guard": "openclaw_requires_prophet_decision"},
+                "workflow_ran": False,
+                "llm_live": {"ok": False, "attempted": False, "fallback_used": True, "fallback_reason": "openclaw_governance_guard"},
+                "purpose": "governance",
+                "interaction_mode": interaction_mode,
+                "model": model_key,
+                "completion": {"done": False, "state": "guarded", "reason": "requires_prophet_decision"},
+                "escalation": {"required": False, "reason": "", "fail_streak": int(self.workflow_fail_streak)},
+                "react": {"thought": "OpenClaw request requires prophet decision gate.", "action": "block_non_prophet_route", "observation": "guarded", "refinement": "wait_for_prophet_confirmation"},
+                "prophet_engineer_handoff": None,
+            }
         self.last_message = message
         self.last_message_ts = start_ts
         self.reply_counter += 1
@@ -2499,7 +2561,50 @@ class DesktopBridge:
         }
 
     def _git_status_filtered(self, short: bool = True) -> str:
-        return "Git 功能受限 (Mock)"
+        cmd = ["git", "status", "--short", "--branch"] if short else ["git", "status"]
+        try:
+            proc = subprocess.run(
+                cmd,
+                cwd=str(self.workspace),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=8,
+            )
+        except Exception as exc:
+            return f"degraded: git status exception ({exc})"
+
+        if proc.returncode != 0:
+            err = (proc.stderr or proc.stdout or "").strip().replace("\n", "; ")
+            if not err:
+                err = f"rc={proc.returncode}"
+            return f"degraded: git status unavailable ({err[:140]})"
+
+        output = (proc.stdout or "").strip()
+        if not output:
+            return "乾淨"
+
+        lines = output.splitlines()
+        branch = lines[0].strip() if lines else ""
+        changes = [ln for ln in lines[1:] if ln.strip()]
+        if not changes:
+            return f"{branch}; 乾淨" if branch else "乾淨"
+        if short:
+            preview = "; ".join(changes[:4])
+            suffix = f"; +{len(changes) - 4} more" if len(changes) > 4 else ""
+            if branch:
+                return f"{branch}; 變更 {len(changes)}: {preview}{suffix}"
+            return f"變更 {len(changes)}: {preview}{suffix}"
+        return output
+
+    def _openclaw_status(self) -> dict:
+        if detect_openclaw_status is None:
+            return {"installed": False, "daemon_state": "unknown", "notes": ["bridge_unavailable"]}
+        try:
+            return detect_openclaw_status(self.workspace)
+        except Exception as exc:
+            return {"installed": False, "daemon_state": "error", "notes": [str(exc)]}
 
     def _vscode_status(self) -> dict:
         return {"integration_state": "未偵測", "process_running": False}
@@ -2508,7 +2613,8 @@ class DesktopBridge:
         return {
             "reply_counter": self.reply_counter,
             "last_message_ts": self.last_message_ts,
-            "system": self._system_profile()
+            "system": self._system_profile(),
+            "openclaw": self._openclaw_status(),
         }
 
     def get_api_onboarding_info(self) -> dict:

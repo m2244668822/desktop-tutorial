@@ -3,9 +3,7 @@ import unittest
 from pathlib import Path
 
 
-SERVER_PATH = (
-    Path(__file__).resolve().parents[1] / ".sync_user_project" / "chatgpt_server.py"
-)
+SERVER_PATH = Path(__file__).resolve().parents[1] / "chatgpt_server.py"
 
 
 def load_topic_keywords():

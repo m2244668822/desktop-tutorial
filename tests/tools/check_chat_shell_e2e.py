@@ -71,6 +71,20 @@ def check(base_url: str) -> int:
             "missing bridge api marker",
         )
     )
+    checks.append(
+        (
+            "chat_shell contains agent activity board",
+            'id="agentActivityBoard"' in body and 'id="agentActivityMeta"' in body,
+            "missing activity board markers",
+        )
+    )
+    checks.append(
+        (
+            "chat_shell contains provider backoff contract",
+            "PROVIDER_RATE_LIMIT_BACKOFF_MS" in body and 'let _tasksFilter = "unresolved";' in body,
+            "missing backoff/filter contract",
+        )
+    )
 
     status, _, body = http_get(f"{base_url}/chat")
     checks.append(

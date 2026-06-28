@@ -77,6 +77,7 @@ AGENT_SPECS: Dict[str, AgentSpec] = {
             "brand_strategy", "brand_identity_system", "brand_consistency_audit",
             "brand_positioning", "messaging_architecture", "brand_protection_monitoring",
             "brand_guideline_authoring", "stakeholder_brand_alignment",
+            "image_generation", "visual_generation",
             "image_prompt_engineering", "photography_prompt_design",
             "platform_prompt_optimization", "lighting_composition_specification",
             "negative_prompt_design", "style_reference_translation",
@@ -118,6 +119,7 @@ AGENT_SPECS: Dict[str, AgentSpec] = {
             "brand guardian", "brand strategy", "brand identity", "brand guideline",
             "brand voice", "tone of voice", "positioning", "trademark",
             "品牌保護", "品牌一致性", "品牌定位", "品牌識別", "品牌手冊", "品牌資產",
+            "圖片生成", "視覺生成", "圖像生成",
             "image prompt", "prompt engineer", "midjourney", "dall-e", "stable diffusion", "flux",
             "negative prompt", "攝影提示詞", "產品攝影", "人像攝影", "時尚攝影",
             "光線", "構圖", "景深", "焦段", "色溫", "電影感", "寫實生成",
@@ -352,6 +354,8 @@ AGENT_SPECS: Dict[str, AgentSpec] = {
         description="文化人類學 + 歷史研究 + 心理學智能體：同時驗證文化系統、歷史脈絡與行為動機一致性，避免文化拼貼、時代錯置與心理扁平化。",
         capabilities=[
             "research", "comparison", "knowledge_summary", "trend_scan",
+            "knowledge_distillation", "kal_management", "signal_learning",
+            "rule_update", "memory_refresh",
             "translation", "language_processing", "data_analysis",
             "fact_checking", "literature_review", "report_writing",
             "cultural_system_design", "kinship_analysis", "ritual_analysis",
@@ -367,6 +371,7 @@ AGENT_SPECS: Dict[str, AgentSpec] = {
         ],
         signal_tags=[
             "研究", "比較", "分析", "資料", "整理", "摘要", "方案", "benchmark", "research",
+            "方法論", "研究方法", "methodology", "蒸餾", "蒸餾法", "知識蒸餾", "distillation",
             "精神", "心理學", "精神疾病", "求生指南", "腦神經科學", "聖經", "neuroscience", "bible",
             "翻譯", "英文", "中文", "日文", "韓文", "語言", "translate", "translation", "language",
             "數據", "統計", "報告", "文獻", "調查", "趨勢", "市場", "競品", "fact", "查核",

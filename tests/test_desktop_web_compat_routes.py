@@ -17,11 +17,12 @@ class DesktopWebCompatRoutesTests(unittest.TestCase):
         for route in [
             '/chat/agent',
             '/agent/tasks/summary',
-            '/agent/tasks?limit=30&compact=1',
+            '/agent/tasks?limit=120&compact=1',
             '/archive/export',
             '/archive/cleanup',
             '/archive/list',
             '/api/orchestrator/status',
+            '/api/get_status',
             '/trace/learning-status',
         ]:
             self.assertIn(route, self.chat)

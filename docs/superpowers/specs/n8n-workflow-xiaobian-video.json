@@ -1,5 +1,7 @@
 {
+  "id": "xiaobianVideo001",
   "name": "Xiaobian Short Video Automation",
+  "active": false,
   "nodes": [
     {
       "parameters": {
@@ -72,5 +74,14 @@
     "OpenAI TTS": {
       "main": [[{ "node": "FFmpeg Assembly", "type": "main", "index": 0 }]]
     }
+  },
+  "settings": {},
+  "staticData": null,
+  "pinData": {},
+  "versionId": "4d0e84c8-bc45-4679-a79e-56e025dc582a",
+  "meta": {
+    "source": "docs/superpowers/specs/n8n-workflow-xiaobian-video.json",
+    "status": "draft-import",
+    "notes": "Imported as inactive draft; credentials and FFmpeg command still need production hardening."
   }
 }

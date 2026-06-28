@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CHAT_HTML = ROOT / ".sync_user_project" / "templates" / "chat.html"
+CHAT_HTML = ROOT / "templates" / "chat.html"
 
 
 class FrontendSyncContractTests(unittest.TestCase):
@@ -28,7 +28,7 @@ class FrontendSyncContractTests(unittest.TestCase):
         self.assertIn("const PROVIDER_RATE_LIMIT_BACKOFF_MS = 1800000;", self.html)
         self.assertIn("if (r.status === 429)", self.html)
         self.assertIn("blockedUntil", self.html)
-        self.assertIn("觸發限流，已暫停狀態更新 30 分鐘", self.html)
+        self.assertIn("Provider rate limited; paused for 30 minutes", self.html)
 
     def test_unresolved_view_sorts_running_failed_then_pending(self):
         self.assertIn('if (_tasksFilter === "unresolved") {', self.html)
@@ -48,15 +48,24 @@ class FrontendSyncContractTests(unittest.TestCase):
             r"function _setBusy\(busy\)[\s\S]*renderAgentActivityBoard\(\);",
         )
 
+    def test_openclaw_monitor_contract_present(self):
+        self.assertIn('id="mon-openclaw"', self.html)
+        self.assertIn('id="mon-openclaw-policy"', self.html)
+        self.assertIn('id="mon-openclaw-note"', self.html)
+        self.assertIn("function updateOpenClawMonitor(openclaw = {})", self.html)
+        self.assertRegex(
+            self.html,
+            r"fetchKALStatus[\s\S]*fetch\(\"/api/get_status\", \{ headers: ah \}\)",
+        )
+        self.assertIn("governance.prophet_required_for_mutation", self.html)
+        self.assertIn("需申言者", self.html)
+
     def test_thinking_phase_breakdown_present(self):
-        self.assertIn("function setThinkingPhase(", self.html)
-        self.assertIn("function getThinkingPhaseLabel()", self.html)
-        self.assertIn("等待模型回覆", self.html)
-        self.assertIn("本地整理回覆", self.html)
-        self.assertIn("正在重試", self.html)
-        self.assertIn("setThinkingPhase(\"waiting\")", self.html)
-        self.assertIn("setThinkingPhase(\"processing\")", self.html)
-        self.assertIn("setThinkingPhase(\"retrying\"", self.html)
+        self.assertIn("renderBackendPending(iMode);", self.html)
+        self.assertIn("thinking bubble", self.html)
+        self.assertIn('bubble.className = "msg assistant";', self.html)
+        self.assertIn("renderBackendSync(data, \"ok\");", self.html)
+        self.assertIn("renderBackendSync({ error:", self.html)
         self.assertIn("async function _fetchWithRetry(url, options, maxRetries = 1, delayMs = 1500, hooks = {})", self.html)
 
 

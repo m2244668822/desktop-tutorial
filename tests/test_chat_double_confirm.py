@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CHAT_HTML = ROOT / ".sync_user_project" / "templates" / "chat.html"
+CHAT_HTML = ROOT / "templates" / "chat.html"
 
 
 class ChatDoubleConfirmTests(unittest.TestCase):
@@ -17,10 +17,9 @@ class ChatDoubleConfirmTests(unittest.TestCase):
         self.assertIn("pendingSend", self.html)
         self.assertIn('onclick="confirmAndSendMessage()"', self.html)
         self.assertNotIn('onclick="sendMessage()"', self.html)
-        self.assertRegex(
-            self.html,
-            r"keydown[\s\S]+?confirmAndSendMessage\(\)",
-        )
+        self.assertIn("function handleMessageKeydown(e)", self.html)
+        self.assertIn("confirmAndSendMessage();", self.html)
+        self.assertIn('msgInput.addEventListener("keydown", handleMessageKeydown);', self.html)
 
     def test_no_ui_helper_bypasses_send_confirmation(self):
         direct_calls = re.findall(r"(?<!function )\bsendMessage\(\);", self.html)
@@ -40,7 +39,7 @@ class ChatDoubleConfirmTests(unittest.TestCase):
             self.html,
             r"btn\.onclick\s*=\s*\(\)\s*=>\s*\{\s*submitQuickReply\(r\)",
         )
-        self.assertIn('sendMessage({ source: "quick_reply" })', self.html)
+        self.assertIn('sendMessage({ source: "quick_reply", force: true })', self.html)
 
 
 if __name__ == "__main__":

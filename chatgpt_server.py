@@ -5,6 +5,7 @@ import json
 import time
 import logging
 import re
+import html
 import threading
 import importlib.util
 import sqlite3
@@ -131,6 +132,7 @@ PREFER_CLOUD_MODELS = os.getenv("PREFER_CLOUD_MODELS", "true").strip().lower() =
 ALLOW_LOCAL_MODEL_FALLBACK = os.getenv("ALLOW_LOCAL_MODEL_FALLBACK", "false").strip().lower() == "true"
 EXECUTION_PROVIDER = os.getenv("EXECUTION_PROVIDER", "nvidia").strip().lower()
 CHAT_PREFERRED_PROVIDER = os.getenv("CHAT_PREFERRED_PROVIDER", "gemini").strip().lower()
+FUSE_LEARNER_TO_RESEARCHER = os.getenv("FUSE_LEARNER_TO_RESEARCHER", "true").strip().lower() == "true"
 KEY_FAIL_CLOSED = os.getenv("KEY_FAIL_CLOSED", "true").strip().lower() == "true"
 REQUIRE_ENCRYPTED_KEYS = os.getenv("REQUIRE_ENCRYPTED_KEYS", "false").strip().lower() == "true"
 GEMINI_REQUIRE_ENCRYPTED_KEY = os.getenv("GEMINI_REQUIRE_ENCRYPTED_KEY", "true").strip().lower() == "true"
@@ -149,6 +151,9 @@ CHATGPT_BRIDGE_FULL_SYNC_BATCH_SIZE = max(5, min(200, int(os.getenv("CHATGPT_BRI
 CHATGPT_BRIDGE_FULL_SYNC_MAX_BATCHES = max(1, min(2000, int(os.getenv("CHATGPT_BRIDGE_FULL_SYNC_MAX_BATCHES", "500"))))
 CHATGPT_BRIDGE_FULL_SYNC_FIELD_MAX_CHARS = max(200, min(50000, int(os.getenv("CHATGPT_BRIDGE_FULL_SYNC_FIELD_MAX_CHARS", "8000"))))
 CHATGPT_BRIDGE_FULL_SYNC_RETRY = max(0, min(5, int(os.getenv("CHATGPT_BRIDGE_FULL_SYNC_RETRY", "2"))))
+AGENT_TASK_AUTO_RETRY_ENABLED = os.getenv("AGENT_TASK_AUTO_RETRY_ENABLED", "true").strip().lower() == "true"
+AGENT_TASK_AUTO_RETRY_MIN_INTERVAL_SECONDS = max(60, int(os.getenv("AGENT_TASK_AUTO_RETRY_MIN_INTERVAL_SECONDS", "900") or 900))
+AGENT_TASK_AUTO_RETRY_LIMIT = max(0, min(5, int(os.getenv("AGENT_TASK_AUTO_RETRY_LIMIT", "2") or 2)))
 CHATGPT_BRIDGE_FULL_SYNC_RETRY_BACKOFF_SECONDS = max(
     0,
     min(20, int(os.getenv("CHATGPT_BRIDGE_FULL_SYNC_RETRY_BACKOFF_SECONDS", "2"))),
@@ -278,6 +283,8 @@ def _fuse_agent_key(agent_key: str | None) -> str:
         return ""
     if normalized == "dispatcher":
         return "proclaimer"
+    if FUSE_LEARNER_TO_RESEARCHER and normalized == "learner":
+        return "researcher"
     if FUSE_WHITEHAT_TO_PROCLAIMER and normalized == "whitehat":
         return "proclaimer"
     return normalized
@@ -297,6 +304,11 @@ def _normalize_agent_label_with_fusion(agent_label: str | None, assigned_agent: 
     if lowered.startswith("dispatcher."):
         suffix = label.split(".", 1)[1] if "." in label else "primary"
         return f"proclaimer.{suffix}"
+    if FUSE_LEARNER_TO_RESEARCHER and lowered == "learner":
+        return "researcher.primary"
+    if FUSE_LEARNER_TO_RESEARCHER and lowered.startswith("learner."):
+        suffix = label.split(".", 1)[1] if "." in label else "primary"
+        return f"researcher.{suffix}"
     if FUSE_WHITEHAT_TO_PROCLAIMER and lowered == "whitehat":
         return "proclaimer.primary"
     if FUSE_WHITEHAT_TO_PROCLAIMER and lowered.startswith("whitehat."):
@@ -304,6 +316,8 @@ def _normalize_agent_label_with_fusion(agent_label: str | None, assigned_agent: 
         return f"proclaimer.{suffix}"
     if assigned_agent:
         normalized_agent = _fuse_agent_key(assigned_agent)
+        if normalized_agent == "researcher" and lowered.startswith("researcher."):
+            return label
         if normalized_agent == "proclaimer" and lowered.startswith("proclaimer."):
             return label
     return label
@@ -766,6 +780,7 @@ GEMINI_API_BASE = os.getenv('GEMINI_API_BASE', 'https://generativelanguage.googl
 NVIDIA_API_BASE = os.getenv('NVIDIA_API_BASE', 'https://integrate.api.nvidia.com/v1')
 ZZZ_API_BASE = os.getenv('ZZZ_API_BASE', os.getenv('ZHIZENGZENG_API_BASE', 'https://api.zhizengzeng.com/v1'))
 OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-4o-mini')
+OPENAI_IMAGE_MODEL = os.getenv('OPENAI_IMAGE_MODEL', 'gpt-image-1')
 OPENROUTER_MODEL = os.getenv('OPENROUTER_MODEL', 'openrouter/free')
 GROQ_MODEL = os.getenv('GROQ_MODEL', 'llama-3.3-70b-versatile')
 GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-2.5-flash')
@@ -776,6 +791,12 @@ OPENROUTER_APP_NAME = os.getenv('OPENROUTER_APP_NAME', 'AI-Desktop-Command-Cente
 HF_MODEL = "microsoft/DialoGPT-medium"
 TOGETHER_MODEL = "meta-llama/Llama-2-7b-chat-hf"
 LOCAL_OLLAMA_MODEL = os.getenv('LOCAL_OLLAMA_MODEL', 'tinyllama')
+SLOW_PROVIDER_DEFAULTS = {"openrouter", "together", "zhizengzeng"}
+DISABLED_CLOUD_PROVIDERS = {
+    item.strip().lower()
+    for item in os.getenv("DISABLED_CLOUD_PROVIDERS", ",".join(sorted(SLOW_PROVIDER_DEFAULTS))).split(",")
+    if item.strip()
+}
 
 
 def has_configured_key(value: str | None) -> bool:
@@ -1315,7 +1336,10 @@ SAFETY_DEFENSIVE_CONTEXT_TERMS = [
 ]
 
 DEFAULT_DISPATCH_RULES = {}
-for agent_key in ["general", "xiaobian", "engineer", "researcher", "proclaimer", "whitehat"]:
+DEFAULT_AGENT_SEED_KEYS = ["general", "xiaobian", "engineer", "researcher", "proclaimer", "whitehat"]
+if FUSE_LEARNER_TO_RESEARCHER:
+    DEFAULT_AGENT_SEED_KEYS.append("learner")
+for agent_key in DEFAULT_AGENT_SEED_KEYS:
     spec = get_agent_spec(agent_key)
     if not spec:
         continue
@@ -1346,6 +1370,8 @@ CNS_RUNTIME = {
     "chatgpt_bridge_ingest_last_at": None,
     "chatgpt_bridge_ingest_last_status": "idle",
     "chatgpt_bridge_ingest_last_message": "尚未執行",
+    "last_failed_retry_status": "idle",
+    "last_failed_retry_message": "尚未執行失敗任務復原",
 }
 CHATGPT_BRIDGE_LAST_TS = 0.0
 CHATGPT_BRIDGE_LOCK = threading.Lock()
@@ -1359,6 +1385,17 @@ TOPIC_KEYWORDS = {
     "mental_survival": ["精神疾病", "求生指南", "危機", "自救", "suicide", "depression", "anxiety"],
     "neuroscience": ["腦神經", "神經科學", "neuroscience", "brain", "neuron", "神經"],
     "bible": ["聖經", "經文", "新約", "舊約", "福音", "bible", "scripture", "gospel"],
+    "startup": ["創業", "新創", "商業模式", "startup", "business model", "venture"],
+    "disability_welfare": ["身心障礙", "身障", "補助", "disability", "welfare", "accessibility"],
+    "tenders": ["標案", "招標", "投標", "tender", "procurement", "rfp"],
+    "brainstorming": ["頭腦風暴", "腦力激盪", "發想", "brainstorming", "ideation"],
+    "psychiatry": ["精神病學", "精神醫學", "psychiatry"],
+    "hematology": ["血液學", "血液科", "hematology"],
+    "genetic_diseases": ["遺傳病學", "遺傳疾病", "genetic disease"],
+    "linguistics": ["語言學", "語用學", "linguistics"],
+    "methodology": ["方法論", "研究方法", "methodology"],
+    "distillation": ["蒸餾法", "知識蒸餾", "distillation"],
+    "philosophical_suicide_logic": ["哲學自殺邏輯", "哲學自殺", "自殺邏輯"],
 }
 
 RESEARCH_FILE_EXTENSIONS = {
@@ -2310,6 +2347,8 @@ def serialize_agent_overview(agent_key: str) -> dict:
     partner_keys = [canonical_key]
     if canonical_key == 'proclaimer' and FUSE_WHITEHAT_TO_PROCLAIMER:
         partner_keys.append('whitehat')
+    if canonical_key == 'researcher' and FUSE_LEARNER_TO_RESEARCHER:
+        partner_keys.append("learner")
 
     partner_specs = [get_agent_spec(key) for key in partner_keys]
     partner_specs = [row for row in partner_specs if row]
@@ -2354,6 +2393,8 @@ def serialize_agent_overview(agent_key: str) -> dict:
     description = str(spec.description or '')
     if canonical_key == 'proclaimer' and FUSE_WHITEHAT_TO_PROCLAIMER:
         description = f"{description}（已融合白帽守門能力）"
+    if canonical_key == 'researcher' and FUSE_LEARNER_TO_RESEARCHER:
+        description = f"{description}（已融合學習器知識蒸餾與 KAL 訊號能力）"
 
     return {
         **serialize_agent_spec(spec),
@@ -4849,6 +4890,84 @@ def build_runtime_task_context(data: dict | None = None) -> dict:
     }
 
 
+def is_image_generation_request(message: str, runtime_ctx: dict | None = None) -> bool:
+    ctx = runtime_ctx or {}
+    mode = str(ctx.get('interaction_mode', '') or '').strip().lower()
+    text = str(message or '').strip().lower()
+    if mode == "image_generation":
+        return True
+    return any(
+        keyword in text
+        for keyword in (
+            "生成圖片", "圖像生成", "圖片生成", "畫一張", "產生圖片",
+            "image generation", "generate image", "create image", "draw an image",
+        )
+    )
+
+
+def local_svg_preview(prompt: str) -> dict:
+    safe_prompt = html.escape(re.sub(r"\s+", " ", str(prompt or "image generation preview")).strip()[:220])
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+<rect width="1024" height="1024" fill="#0f172a"/>
+<rect x="96" y="96" width="832" height="832" rx="56" fill="#111827" stroke="#22c55e" stroke-width="8"/>
+<circle cx="300" cy="320" r="92" fill="#3b82f6" opacity=".75"/>
+<path d="M160 760 392 520l144 144 112-112 216 208Z" fill="#22c55e" opacity=".82"/>
+<text x="128" y="870" fill="#e5e7eb" font-family="Arial, sans-serif" font-size="34">Local SVG preview</text>
+<text x="128" y="920" fill="#94a3b8" font-family="Arial, sans-serif" font-size="24">{safe_prompt}</text>
+</svg>"""
+    data_url = "data:image/svg+xml;base64," + base64.b64encode(svg.encode("utf-8")).decode("ascii")
+    return {
+        "provider": "local_svg_preview",
+        "model": "local_svg_preview",
+        "src": data_url,
+        "prompt": safe_prompt,
+    }
+
+
+def generate_agent_image(prompt: str, model_hint: str | None = None) -> list[dict]:
+    clean_prompt = str(prompt or "").strip()
+    if not clean_prompt:
+        return []
+    if OPENAI_ENABLED and OPENAI_API_KEY:
+        try:
+            response = requests.post(
+                f"{OPENAI_API_BASE.rstrip('/')}/images/generations",
+                headers={
+                    "Authorization": f"Bearer {OPENAI_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": OPENAI_IMAGE_MODEL,
+                    "prompt": clean_prompt,
+                    "size": "1024x1024",
+                    "n": 1,
+                },
+                timeout=60,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            images = []
+            for item in payload.get("data", []) or []:
+                src = item.get("url")
+                if not src and item.get("b64_json"):
+                    src = "data:image/png;base64," + item["b64_json"]
+                if src:
+                    images.append(
+                        {
+                            "provider": "openai",
+                            "model": OPENAI_IMAGE_MODEL,
+                            "src": src,
+                            "prompt": clean_prompt,
+                            "revised_prompt": item.get("revised_prompt", ""),
+                        }
+                    )
+            if images:
+                return images
+        except Exception as exc:
+            logging.warning("image generation fallback used: %s", exc)
+    return [local_svg_preview(clean_prompt)]
+
+
 def create_xiaobian_prompt(task_data: dict, profile: dict = None, conversation: list = None) -> str:
     """Generate a structured prompt for 小編 (design assistant)."""
     title = task_data.get('title', '未提供任務標題')
@@ -5485,9 +5604,92 @@ def run_pending_agent_tasks(limit: int = 5) -> list:
     return processed_tasks
 
 
+def _has_active_retry_task(failed_task: AgentTask) -> bool:
+    if not failed_task or not failed_task.id:
+        return False
+    active = (
+        AgentTask.query.filter(AgentTask.workflow_parent_id == failed_task.id)
+        .filter(AgentTask.workflow_stage == "failed_retry")
+        .filter(AgentTask.status.in_(["pending", "running"]))
+        .first()
+    )
+    return active is not None
+
+
+def run_failed_task_auto_retry_cycle(limit: int = 3) -> dict:
+    if not AGENT_TASK_AUTO_RETRY_ENABLED or AGENT_TASK_AUTO_RETRY_LIMIT <= 0:
+        CNS_RUNTIME["last_failed_retry_status"] = "disabled"
+        CNS_RUNTIME["last_failed_retry_message"] = "auto retry disabled"
+        return {"status": "disabled", "requeued": 0, "skipped": []}
+
+    now = datetime.now()
+    result = {"status": "idle", "requeued": 0, "skipped": []}
+    failed_tasks = (
+        AgentTask.query.filter_by(status="failed")
+        .order_by(AgentTask.updated_at.desc())
+        .limit(max(1, limit * 5))
+        .all()
+    )
+    for failed_task in failed_tasks:
+        if result["requeued"] >= limit:
+            break
+        retry_count = (
+            AgentTask.query.filter(AgentTask.workflow_parent_id == failed_task.id)
+            .filter(AgentTask.workflow_stage == "failed_retry")
+            .count()
+        )
+        if retry_count >= AGENT_TASK_AUTO_RETRY_LIMIT:
+            result["skipped"].append({"task_id": failed_task.id, "reason": "retry_limit_reached"})
+            continue
+        if _has_active_retry_task(failed_task):
+            result["skipped"].append({"task_id": failed_task.id, "reason": "active_retry_exists"})
+            continue
+        updated_at = failed_task.updated_at or failed_task.created_at or now
+        elapsed = (now - updated_at).total_seconds()
+        if elapsed < AGENT_TASK_AUTO_RETRY_MIN_INTERVAL_SECONDS:
+            result["skipped"].append({"task_id": failed_task.id, "reason": "retry_wait"})
+            continue
+
+        retry_task = AgentTask(
+            title=f"[Retry {retry_count + 1}] {failed_task.title}",
+            description=failed_task.description,
+            goals=failed_task.goals,
+            style_guidelines=failed_task.style_guidelines,
+            constraints=failed_task.constraints,
+            output_format=failed_task.output_format,
+            model_hint=failed_task.model_hint or "auto",
+            assigned_agent=_fuse_agent_key(failed_task.assigned_agent) or failed_task.assigned_agent,
+            agent_label=_normalize_agent_label_with_fusion(failed_task.agent_label, assigned_agent=failed_task.assigned_agent),
+            issue_tags=failed_task.issue_tags,
+            workflow_parent_id=failed_task.id,
+            workflow_stage="failed_retry",
+            workflow_run_id=f"retry_{failed_task.id}_{uuid.uuid4().hex[:8]}",
+            workflow_relations=_json_text({"retry_from_task_id": failed_task.id, "retry_count": retry_count + 1}),
+            source_channel="auto_retry",
+            external_ref=f"retry_from_task_id={failed_task.id}",
+            status="pending",
+        )
+        db.session.add(retry_task)
+        result["requeued"] += 1
+        result["status"] = "requeued"
+        result.setdefault("task_ids", []).append(retry_task.workflow_run_id)
+        emit_task_lifecycle_event(
+            failed_task,
+            "task.retry_queued",
+            {"retry_from_task_id": failed_task.id, "retry_count": retry_count + 1},
+        )
+
+    if result["requeued"]:
+        db.session.commit()
+    CNS_RUNTIME["last_failed_retry_status"] = result["status"]
+    CNS_RUNTIME["last_failed_retry_message"] = f"requeued={result['requeued']} skipped={len(result['skipped'])}"
+    return result
+
+
 def run_cns_cycle(cycle_type: str = 'manual') -> dict:
     learned_counts = refresh_signal_memory_from_recent_activity(limit=20)
     processed_tasks = run_pending_agent_tasks(limit=5)
+    failed_task_recovery = run_failed_task_auto_retry_cycle(limit=3)
     security_info = get_api_security_status()
     security_snapshot = {
         'security_index': security_info.get('security_index'),
@@ -5499,6 +5701,7 @@ def run_cns_cycle(cycle_type: str = 'manual') -> dict:
         'cycle_type': cycle_type,
         'learned_signal_counts': learned_counts,
         'processed_tasks': processed_tasks,
+        "failed_task_recovery": failed_task_recovery,
         'api_security': security_snapshot,
         'agents': list_agent_overviews(),
     }
@@ -6160,6 +6363,8 @@ def chat_direct_agent():
     target_agent = _fuse_agent_key(str(data.get('agent', 'general') or 'general').strip().lower()) or 'general'
     selected_model = select_direct_communication_model_choice(data.get('model', 'auto'))
     runtime_ctx = build_runtime_task_context(data)
+    if is_image_generation_request(user_message, runtime_ctx):
+        target_agent = "xiaobian"
 
     if not user_message:
         return jsonify({'error': 'No message provided'}), 400
@@ -6175,9 +6380,15 @@ def chat_direct_agent():
         'target_agent': target_agent,
         'selected_model': selected_model,
     }
+    generated_images = []
 
     try:
-        if target_agent == 'xiaobian':
+        if is_image_generation_request(user_message, runtime_ctx):
+            generated_images = generate_agent_image(user_message, selected_model)
+            ai_response = "已建立圖像生成結果；若目前沒有雲端圖片 API key，已提供本機 SVG 預覽。"
+            model_used = generated_images[0].get("model", OPENAI_IMAGE_MODEL) if generated_images else OPENAI_IMAGE_MODEL
+            routing_reason["interaction_mode"] = "image_generation"
+        elif target_agent == 'xiaobian':
             task_data = {
                 'title': '智能體直連對話',
                 'description': user_message,
@@ -6265,6 +6476,7 @@ def chat_direct_agent():
             'response_time': response_time,
             'signal_tags': signal_tags,
             'direct': True,
+            "images": generated_images,
             'response_obfuscated': zzz_obfuscation_applied,
             'safety_guard': {
                 'triggered': bool(safety_guard.get('triggered')),
@@ -7101,6 +7313,30 @@ def model_status():
         'together': '' if model_choices['together'] else '未設定有效 TOGETHER_API_KEY',
         'notebooklm': '' if model_choices['notebooklm'] else '; '.join(notebooklm_runtime.get('missing_config', [])),
     }
+    disabled_cloud_providers = sorted(DISABLED_CLOUD_PROVIDERS)
+    provider_catalog = []
+    for key, label in [
+        ("openai", "OpenAI"),
+        ("gemini", "Gemini"),
+        ("nvidia", "NVIDIA"),
+        ("groq", "Groq"),
+        ("openrouter", "OpenRouter"),
+        ("together", "Together AI"),
+        ("zhizengzeng", "智增增 ZZZ API"),
+    ]:
+        disabled = key in DISABLED_CLOUD_PROVIDERS
+        provider_catalog.append(
+            {
+                "key": key,
+                "label": label,
+                "enabled": bool(model_choices.get(key)),
+                "visible": not disabled,
+                "classification": {
+                    "tier": "disabled" if disabled else ("ready" if model_choices.get(key) else "unconfigured"),
+                    "reason": "disabled_by_default_for_latency" if disabled else "",
+                },
+            }
+        )
     return jsonify({
         'gpt2': gpt2_status,
         'ollama_available': ollama_available,
@@ -7153,6 +7389,8 @@ def model_status():
         },
         'model_choices': model_choices,
         'model_unavailable_reasons': model_unavailable_reasons,
+        "disabled_cloud_providers": disabled_cloud_providers,
+        "provider_catalog": provider_catalog,
     })
 
 
@@ -7656,6 +7894,8 @@ def legacy_status():
         'zhizengzeng': model_info.get('zhizengzeng_runtime_ready', False),
         'huggingface': model_info['huggingface_key_configured'],
         'together': model_info['together_key_configured'],
+        "disabled_cloud_providers": model_info.get("disabled_cloud_providers", []),
+        "provider_catalog": model_info.get("provider_catalog", []),
         'security_index': security_info['security_index'],
         'security_risk_level': security_info['risk_level'],
         'proclaimer_detection_status': proclaimer_detection.get('status'),

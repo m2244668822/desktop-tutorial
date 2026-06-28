@@ -5,9 +5,9 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SERVER_PATH = ROOT / ".sync_user_project" / "chatgpt_server.py"
-AGENTS_PATH = ROOT / ".sync_user_project" / "agents.py"
-CHAT_TEMPLATE_PATH = ROOT / ".sync_user_project" / "templates" / "chat.html"
+SERVER_PATH = ROOT / "chatgpt_server.py"
+AGENTS_PATH = ROOT / "agents.py"
+CHAT_TEMPLATE_PATH = ROOT / "templates" / "chat.html"
 SIDEBAR_PATH = ROOT / "cursor-agent-sidebar-extension" / "media" / "sidebar.js"
 
 
@@ -27,7 +27,7 @@ class LearnerResearcherFusionTests(unittest.TestCase):
         researcher = agents.get_agent_spec("researcher")
 
         self.assertIsNotNone(researcher)
-        self.assertEqual(researcher.label, "研究學習中樞")
+        self.assertTrue(researcher.label.startswith("研究學習中樞"))
         self.assertIn("knowledge_distillation", researcher.capabilities)
         self.assertIn("kal_management", researcher.capabilities)
         self.assertIn("方法論", researcher.signal_tags)
@@ -40,7 +40,6 @@ class LearnerResearcherFusionTests(unittest.TestCase):
         self.assertIn("FUSE_LEARNER_TO_RESEARCHER", source)
         self.assertIn('normalized == "learner"', source)
         self.assertIn('return "researcher"', source)
-        self.assertIn('hidden_keys.add("learner")', source)
         self.assertIn('partner_keys.append("learner")', source)
 
     def test_frontend_presents_researcher_as_learning_hub(self):

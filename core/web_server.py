@@ -486,7 +486,7 @@ def run_web_server(bridge: any, host: str, port: int, open_browser: bool = False
     server_logic = WebServerMode(bridge, bridge.workspace, paths)
     
     template_map = {
-        "/chat_shell": paths.templates / "chat_shell.html",
+        "/chat_shell": paths.templates / "chat.html",
         "/agent_shell": paths.templates / "agent_shell.html",
         "/monitor_shell": paths.templates / "monitor_shell.html",
         "/chat": paths.templates / "chat.html",

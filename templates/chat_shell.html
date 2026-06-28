@@ -410,6 +410,11 @@
         </div>
         <div class="tasks-status-bar" id="tasksStatusBar"></div>
         <div class="tasks-list" id="tasksList"><div class="kal-empty">載入中...</div></div>
+        <div class="tasks-header" style="margin-top:12px">
+          <div class="tasks-title">活動看板</div>
+          <div class="mon-note" id="agentActivityMeta">等待任務資料</div>
+        </div>
+        <div class="tasks-list" id="agentActivityBoard"><div class="kal-empty">載入中...</div></div>
       </div>
     </div>
 
@@ -460,8 +465,11 @@
         <div class="mon-row"><span class="mon-label">Brave 搜尋</span><span class="mon-val" id="mon-brave">—</span></div>
         <div class="mon-row"><span class="mon-label">執行輪次</span><span class="mon-val" id="mon-cycles">—</span></div>
         <div class="mon-row"><span class="mon-label">待整合目標</span><span class="mon-val" id="mon-pending">—</span></div>
+        <div class="mon-row"><span class="mon-label">OpenClaw</span><span class="mon-val" id="mon-openclaw">—</span></div>
+        <div class="mon-row"><span class="mon-label">OpenClaw 治理</span><span class="mon-val" id="mon-openclaw-policy">—</span></div>
         <div class="mon-row"><span class="mon-label">Harmony 健康</span><span class="mon-val" id="mon-harmony">—</span></div>
         <div class="mon-row"><span class="mon-label">失敗檢查</span><span class="mon-val" id="mon-harmony-failed">—</span></div>
+        <div class="mon-note" id="mon-openclaw-note">尚未載入 OpenClaw 狀態</div>
         <div class="mon-note" id="mon-harmony-note">尚未載入協調健康報告</div>
       </div>
     </div>
@@ -1108,6 +1116,7 @@ function _setBusy(busy) {
   state.busy = busy;
   const inp = document.getElementById("msgInput");
   renderSendButtonState();
+  renderAgentActivityBoard();
   if (inp) inp.style.opacity = busy ? ".5" : "";
   if (!busy && state.pendingForcedSource) {
     const pendingSource = state.pendingForcedSource;
@@ -1349,20 +1358,21 @@ const POLL_INTERVAL_MS = {
   kal: 90000,
   tasks: 90000,
   history: 120000,
-  provider: 180000,
+  provider: 900000,
 };
 const MIN_FETCH_GAP_MS = {
   kal: 18000,
   tasks: 18000,
   history: 45000,
-  provider: 45000,
+  provider: 180000,
 };
+const PROVIDER_RATE_LIMIT_BACKOFF_MS = 1800000;
 const _fetchState = {
   snapshot: { busy: false, lastAt: 0 },
   kal: { busy: false, lastAt: 0 },
   tasks: { busy: false, lastAt: 0 },
   history: { busy: false, lastAt: 0 },
-  provider: { busy: false, lastAt: 0 },
+  provider: { busy: false, lastAt: 0, blockedUntil: 0 },
 };
 let _latestSnapshot = null;
 
@@ -1402,9 +1412,13 @@ async function fetchFrontendSnapshot(force = false) {
     const orch = (snap.workflow && snap.workflow.last_state) || {};
     const learn = snap.learning || {};
     const harmony = snap.harmony || {};
+    const monitor = snap.monitor || {};
+    const openclaw = monitor.openclaw || {};
     if (Object.keys(orch).length || Object.keys(learn).length) {
       renderKAL(orch, learn);
-      updateMonitor(orch);
+      updateMonitor(orch, openclaw);
+    } else {
+      updateOpenClawMonitor(openclaw);
     }
     updateHarmonyMonitor(harmony);
     return snap;
@@ -1426,14 +1440,17 @@ async function fetchKALStatus(force = false) {
   fs.lastAt = now;
   try {
     const ah = window.__API_TOKEN__ ? { "X-API-Token": window.__API_TOKEN__ } : {};
-    const [orchR, learnR] = await Promise.all([
+    const [orchR, learnR, statusR] = await Promise.all([
       fetch("/api/orchestrator/status", { headers: ah }),
       fetch("/trace/learning-status", { headers: ah }),
+      fetch("/api/get_status", { headers: ah }),
     ]);
     const orch  = orchR.ok  ? await orchR.json()  : {};
     const learn = learnR.ok ? await learnR.json() : {};
+    const status = statusR.ok ? await statusR.json() : {};
+    const monitor = status.monitoring || status.monitor || {};
     renderKAL(orch, learn);
-    updateMonitor(orch);
+    updateMonitor(orch, monitor.openclaw || {});
   } catch (e) {
     document.getElementById("kalLabel").textContent = "無法連線後端";
   } finally {
@@ -1487,7 +1504,7 @@ function renderKAL(orch, learn) {
     : '<div class="kal-empty">尚無記錄</div>';
 }
 
-function updateMonitor(orch) {
+function updateMonitor(orch, openclaw = {}) {
   const kal = orch.kal_loop || {};
   const set = (id, val, ok) => {
     const el = document.getElementById(id);
@@ -1501,11 +1518,55 @@ function updateMonitor(orch) {
   set("mon-brave",   kal.brave_api        ? "已接" : "未設",  kal.brave_api);
   set("mon-cycles",  orch.cycle_count || 0, null);
   set("mon-pending", orch.pending_goals || 0, null);
+  updateOpenClawMonitor(openclaw);
 
   const badge = document.getElementById("bridgeState");
   badge.textContent = orch.running ? `KAL ✓ · 第 ${orch.cycle_count||0} 輪` : "KAL 停止";
   badge.className = "tb-badge " + (orch.running ? "ok" : "err");
   document.getElementById("bridgeInfo").textContent = orch.last_cycle_at ? orch.last_cycle_at.slice(11,16) : "—";
+}
+
+function updateOpenClawMonitor(openclaw = {}) {
+  const set = (id, val, cls = "") => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = val;
+    el.className = "mon-val" + (cls ? ` ${cls}` : "");
+  };
+  const note = document.getElementById("mon-openclaw-note");
+  if (!openclaw || typeof openclaw !== "object" || !Object.keys(openclaw).length) {
+    set("mon-openclaw", "未載入", "warn");
+    set("mon-openclaw-policy", "—");
+    if (note) note.textContent = "尚未載入 OpenClaw 狀態";
+    return;
+  }
+  const governance = openclaw.governance || {};
+  const installed = openclaw.installed === true;
+  const running = openclaw.daemon_running === true;
+  const state = openclaw.daemon_state || "unknown";
+  if (!installed) {
+    set("mon-openclaw", "未偵測", "warn");
+  } else if (running) {
+    set("mon-openclaw", "運行中", "ok");
+  } else if (state === "stopped") {
+    set("mon-openclaw", "已停止", "warn");
+  } else {
+    set("mon-openclaw", state, "warn");
+  }
+  const needsProphet = governance.prophet_required_for_mutation !== false;
+  set("mon-openclaw-policy", needsProphet ? "需申言者" : "可操作", needsProphet ? "warn" : "ok");
+  if (note) {
+    const version = openclaw.version || "unknown";
+    const decisionLabels = {
+      running: "運行中",
+      prophet_decision_required: "待申言者決策",
+      task_missing: "缺少排程任務",
+      cli_unavailable: "CLI 不可用",
+      unknown: "未知",
+    };
+    const decision = decisionLabels[governance.decision_state] || governance.decision_state || "未知";
+    note.textContent = `版本：${version}；決策：${decision}`;
+  }
 }
 
 function updateHarmonyMonitor(harmony = {}) {
@@ -1603,7 +1664,7 @@ async function reconnectAll() {
 /* ════════════════════════════════════════
    Tasks Panel
 ════════════════════════════════════════ */
-let _tasksFilter = "";
+let _tasksFilter = "unresolved";
 
 /* ── Cloud Provider Status ── */
 const PROVIDER_META = {
@@ -1711,7 +1772,7 @@ function syncAfterChat(data = {}) {
       await delay(400);
       await fetchHistory(true);
       await delay(400);
-      await fetchProviderStatus(true);
+      await fetchProviderStatus(false);
       await delay(400);
       await fetchKALStatus(true);
       renderBackendSync(data, "ok");
@@ -1724,6 +1785,7 @@ function syncAfterChat(data = {}) {
 async function fetchProviderStatus(force = false) {
   const now = Date.now();
   const fs = _fetchState.provider;
+  if (!force && fs.blockedUntil && now < fs.blockedUntil) return;
   if (!force) {
     if (fs.busy) return;
     if (now - fs.lastAt < MIN_FETCH_GAP_MS.provider) return;
@@ -1733,7 +1795,14 @@ async function fetchProviderStatus(force = false) {
   try {
     const headers = { "Content-Type": "application/json", "X-API-Token": window.__API_TOKEN__ || "" };
     const r = await fetch("/status", { headers });
+    if (r.status === 429) {
+      fs.blockedUntil = Date.now() + PROVIDER_RATE_LIMIT_BACKOFF_MS;
+      const statusEl = document.getElementById("cloudProviderStatus");
+      if (statusEl) statusEl.textContent = "Provider rate limited; paused for 30 minutes";
+      return;
+    }
     if (!r.ok) return;
+    fs.blockedUntil = 0;
     const d = await r.json();
     renderProviderStatusFromPayload(d);
   } catch (_) {
@@ -1794,9 +1863,10 @@ async function fetchTasksSummary(force = false) {
   fs.busy = true;
   fs.lastAt = now;
   try {
-    const url = _tasksFilter
-      ? `/agent/tasks?status=${encodeURIComponent(_tasksFilter)}&limit=30&compact=1`
-      : "/agent/tasks?limit=30&compact=1";
+    const taskStatus = _tasksFilter && _tasksFilter !== "unresolved" ? _tasksFilter : "";
+    const url = taskStatus
+      ? `/agent/tasks?status=${encodeURIComponent(taskStatus)}&limit=30&compact=1`
+      : "/agent/tasks?limit=120&compact=1";
     const ah = window.__API_TOKEN__ ? { "X-API-Token": window.__API_TOKEN__ } : {};
     const [sumR, tasksR] = await Promise.all([
       fetch("/agent/tasks/summary", { headers: ah }),
@@ -1813,38 +1883,107 @@ async function fetchTasksSummary(force = false) {
   }
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function escapeJsSingle(value) {
+  return String(value ?? "")
+    .replace(/\\/g, "\\\\")
+    .replace(/'/g, "\\'")
+    .replace(/\r?\n/g, " ");
+}
+
 function renderTasksPanel(sum, items) {
   const sc  = sum.status_counts || {};
   const bar = document.getElementById("tasksStatusBar");
   if (!bar) return;
+  const unresolvedCount = (sc.pending || 0) + (sc.running || 0) + (sc.failed || 0);
   const stats = [
+    { key: "unresolved", label: "未解", count: unresolvedCount },
     { key: "pending",   label: "待執行" },
     { key: "running",   label: "執行中" },
     { key: "completed", label: "已完成" },
     { key: "failed",    label: "失敗" },
   ];
   bar.innerHTML = stats.map(s =>
-    `<span class="tasks-stat ${s.key}${_tasksFilter===s.key?' sel':''}" onclick="filterTasks('${s.key}')">${s.label} ${sc[s.key]||0}</span>`
+    `<span class="tasks-stat ${s.key}${_tasksFilter===s.key?' sel':''}" onclick="filterTasks('${s.key}')">${s.label} ${s.count ?? (sc[s.key] || 0)}</span>`
   ).join("") + `<span class="tasks-stat all${_tasksFilter===''?' sel':''}" onclick="filterTasks('')">全部</span>`;
 
   const list = document.getElementById("tasksList");
   if (!list) return;
-  if (!items.length) { list.innerHTML = '<div class="kal-empty">沒有符合的任務</div>'; return; }
-  list.innerHTML = items.map(t => {
+  let normalizedItems = Array.isArray(items) ? items.slice() : [];
+  if (_tasksFilter === "unresolved") {
+    const priority = { running: 0, failed: 1, pending: 2 };
+    normalizedItems = normalizedItems.filter(t => Object.prototype.hasOwnProperty.call(priority, t.status || ""));
+    normalizedItems.sort((a, b) => {
+      const ap = priority[a.status] ?? 99;
+      const bp = priority[b.status] ?? 99;
+      if (ap !== bp) return ap - bp;
+      const at = Date.parse(a.updated_at || a.created_at || "") || 0;
+      const bt = Date.parse(b.updated_at || b.created_at || "") || 0;
+      return bt - at;
+    });
+  }
+  if (!normalizedItems.length) { list.innerHTML = '<div class="kal-empty">沒有符合的任務</div>'; return; }
+  list.innerHTML = normalizedItems.map(t => {
     const st    = t.status || "unknown";
     const agent = normalizeAgentKey(t.assigned_agent || t.agent_label || "?");
     const title = (t.title || "").slice(0, 42) || `#${t.task_id}`;
     const time  = (t.updated_at || "").slice(5, 16).replace("T", " ");
     const meta  = AGENT_META[agent] || {};
-    return `<div class="task-row" onclick="selectAgent('${agent}','${meta.icon||'🤖'}','${meta.label||agent}')">
+    return `<div class="task-row" onclick="selectAgent('${escapeJsSingle(agent)}','${escapeJsSingle(meta.icon || '🤖')}','${escapeJsSingle(meta.label || agent)}')">
       <div class="task-row-top">
-        <span class="task-dot ${st}"></span>
-        <span class="task-row-title">${title}</span>
-        <span class="task-row-agent">${agent}</span>
+        <span class="task-dot ${escapeHtml(st)}"></span>
+        <span class="task-row-title">${escapeHtml(title)}</span>
+        <span class="task-row-agent">${escapeHtml(agent)}</span>
       </div>
-      <div class="task-row-meta">${st} · ${time}</div>
+      <div class="task-row-meta">${escapeHtml(st)} · ${escapeHtml(time)}</div>
     </div>`;
   }).join("");
+}
+
+async function renderAgentActivityBoard() {
+  const board = document.getElementById("agentActivityBoard");
+  const meta = document.getElementById("agentActivityMeta");
+  if (!board) return;
+  const ah = window.__API_TOKEN__ ? { "X-API-Token": window.__API_TOKEN__ } : {};
+  try {
+    const [runningR, pendingR] = await Promise.all([
+      fetch("/agent/tasks?status=running&limit=120&compact=1", { headers: ah }),
+      fetch("/agent/tasks?status=pending&limit=120&compact=1", { headers: ah }),
+    ]);
+    const running = runningR.ok ? ((await runningR.json()).items || []) : [];
+    const pending = pendingR.ok ? ((await pendingR.json()).items || []) : [];
+    const items = [...running, ...pending].slice(0, 12);
+    if (meta) meta.textContent = `running ${running.length} · pending ${pending.length}`;
+    if (!items.length) {
+      board.innerHTML = '<div class="kal-empty">沒有進行中或待執行任務</div>';
+      return;
+    }
+    board.innerHTML = items.map(t => {
+      const st = t.status || "unknown";
+      const agent = normalizeAgentKey(t.assigned_agent || t.agent_label || "?");
+      const title = (t.title || "").slice(0, 48) || `#${t.task_id}`;
+      const time = (t.updated_at || "").slice(5, 16).replace("T", " ");
+      return `<div class="task-row">
+        <div class="task-row-top">
+          <span class="task-dot ${escapeHtml(st)}"></span>
+          <span class="task-row-title">${escapeHtml(title)}</span>
+          <span class="task-row-agent">${escapeHtml(agent)}</span>
+        </div>
+        <div class="task-row-meta">${escapeHtml(st)} · ${escapeHtml(time)}</div>
+      </div>`;
+    }).join("");
+  } catch (_) {
+    if (meta) meta.textContent = "activity board unavailable";
+    board.innerHTML = '<div class="kal-empty">無法讀取活動任務</div>';
+  }
 }
 
 function filterTasks(status) {
@@ -1887,7 +2026,7 @@ function _buildRouteCandidates(url) {
   return candidates;
 }
 
-async function _fetchWithRetry(url, options, maxRetries = 1, delayMs = 1500) {
+async function _fetchWithRetry(url, options, maxRetries = 1, delayMs = 1500, hooks = {}) {
   let lastErr;
   const routeCandidates = _buildRouteCandidates(url);
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -1895,18 +2034,22 @@ async function _fetchWithRetry(url, options, maxRetries = 1, delayMs = 1500) {
       const ctrl = new AbortController();
       const tid  = setTimeout(() => ctrl.abort(), 45000);
       try {
+        hooks.onAttempt?.({ attempt, url: candidate });
         const r = await fetch(candidate, { ...options, signal: ctrl.signal });
         clearTimeout(tid);
         // 404: 路由不存在；405: 路由存在但 method 不匹配。
         // 對這兩種狀態繼續嘗試備援候選，避免假性 API 權限錯誤。
         if (r.status !== 404 && r.status !== 405) return r;
+        hooks.onRouteFallback?.({ attempt, url: candidate, status: r.status });
         lastErr = Object.assign(new Error(`HTTP ${r.status}`), { status: r.status });
       } catch (e) {
         clearTimeout(tid);
+        hooks.onError?.({ attempt, url: candidate, error: e });
         lastErr = e;
       }
     }
     if (attempt < maxRetries) {
+      hooks.onRetry?.({ attempt: attempt + 1, error: lastErr });
       await new Promise(res => setTimeout(res, delayMs * (attempt + 1)));
     }
   }
@@ -2180,6 +2323,7 @@ function bootstrapPolling() {
       fetchKALStatus(true);
       fetchHistory(true);
       fetchTasksSummary(true);
+      renderAgentActivityBoard();
       fetchProviderStatus(true);
       fetchArchiveList();
     }
@@ -2190,6 +2334,7 @@ function bootstrapPolling() {
     if (!snap) {
       fetchKALStatus(false);
       fetchTasksSummary(false);
+      renderAgentActivityBoard();
     }
   }, POLL_INTERVAL_MS.snapshot);
 
@@ -2207,3 +2352,4 @@ bootstrapPolling();
 </script>
 </body>
 </html>
+

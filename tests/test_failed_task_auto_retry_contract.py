@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SERVER_PY = ROOT / ".sync_user_project" / "chatgpt_server.py"
+SERVER_PY = ROOT / "chatgpt_server.py"
 
 
 class FailedTaskAutoRetryContractTests(unittest.TestCase):

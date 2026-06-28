@@ -1,7 +1,7 @@
 param(
     [string]$TaskName = "ChengWorkspaceN8nWatchdog",
     [int]$IntervalSeconds = 60,
-    [int]$StartupWaitSeconds = 90,
+    [int]$StartupWaitSeconds = 180,
     [int]$LogRotateMB = 25
 )
 

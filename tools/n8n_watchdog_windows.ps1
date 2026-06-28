@@ -2,7 +2,7 @@ param(
     [switch]$Once,
     [int]$IntervalSeconds = 60,
     [int]$Port = 5678,
-    [int]$StartupWaitSeconds = 90,
+    [int]$StartupWaitSeconds = 180,
     [int]$LogRotateMB = 25
 )
 

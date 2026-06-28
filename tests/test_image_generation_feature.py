@@ -3,9 +3,9 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SERVER_PATH = ROOT / ".sync_user_project" / "chatgpt_server.py"
-CHAT_TEMPLATE_PATH = ROOT / ".sync_user_project" / "templates" / "chat.html"
-AGENTS_PATH = ROOT / ".sync_user_project" / "agents.py"
+SERVER_PATH = ROOT / "chatgpt_server.py"
+CHAT_TEMPLATE_PATH = ROOT / "templates" / "chat.html"
+AGENTS_PATH = ROOT / "agents.py"
 
 
 class ImageGenerationFeatureTests(unittest.TestCase):

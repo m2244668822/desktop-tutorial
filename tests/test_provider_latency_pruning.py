@@ -3,8 +3,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SERVER_PATH = ROOT / ".sync_user_project" / "chatgpt_server.py"
-CHAT_TEMPLATE_PATH = ROOT / ".sync_user_project" / "templates" / "chat.html"
+SERVER_PATH = ROOT / "chatgpt_server.py"
+CHAT_TEMPLATE_PATH = ROOT / "templates" / "chat.html"
 
 
 class ProviderLatencyPruningTests(unittest.TestCase):
