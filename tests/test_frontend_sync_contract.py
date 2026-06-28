@@ -60,6 +60,13 @@ class FrontendSyncContractTests(unittest.TestCase):
         self.assertIn("governance.prophet_required_for_mutation", self.html)
         self.assertIn("需申言者", self.html)
 
+    def test_mobile_layout_contract_present(self):
+        self.assertIn("@media (max-width: 640px)", self.html)
+        self.assertIn(".right-panel{display:none}", self.html)
+        self.assertIn(".model-grid{grid-template-columns:1fr;gap:7px}", self.html)
+        self.assertIn(".tasks-header{align-items:flex-start;gap:6px;flex-direction:column}", self.html)
+        self.assertIn(".sidebar{width:var(--sb-w)}", self.html)
+
     def test_thinking_phase_breakdown_present(self):
         self.assertIn("renderBackendPending(iMode);", self.html)
         self.assertIn("thinking bubble", self.html)

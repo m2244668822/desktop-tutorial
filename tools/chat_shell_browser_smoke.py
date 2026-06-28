@@ -436,7 +436,10 @@ def run_smoke(
     notes: list[str] = []
     port = free_port()
     target_url = f"{base_url.rstrip('/')}/chat_shell"
-    with tempfile.TemporaryDirectory(prefix="chat-shell-browser-smoke-") as user_data_dir:
+    with tempfile.TemporaryDirectory(
+        prefix="chat-shell-browser-smoke-",
+        ignore_cleanup_errors=True,
+    ) as user_data_dir:
         args = [
             str(browser_path),
             "--headless=new",
@@ -530,9 +533,12 @@ def run_smoke(
                 missing_ids = [
                     key for key, present in (dom.get("requiredIds") or {}).items() if not present
                 ]
-                invisible = [
-                    key for key, present in (dom.get("visible") or {}).items() if not present
-                ]
+                visible_map = dom.get("visible") or {}
+                viewport_width = int((dom.get("viewport") or {}).get("width") or width)
+                required_visible = ["hubView", "agentActivityBoard", "msgInput", "sendBtn"]
+                if viewport_width >= 720:
+                    required_visible.extend(["monOpenClaw", "monOpenClawPolicy"])
+                invisible = [key for key in required_visible if not visible_map.get(key)]
                 contract = dom.get("contract") or {}
                 contract_failures = [
                     key for key, value in contract.items()
