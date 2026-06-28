@@ -91,7 +91,8 @@ python -m pytest tests\test_chat_frontend_api_cleanup.py tests\test_desktop_web_
 ### Phase 5: n8n Production Hardening
 
 - workflow 可以先匯入 inactive draft。
-- 未補 credentials、成本限制、輸出路徑、錯誤分支前，不啟用自動執行。
+- 未補 credentials、匯入最新版 source spec、確認 ffmpeg PATH 前，不啟用自動執行。
+- source spec 必須包含 timeout、成本限制、錯誤策略、Webhook auth 與受控輸出路徑；live n8n DB 若仍是舊稿，preflight 必須擋下。
 - 啟用前必須跑 `tools/n8n_workflow_preflight.py`；若狀態是 `blocked_for_activation`，只能當 inventory，不得開啟 workflow。
 - Python task runner warning 不是 P0；外部 API credentials 和 FFmpeg 安全路徑才是 P1。
 
@@ -133,7 +134,7 @@ python -m py_compile chatgpt_server.py agents.py tools\foundation_health_check.p
 python -m pytest tests --tb=short
 ```
 
-最新結果：`78 passed`。
+最新結果：`79 passed`。
 
 ## 完成定義
 
@@ -150,5 +151,5 @@ python -m pytest tests --tb=short
 
 1. 以 `tools/foundation_health_check.py` 作為每日健康入口。
 2. OpenClaw daemon 保持 `governed_stopped`，除非使用者走申言者確認語句後再啟動。
-3. n8n workflow 保持 inactive，先補 credentials 與 FFmpeg 安全輸出路徑。
+3. n8n workflow 保持 inactive，先補 credentials、ffmpeg PATH，並重新匯入 hardened source spec。
 4. 把本輪 infrastructure/frontend/backend/test 變更和既有未提交項目分開整理。

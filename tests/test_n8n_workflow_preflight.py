@@ -79,8 +79,38 @@ class N8nWorkflowPreflightTests(unittest.TestCase):
                 self.assertIn("webhook_without_auth", codes)
                 self.assertIn("missing_execution_timeout", codes)
                 self.assertIn("missing_cost_controls", codes)
+                self.assertIn("n8n_database_workflow_stale", codes)
         finally:
             n8n_workflow_preflight.shutil.which = old_which
+
+    def test_db_contract_detects_hardened_import(self):
+        contract = n8n_workflow_preflight.workflow_contract_snapshot(
+            [
+                {
+                    "type": "n8n-nodes-base.webhook",
+                    "parameters": {"authentication": "headerAuth"},
+                },
+                {
+                    "type": "n8n-nodes-base.executeCommand",
+                    "parameters": {
+                        "command": (
+                            "node -e \"const root=process.env.XIAOBIAN_VIDEO_OUTPUT_DIR||"
+                            "path.join(process.cwd(),'data','generated','xiaobian-video');\""
+                        )
+                    },
+                },
+            ],
+            {"executionTimeout": 900},
+            {"cost_controls": {"max": 1}, "error_policy": {"default": "fail_closed"}},
+        )
+
+        self.assertTrue(contract["webhook_auth"])
+        self.assertTrue(contract["hardened_command"])
+        self.assertFalse(contract["placeholder_command"])
+        self.assertFalse(contract["relative_media_paths"])
+        self.assertTrue(contract["execution_timeout"])
+        self.assertTrue(contract["cost_controls"])
+        self.assertTrue(contract["error_policy"])
 
 
 if __name__ == "__main__":

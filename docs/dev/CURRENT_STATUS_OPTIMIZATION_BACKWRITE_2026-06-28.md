@@ -16,7 +16,7 @@ This note records the live Windows status after the June 28 optimization pass. I
 | OpenClaw CLI | Installed | `/api/get_status` reports `OpenClaw 2026.5.27 (27ae826)` |
 | OpenClaw daemon | GOVERNED STOPPED | `/api/get_status` reports `daemon_state=stopped`, `health=governed_stopped`, and `decision_state=prophet_decision_required` |
 | Chat shell route | UP | `GET /chat_shell` returned 200 and includes the new agent activity board/backoff contract |
-| Test suite | PASS | `python -m pytest tests --tb=short` returned `78 passed` |
+| Test suite | PASS | `python -m pytest tests --tb=short` returned `79 passed` |
 | Foundation checker | PASS WITH KNOWN GAPS | `tools/foundation_health_check.py --browser-smoke required` reports ports, gateway, n8n, Knowledge Hub, frontend contract, git, py_compile, and browser smoke |
 | Browser smoke | PASS | Headless Chrome loaded `/chat_shell`, found no runtime exceptions/console errors, and wrote `reports/chat_shell_browser_smoke_latest.png` |
 | n8n workflow preflight | BLOCKED FOR ACTIVATION | `tools/n8n_workflow_preflight.py` found activation blockers while keeping the imported workflow inactive |
@@ -61,7 +61,7 @@ This note records the live Windows status after the June 28 optimization pass. I
 ## Important Notes
 
 - n8n took slightly longer than 120 seconds to expose port `5678`; this is why the watchdog default is now 180 seconds.
-- The imported n8n workflow is inactive by design. Credentials, API cost controls, and the FFmpeg command still need hardening before activation.
+- The imported n8n workflow is inactive by design. The source spec now has timeout, cost controls, error policy, webhook header auth, and a controlled FFmpeg command. Live n8n still needs credentials, ffmpeg on PATH, and re-import of the hardened spec before activation.
 - The main web process appears as a Python wrapper chain from `system_main.py` to `desktop_chat_app.py`; only the final process owns port `5001`.
 - Scheduled Task registration was denied by Windows permissions, so the Startup folder fallback is the active persistence mechanism.
 - The in-app Browser plugin still did not expose a JS evaluation tool, so visual validation now uses the local headless Chrome CDP smoke tool instead.
@@ -75,7 +75,7 @@ This note records the live Windows status after the June 28 optimization pass. I
 |---|---|---|
 | OpenClaw daemon is installed and governed-stopped | P1 | Start only after explicit prophet/governance approval; otherwise keep it as a visible non-running dependency. |
 | n8n telemetry DNS messages still appear in logs | P2 | Identify the exact n8n 2.21 telemetry/feature-flag config keys before adding more env vars. |
-| n8n workflow preflight is blocked | P1 | Clear credentials, webhook auth, cost controls, timeout, FFmpeg path, and error policy before activation. |
+| n8n workflow preflight is blocked | P1 | Clear provider credentials, n8n DB credentials, ffmpeg PATH, and re-import the hardened source spec before activation. |
 | n8n workflow has no executions yet | P1 | Run a controlled manual test only after preflight reports `ready_for_activation`. |
 | Obsidian root MOC still has local edits | P1 | Commit or intentionally separate vault UI/config edits from ProjectDocs content edits. |
 | Working tree is intentionally dirty after this optimization pass | P1 | Review and commit the scoped infrastructure/frontend/backend/test changes separately from pre-existing report or bridge edits. |

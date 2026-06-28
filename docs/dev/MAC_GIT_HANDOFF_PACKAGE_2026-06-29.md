@@ -82,13 +82,19 @@ python -m pytest tests --tb=short
 |---|---|
 | Gemini/OpenAI provider credentials | 缺 |
 | n8n database credentials | `credentials_entity=0` |
-| Webhook authentication | 缺 |
-| FFmpeg command | 仍有 placeholder `drawtext=...` |
-| FFmpeg output path | 使用裸相對路徑 `image.png/audio.mp3/output.mp4` |
 | FFmpeg binary | Windows PATH 未找到；Mac 端也需確認 |
-| execution timeout | 缺 |
-| cost controls | 缺 |
-| error handling policy | 缺 |
+| Live n8n workflow import | DB 內仍是舊稿，需要重新匯入 hardened source spec |
+
+已在 source spec 補好的項目：
+
+| Item | Status |
+|---|---|
+| Webhook authentication | 已設定 `headerAuth`，仍需在 n8n 建立對應 credential |
+| FFmpeg command | 已改成跨 Windows/Mac 的 `node -e` wrapper |
+| FFmpeg output path | 已改用 `XIAOBIAN_VIDEO_OUTPUT_DIR` 或 `data/generated/xiaobian-video` |
+| execution timeout | 已設定 `900` 秒 |
+| cost controls | 已加入 `meta.cost_controls` |
+| error handling policy | 已加入 `meta.error_policy` |
 
 正式啟用前必須跑：
 
@@ -150,7 +156,7 @@ git push origin codex/git-governance-20260517
 ## 下一步
 
 1. Mac 端拉取後先跑 `python tools/foundation_health_check.py --browser-smoke required`。
-2. 補 n8n credentials、webhook auth、FFmpeg 安全輸出路徑、timeout、cost controls、error policy。
+2. 補 n8n provider credentials、webhook header auth credential、ffmpeg PATH，並重新匯入 hardened source spec。
 3. n8n preflight 清零 blocker 後再手動執行 workflow。
 4. OpenClaw 只有在申言者確認後才啟動或修改 daemon/gateway。
 5. 將本輪變更和 `reports/AEG_SHARED_REPORT.md` 這類 runtime/report 變更分開處理。

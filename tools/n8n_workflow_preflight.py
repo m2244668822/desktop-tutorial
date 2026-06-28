@@ -72,6 +72,7 @@ def db_snapshot(db_path: Path, workflow_id: str, workflow_name: str) -> dict[str
         "ok": False,
         "counts": {},
         "workflow": {},
+        "workflow_contract": {},
         "error": "",
     }
     if not db_path.exists():
@@ -84,17 +85,90 @@ def db_snapshot(db_path: Path, workflow_id: str, workflow_name: str) -> dict[str
             snapshot["counts"][table] = int(
                 con.execute(f"select count(*) from {table}").fetchone()[0]
             )
+        columns = {
+            str(row[1])
+            for row in con.execute("pragma table_info(workflow_entity)").fetchall()
+        }
+        selected = ["id", "name", "active"]
+        for column in ("nodes", "settings", "meta"):
+            if column in columns:
+                selected.append(column)
         row = con.execute(
-            "select id, name, active from workflow_entity where id = ? or name = ? limit 1",
+            f"select {', '.join(selected)} from workflow_entity where id = ? or name = ? limit 1",
             (workflow_id, workflow_name),
         ).fetchone()
         if row:
-            snapshot["workflow"] = dict(row)
+            raw = dict(row)
+            snapshot["workflow"] = {
+                "id": raw.get("id"),
+                "name": raw.get("name"),
+                "active": raw.get("active"),
+            }
+            snapshot["workflow_contract"] = workflow_contract_snapshot(
+                _json_or_default(raw.get("nodes"), []),
+                _json_or_default(raw.get("settings"), {}),
+                _json_or_default(raw.get("meta"), {}),
+            )
         con.close()
         snapshot["ok"] = True
     except Exception as exc:  # noqa: BLE001
         snapshot["error"] = str(exc)
     return snapshot
+
+
+def _json_or_default(raw: Any, default: Any) -> Any:
+    if raw is None or raw == "":
+        return default
+    if isinstance(raw, (dict, list)):
+        return raw
+    try:
+        return json.loads(str(raw))
+    except Exception:
+        return default
+
+
+def workflow_contract_snapshot(
+    nodes: list[dict[str, Any]] | Any,
+    settings: dict[str, Any] | Any,
+    meta: dict[str, Any] | Any,
+) -> dict[str, Any]:
+    if not isinstance(nodes, list):
+        nodes = []
+    if not isinstance(settings, dict):
+        settings = {}
+    if not isinstance(meta, dict):
+        meta = {}
+    webhook_auth = False
+    hardened_command = False
+    placeholder_command = False
+    relative_media_paths = False
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        params = node.get("parameters") or {}
+        node_type = str(node.get("type") or "")
+        if node_type == "n8n-nodes-base.webhook":
+            webhook_auth = bool(params.get("authentication"))
+        if node_type == "n8n-nodes-base.executeCommand":
+            command = str(params.get("command") or "")
+            hardened_command = (
+                "XIAOBIAN_VIDEO_OUTPUT_DIR" in command
+                and "data','generated','xiaobian-video" in command
+            )
+            placeholder_command = "..." in command
+            relative_media_paths = any(
+                token in f" {command} "
+                for token in (" image.png", " audio.mp3", " output.mp4")
+            )
+    return {
+        "webhook_auth": webhook_auth,
+        "hardened_command": hardened_command,
+        "placeholder_command": placeholder_command,
+        "relative_media_paths": relative_media_paths,
+        "execution_timeout": bool(settings.get("executionTimeout")),
+        "cost_controls": bool(meta.get("cost_controls")),
+        "error_policy": bool(meta.get("error_policy")),
+    }
 
 
 def _node_name(node: dict[str, Any]) -> str:
@@ -244,6 +318,40 @@ def audit_safety(workflow: dict[str, Any], db: dict[str, Any]) -> list[Issue]:
     return issues
 
 
+def audit_db_workflow_contract(db: dict[str, Any]) -> list[Issue]:
+    workflow = db.get("workflow") or {}
+    if not db.get("ok") or not workflow:
+        return []
+    contract = db.get("workflow_contract") or {}
+    stale = []
+    expected = {
+        "webhook_auth": True,
+        "hardened_command": True,
+        "placeholder_command": False,
+        "relative_media_paths": False,
+        "execution_timeout": True,
+        "cost_controls": True,
+        "error_policy": True,
+    }
+    for key, expected_value in expected.items():
+        if contract.get(key) != expected_value:
+            stale.append(key)
+    if not stale:
+        return []
+    return [
+        Issue(
+            "blocker",
+            "n8n_database_workflow_stale",
+            "The workflow imported in n8n DB does not match the hardened source spec; re-import before activation.",
+            {
+                "workflow": workflow,
+                "stale_contracts": stale,
+                "contract": contract,
+            },
+        )
+    ]
+
+
 def audit_webhooks(nodes: list[dict[str, Any]]) -> list[Issue]:
     issues: list[Issue] = []
     for node in nodes:
@@ -306,6 +414,7 @@ def run_preflight(spec_path: Path, db_path: Path) -> dict[str, Any]:
     issues.extend(audit_execute_commands(nodes))
     issues.extend(audit_webhooks(nodes))
     issues.extend(audit_safety(workflow, db))
+    issues.extend(audit_db_workflow_contract(db))
 
     blockers = [issue for issue in issues if issue.severity == "blocker"]
     warnings = [issue for issue in issues if issue.severity == "warning"]
