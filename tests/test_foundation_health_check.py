@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import os
 import sqlite3
 import sys
 import tempfile
@@ -18,6 +19,79 @@ SPEC.loader.exec_module(foundation_health_check)
 
 
 class FoundationHealthCheckTests(unittest.TestCase):
+    def test_workspace_context_allows_external_cwd_but_reports_it(self):
+        old_root = foundation_health_check.ROOT
+        old_run = foundation_health_check.run
+        old_cwd = Path.cwd()
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp) / "repo"
+                external = Path(tmp) / "elsewhere"
+                external.mkdir()
+                for rel in (
+                    "desktop_chat_app.py",
+                    "templates/chat.html",
+                    "tools/foundation_health_check.py",
+                    "docs/dev/FOUNDATION_OPTIMIZATION_FLOW_2026-06-28.md",
+                ):
+                    path = root / rel
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text("ok", encoding="utf-8")
+
+                foundation_health_check.ROOT = root
+                foundation_health_check.run = lambda *args, **kwargs: CompletedProcess(
+                    args=args[0],
+                    returncode=0,
+                    stdout=str(root) + "\n",
+                    stderr="",
+                )
+                os.chdir(external)
+
+                check = foundation_health_check.check_workspace_context()
+                os.chdir(old_cwd)
+
+                self.assertTrue(check.ok)
+                self.assertEqual(check.status, "ready_external_cwd")
+                self.assertFalse(check.detail["cwd_inside_root"])
+        finally:
+            os.chdir(old_cwd)
+            foundation_health_check.ROOT = old_root
+            foundation_health_check.run = old_run
+
+    def test_workspace_context_fails_git_root_mismatch(self):
+        old_root = foundation_health_check.ROOT
+        old_run = foundation_health_check.run
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp) / "repo"
+                other = Path(tmp) / "other"
+                for rel in (
+                    "desktop_chat_app.py",
+                    "templates/chat.html",
+                    "tools/foundation_health_check.py",
+                    "docs/dev/FOUNDATION_OPTIMIZATION_FLOW_2026-06-28.md",
+                ):
+                    path = root / rel
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text("ok", encoding="utf-8")
+                other.mkdir()
+
+                foundation_health_check.ROOT = root
+                foundation_health_check.run = lambda *args, **kwargs: CompletedProcess(
+                    args=args[0],
+                    returncode=0,
+                    stdout=str(other) + "\n",
+                    stderr="",
+                )
+
+                check = foundation_health_check.check_workspace_context()
+
+                self.assertFalse(check.ok)
+                self.assertEqual(check.status, "git_root_mismatch")
+        finally:
+            foundation_health_check.ROOT = old_root
+            foundation_health_check.run = old_run
+
     def test_write_report_records_overall_status(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "report.json"
@@ -92,6 +166,31 @@ class FoundationHealthCheckTests(unittest.TestCase):
         finally:
             foundation_health_check.N8N_DB = old_db
             foundation_health_check.http_get = old_http_get
+
+    def test_frontend_static_contract_requires_mobile_layout(self):
+        old_root = foundation_health_check.ROOT
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                template = root / "templates" / "chat.html"
+                template.parent.mkdir(parents=True)
+                html = (ROOT / "templates" / "chat.html").read_text(
+                    encoding="utf-8",
+                    errors="replace",
+                )
+                template.write_text(
+                    html.replace("@media (max-width: 640px)", "@media (max-width: 641px)"),
+                    encoding="utf-8",
+                )
+                foundation_health_check.ROOT = root
+
+                check = foundation_health_check.check_frontend_static_contract()
+
+                self.assertFalse(check.ok)
+                self.assertEqual(check.status, "contract_drift")
+                self.assertIn("@media (max-width: 640px)", check.detail["missing"])
+        finally:
+            foundation_health_check.ROOT = old_root
 
     def test_gateway_surfaces_openclaw_stopped_warning(self):
         old_http_get = foundation_health_check.http_get

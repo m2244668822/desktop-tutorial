@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import socket
 import sqlite3
 import subprocess
@@ -73,6 +74,73 @@ def http_get(path: str, port: int = 5001, timeout: int = 5) -> dict[str, Any]:
         return {"ok": False, "status_code": 0, "data": None, "error": str(exc.reason)}
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "status_code": 0, "data": None, "error": str(exc)}
+
+
+def _path_inside(path: Path, parent: Path) -> bool:
+    try:
+        path.resolve().relative_to(parent.resolve())
+        return True
+    except ValueError:
+        return False
+    except OSError:
+        return False
+
+
+def check_workspace_context() -> Check:
+    cwd = Path.cwd()
+    root = ROOT.resolve()
+    expected_files = [
+        "desktop_chat_app.py",
+        "templates/chat.html",
+        "tools/foundation_health_check.py",
+        "docs/dev/FOUNDATION_OPTIMIZATION_FLOW_2026-06-28.md",
+    ]
+    required = {rel: (root / rel).exists() for rel in expected_files}
+    git_proc = run(["git", "rev-parse", "--show-toplevel"], timeout=10)
+    git_root_raw = git_proc.stdout.strip() if git_proc.returncode == 0 else ""
+    git_root = ""
+    git_root_matches = False
+    if git_root_raw:
+        try:
+            git_root = str(Path(git_root_raw).resolve())
+            git_root_matches = git_root.casefold() == str(root).casefold()
+        except OSError:
+            git_root = git_root_raw
+    cwd_inside_root = _path_inside(cwd, root)
+
+    env_paths: dict[str, dict[str, Any]] = {}
+    for name in ("PWD", "OLDPWD", "CODEX_WORKSPACE", "WORKSPACE", "GITHUB_WORKSPACE"):
+        value = os.environ.get(name)
+        if not value:
+            continue
+        try:
+            env_path = Path(value).expanduser()
+            env_paths[name] = {"value": value, "exists": env_path.exists()}
+        except Exception as exc:  # noqa: BLE001
+            env_paths[name] = {"value": value, "exists": False, "error": str(exc)}
+
+    ok = all(required.values()) and git_proc.returncode == 0 and git_root_matches
+    if not ok:
+        status = "git_root_mismatch" if git_proc.returncode == 0 and not git_root_matches else "invalid_workspace"
+    elif not cwd_inside_root:
+        status = "ready_external_cwd"
+    else:
+        status = "ready"
+    return Check(
+        "workspace_context",
+        ok,
+        status,
+        {
+            "root": str(root),
+            "cwd": str(cwd),
+            "cwd_inside_root": cwd_inside_root,
+            "git_root": git_root,
+            "git_returncode": git_proc.returncode,
+            "git_stderr": git_proc.stderr[-1000:],
+            "required_files": required,
+            "env_paths": env_paths,
+        },
+    )
 
 
 def check_ports() -> Check:
@@ -241,6 +309,10 @@ def check_frontend_static_contract() -> Check:
         'id="mon-openclaw"',
         "function updateOpenClawMonitor(openclaw = {})",
         'fetch("/api/get_status", { headers: ah })',
+        "@media (max-width: 640px)",
+        ".right-panel{display:none}",
+        ".model-grid{grid-template-columns:1fr;gap:7px}",
+        ".tasks-header{align-items:flex-start;gap:6px;flex-direction:column}",
     ]
     forbidden_tokens = [
         "http://127.0.0.1:7861/ingest/",
@@ -342,6 +414,7 @@ def check_browser_smoke(mode: str = "auto") -> Check:
 
 def collect_checks(browser_smoke: str = "auto") -> list[Check]:
     checks = [
+        check_workspace_context(),
         check_ports(),
         check_gateway(),
         check_n8n(),
