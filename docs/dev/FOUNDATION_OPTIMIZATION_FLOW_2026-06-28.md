@@ -129,6 +129,15 @@ Inventory mode is allowed during development:
 python tools\n8n_workflow_preflight.py --allow-blockers
 ```
 
+The preflight JSON report includes:
+
+| Field | Use |
+|---|---|
+| `issues` | Raw blockers and warnings with evidence |
+| `remediation_plan` | Deduplicated Windows/macOS repair steps for each recurring blocker |
+| `activation_sequence` | Ordered checklist that must be completed before unattended automation |
+| `db.workflow_contract` | Live imported workflow contract for stale-import detection |
+
 Known activation blockers:
 
 | Blocker | Required Action |

@@ -80,8 +80,41 @@ class N8nWorkflowPreflightTests(unittest.TestCase):
                 self.assertIn("missing_execution_timeout", codes)
                 self.assertIn("missing_cost_controls", codes)
                 self.assertIn("n8n_database_workflow_stale", codes)
+                remediation_codes = {item["code"] for item in payload["remediation_plan"]}
+                self.assertIn("missing_node_credentials", remediation_codes)
+                self.assertIn("n8n_database_has_no_credentials", remediation_codes)
+                self.assertIn("ffmpeg_not_found", remediation_codes)
+                self.assertIn("n8n_database_workflow_stale", remediation_codes)
+                ffmpeg_plan = next(
+                    item for item in payload["remediation_plan"] if item["code"] == "ffmpeg_not_found"
+                )
+                self.assertTrue(ffmpeg_plan["manual"])
+                self.assertIn("brew install ffmpeg", ffmpeg_plan["macos"])
+                self.assertIn("winget install Gyan.FFmpeg", ffmpeg_plan["windows"])
+                self.assertIn("ready_for_activation", " ".join(payload["activation_sequence"]))
         finally:
             n8n_workflow_preflight.shutil.which = old_which
+
+    def test_remediation_plan_deduplicates_same_issue_code_and_summary(self):
+        issues = [
+            n8n_workflow_preflight.Issue(
+                "blocker",
+                "ffmpeg_not_found",
+                "ffmpeg is not available.",
+                {"node": "FFmpeg Assembly"},
+            ),
+            n8n_workflow_preflight.Issue(
+                "blocker",
+                "ffmpeg_not_found",
+                "ffmpeg is not available.",
+                {"node": "Other FFmpeg Node"},
+            ),
+        ]
+
+        plan = n8n_workflow_preflight.build_remediation_plan(issues)
+
+        self.assertEqual(len(plan), 1)
+        self.assertEqual(plan[0]["code"], "ffmpeg_not_found")
 
     def test_db_contract_detects_hardened_import(self):
         contract = n8n_workflow_preflight.workflow_contract_snapshot(

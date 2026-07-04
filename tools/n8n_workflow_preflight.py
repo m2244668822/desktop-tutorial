@@ -32,6 +32,172 @@ class Issue:
     evidence: dict[str, Any]
 
 
+def remediation_for_issue(issue: Issue) -> dict[str, Any]:
+    evidence = issue.evidence or {}
+    node = str(evidence.get("node") or "")
+    provider = str(evidence.get("provider") or "")
+    by_code: dict[str, dict[str, Any]] = {
+        "missing_node_credentials": {
+            "owner": "operator",
+            "manual": True,
+            "summary": f"Bind {provider or 'provider'} credentials to {node or 'the provider node'} in n8n.",
+            "windows": [
+                "Open http://127.0.0.1:5678/credentials",
+                "Create or select the provider credential.",
+                f"Open workflow node {node or '<node>'} and bind the credential.",
+            ],
+            "macos": [
+                "Open http://127.0.0.1:5678/credentials",
+                "Create or select the provider credential.",
+                f"Open workflow node {node or '<node>'} and bind the credential.",
+            ],
+            "verify": "Rerun python tools/n8n_workflow_preflight.py and confirm missing_node_credentials is gone.",
+        },
+        "n8n_database_has_no_credentials": {
+            "owner": "operator",
+            "manual": True,
+            "summary": "Create at least one provider credential in the n8n credential database.",
+            "windows": ["Open http://127.0.0.1:5678/credentials and create the required credentials."],
+            "macos": ["Open http://127.0.0.1:5678/credentials and create the required credentials."],
+            "verify": "Preflight should report credentials_entity > 0.",
+        },
+        "ffmpeg_not_found": {
+            "owner": "operator",
+            "manual": True,
+            "summary": "Install FFmpeg and make sure ffmpeg is available on PATH.",
+            "windows": [
+                "winget install Gyan.FFmpeg",
+                "Restart the shell after installation.",
+                "ffmpeg -version",
+            ],
+            "macos": ["brew install ffmpeg", "ffmpeg -version"],
+            "verify": "where ffmpeg on Windows, or which ffmpeg on macOS, then rerun preflight.",
+        },
+        "n8n_database_workflow_stale": {
+            "owner": "operator",
+            "manual": True,
+            "summary": "Re-import the hardened source workflow before activation.",
+            "windows": [
+                "Keep the workflow inactive.",
+                "cmd /c n8n import:workflow --input docs\\superpowers\\specs\\n8n-workflow-xiaobian-video.json",
+            ],
+            "macos": [
+                "Keep the workflow inactive.",
+                "n8n import:workflow --input docs/superpowers/specs/n8n-workflow-xiaobian-video.json",
+            ],
+            "verify": "Preflight should no longer report n8n_database_workflow_stale.",
+        },
+        "workflow_active_before_preflight_clearance": {
+            "owner": "operator",
+            "manual": True,
+            "summary": "Deactivate the workflow until every blocker is cleared.",
+            "windows": ["Open n8n workflow settings and switch Active off."],
+            "macos": ["Open n8n workflow settings and switch Active off."],
+            "verify": "Preflight evidence should show spec_active=false and db_active=false.",
+        },
+        "placeholder_command": {
+            "owner": "developer",
+            "manual": False,
+            "summary": "Replace placeholder Execute Command text with the hardened FFmpeg wrapper from source control.",
+            "windows": ["Edit docs\\superpowers\\specs\\n8n-workflow-xiaobian-video.json, then re-import."],
+            "macos": ["Edit docs/superpowers/specs/n8n-workflow-xiaobian-video.json, then re-import."],
+            "verify": "Preflight should no longer report placeholder_command.",
+        },
+        "unsafe_relative_media_paths": {
+            "owner": "developer",
+            "manual": False,
+            "summary": "Use XIAOBIAN_VIDEO_OUTPUT_DIR or data/generated/xiaobian-video instead of bare media filenames.",
+            "windows": ["Update the Execute Command node and re-import the workflow."],
+            "macos": ["Update the Execute Command node and re-import the workflow."],
+            "verify": "Preflight should no longer report unsafe_relative_media_paths.",
+        },
+        "webhook_without_auth": {
+            "owner": "developer",
+            "manual": False,
+            "summary": "Set the webhook node authentication to headerAuth.",
+            "windows": ["Update the source workflow spec and re-import it."],
+            "macos": ["Update the source workflow spec and re-import it."],
+            "verify": "Preflight should no longer report webhook_without_auth.",
+        },
+        "webhook_missing_path": {
+            "owner": "developer",
+            "manual": False,
+            "summary": "Set an explicit webhook path in the source workflow spec.",
+            "windows": ["Update the webhook node path and re-import the workflow."],
+            "macos": ["Update the webhook node path and re-import the workflow."],
+            "verify": "Preflight should no longer report webhook_missing_path.",
+        },
+        "missing_execution_timeout": {
+            "owner": "developer",
+            "manual": False,
+            "summary": "Add settings.executionTimeout to cap runaway workflow execution.",
+            "windows": ["Update the source workflow settings and re-import it."],
+            "macos": ["Update the source workflow settings and re-import it."],
+            "verify": "Preflight should no longer report missing_execution_timeout.",
+        },
+        "missing_cost_controls": {
+            "owner": "developer",
+            "manual": False,
+            "summary": "Add meta.cost_controls for paid provider nodes.",
+            "windows": ["Update the source workflow meta block and re-import it."],
+            "macos": ["Update the source workflow meta block and re-import it."],
+            "verify": "Preflight should no longer report missing_cost_controls.",
+        },
+        "missing_error_handling_policy": {
+            "owner": "developer",
+            "manual": False,
+            "summary": "Add settings.errorWorkflow or meta.error_policy.",
+            "windows": ["Update the source workflow safety policy and re-import it."],
+            "macos": ["Update the source workflow safety policy and re-import it."],
+            "verify": "Preflight should no longer report missing_error_handling_policy.",
+        },
+        "n8n_database_unavailable": {
+            "owner": "operator",
+            "manual": True,
+            "summary": "Start n8n once so its SQLite database can be inspected.",
+            "windows": [".\\tools\\start_n8n_windows.cmd"],
+            "macos": ["N8N_HOST=127.0.0.1 N8N_PORT=5678 n8n start"],
+            "verify": "The configured n8n database path should exist and preflight should read it.",
+        },
+    }
+    plan = by_code.get(
+        issue.code,
+        {
+            "owner": "developer",
+            "manual": False,
+            "summary": "Inspect this issue and add a specific remediation rule if it recurs.",
+            "windows": [],
+            "macos": [],
+            "verify": "Rerun preflight after remediation.",
+        },
+    )
+    return {"code": issue.code, "severity": issue.severity, **plan, "evidence": evidence}
+
+
+def build_remediation_plan(issues: list[Issue]) -> list[dict[str, Any]]:
+    seen: set[tuple[str, str]] = set()
+    plan: list[dict[str, Any]] = []
+    for issue in issues:
+        item = remediation_for_issue(issue)
+        key = (str(item.get("code")), str(item.get("summary")))
+        if key in seen:
+            continue
+        seen.add(key)
+        plan.append(item)
+    return plan
+
+
+def activation_sequence() -> list[str]:
+    return [
+        "Keep the workflow inactive while any blocker exists.",
+        "Install and verify FFmpeg on the target machine.",
+        "Create provider credentials in n8n and bind them to every provider node.",
+        "Re-import the hardened source workflow spec.",
+        "Run python tools/n8n_workflow_preflight.py until status is ready_for_activation.",
+        "Run one controlled manual execution before enabling unattended automation.",
+    ]
+
+
 def load_workflow(path: Path) -> tuple[dict[str, Any] | None, list[Issue]]:
     if not path.exists():
         return None, [
@@ -389,6 +555,8 @@ def run_preflight(spec_path: Path, db_path: Path) -> dict[str, Any]:
             "spec_path": str(spec_path),
             "db": {"path": str(db_path), "exists": db_path.exists()},
             "issues": [asdict(issue) for issue in issues],
+            "remediation_plan": build_remediation_plan(issues),
+            "activation_sequence": activation_sequence(),
             "blocker_count": len(blockers),
             "warning_count": len([issue for issue in issues if issue.severity == "warning"]),
         }
@@ -430,6 +598,8 @@ def run_preflight(spec_path: Path, db_path: Path) -> dict[str, Any]:
         },
         "db": db,
         "issues": [asdict(issue) for issue in issues],
+        "remediation_plan": build_remediation_plan(issues),
+        "activation_sequence": activation_sequence(),
         "blocker_count": len(blockers),
         "warning_count": len(warnings),
     }
@@ -463,6 +633,13 @@ def main() -> int:
         print(f"[{issue['severity'].upper()}] {issue['code']}: {issue['message']}")
     if len(payload["issues"]) > 10:
         print(f"... {len(payload['issues']) - 10} more issue(s)")
+    remediation = payload.get("remediation_plan") or []
+    if remediation:
+        print("remediation:")
+        for item in remediation[:5]:
+            print(f"- {item['code']}: {item['summary']}")
+        if len(remediation) > 5:
+            print(f"... {len(remediation) - 5} more remediation item(s)")
 
     if payload["ok_for_activation"]:
         return 0

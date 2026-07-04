@@ -60,6 +60,18 @@ python tools/n8n_workflow_preflight.py --allow-blockers
 python -m pytest tests/test_foundation_health_check.py tests/test_frontend_sync_contract.py tests/test_n8n_workflow_preflight.py --tb=short
 ```
 
+If n8n preflight is still blocked, open the JSON report and follow `remediation_plan`:
+
+```bash
+python - <<'PY'
+import json
+from pathlib import Path
+report = json.loads(Path("reports/n8n_workflow_preflight_latest.json").read_text())
+for item in report.get("remediation_plan", []):
+    print(f"- {item['code']}: {item['summary']}")
+PY
+```
+
 ## Windows Validation Already Added
 
 | Area | Current Gate |
@@ -67,7 +79,7 @@ python -m pytest tests/test_foundation_health_check.py tests/test_frontend_sync_
 | workspace context | `foundation_health_check.py` reports cwd, git root, and required files |
 | frontend static contract | canonical chat shell tokens plus mobile layout contract |
 | browser smoke | headless Chrome/Edge checks DOM, console, runtime exceptions, and layout |
-| n8n workflow | preflight blocks activation until credentials, FFmpeg, and import freshness are ready |
+| n8n workflow | preflight blocks activation and emits a structured remediation plan |
 | OpenClaw | governed-stopped state is visible instead of silently auto-started |
 
 ## n8n Status
