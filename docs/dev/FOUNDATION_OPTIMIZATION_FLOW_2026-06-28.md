@@ -83,6 +83,16 @@ The JSON report also includes `next_actions`. These are sorted repair steps with
 
 The terminal prints the first actions directly, and the full set stays in the JSON report.
 
+The report separates execution health from remaining work:
+
+| Field | Meaning |
+|---|---|
+| `ok` | Every health check completed within its current policy |
+| `attention_required` | At least one `next_actions` item remains |
+| `action_summary.blocking_attention` | A `P0` or `P1` action still needs attention |
+
+This matters because n8n preflight can be operationally visible while still `blocked_for_activation`.
+
 ## Phase 2: Frontend Reliability
 
 The canonical frontend source is `templates/chat.html`. Keep `templates/chat_shell.html` synced when runtime compatibility needs the copy.

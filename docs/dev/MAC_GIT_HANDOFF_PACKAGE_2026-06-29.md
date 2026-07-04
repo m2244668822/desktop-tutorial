@@ -72,6 +72,8 @@ for item in report.get("next_actions", []):
 PY
 ```
 
+Read `ok` and `attention_required` together. `ok=true` means the configured checks passed; `attention_required=true` means there are still follow-up actions such as n8n activation blockers.
+
 If n8n preflight is still blocked, open the JSON report and follow `remediation_plan`:
 
 ```bash

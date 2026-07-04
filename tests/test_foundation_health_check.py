@@ -106,6 +106,31 @@ class FoundationHealthCheckTests(unittest.TestCase):
             self.assertFalse(payload["ok"])
             self.assertEqual([row["name"] for row in payload["checks"]], ["one", "two"])
             self.assertIn("next_actions", payload)
+            self.assertFalse(payload["attention_required"])
+            self.assertEqual(payload["action_summary"]["count"], 0)
+
+    def test_write_report_marks_attention_required_for_next_actions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "report.json"
+            checks = [
+                foundation_health_check.Check(
+                    "ports",
+                    False,
+                    "degraded",
+                    {
+                        "5001": {"role": "main_web_gateway", "listening": False},
+                    },
+                )
+            ]
+
+            foundation_health_check.write_report(checks, path)
+
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            self.assertFalse(payload["ok"])
+            self.assertTrue(payload["attention_required"])
+            self.assertTrue(payload["action_summary"]["blocking_attention"])
+            self.assertEqual(payload["action_summary"]["highest_priority"], "P1")
+            self.assertEqual(payload["action_summary"]["by_priority"]["P1"], 1)
 
     def test_next_actions_include_n8n_remediation_plan(self):
         checks = [

@@ -674,12 +674,36 @@ def build_next_actions(checks: list[Check]) -> list[dict[str, Any]]:
     )
 
 
+def summarize_next_actions(actions: list[dict[str, Any]]) -> dict[str, Any]:
+    priority_order = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
+    by_priority: dict[str, int] = {}
+    for action in actions:
+        priority = str(action.get("priority") or "unknown")
+        by_priority[priority] = by_priority.get(priority, 0) + 1
+    highest = ""
+    if by_priority:
+        highest = sorted(
+            by_priority,
+            key=lambda item: (priority_order.get(item, 99), item),
+        )[0]
+    return {
+        "attention_required": bool(actions),
+        "blocking_attention": any(str(action.get("priority")) in {"P0", "P1"} for action in actions),
+        "count": len(actions),
+        "by_priority": by_priority,
+        "highest_priority": highest,
+    }
+
+
 def write_report(checks: list[Check], path: Path) -> None:
     next_actions = build_next_actions(checks)
+    action_summary = summarize_next_actions(next_actions)
     payload = {
         "generated_at": datetime.now().isoformat(),
         "workspace": str(ROOT),
         "ok": all(check.ok for check in checks),
+        "attention_required": action_summary["attention_required"],
+        "action_summary": action_summary,
         "checks": [asdict(check) for check in checks],
         "next_actions": next_actions,
     }
@@ -717,6 +741,11 @@ def main() -> int:
         print(f"[{mark}] {check.name}: {check.status}")
     next_actions = build_next_actions(checks)
     if next_actions:
+        action_summary = summarize_next_actions(next_actions)
+        print(
+            "attention_required: "
+            f"yes highest={action_summary['highest_priority']} count={action_summary['count']}"
+        )
         print("next actions:")
         for item in next_actions[:8]:
             print(f"- [{item['priority']}] {item['source']}: {item['summary']}")
