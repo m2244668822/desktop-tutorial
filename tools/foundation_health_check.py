@@ -375,19 +375,55 @@ def check_frontend_static_contract() -> Check:
         ".right-panel{display:none}",
         ".model-grid{grid-template-columns:1fr;gap:7px}",
         ".tasks-header{align-items:flex-start;gap:6px;flex-direction:column}",
+        "未載入",
+        "尚未載入 OpenClaw 狀態",
+        "運行中",
+        "已停止",
+        "需申言者",
+        "待申言者決策",
+        'label: "未解"',
+        'label: "待執行"',
+        'label: "執行中"',
+        'label: "已完成"',
+        'label: "失敗"',
     ]
     forbidden_tokens = [
         "http://127.0.0.1:7861/ingest/",
         "/static/branding/topbar-logo.png",
     ]
+    mojibake_markers = [
+        "\ufffd",
+        "Ã",
+        "Â",
+        "â€™",
+        "蝡",
+        "嚗",
+        "摰",
+        "撠",
+        "撌",
+        "瘚",
+        "銝",
+        "頛",
+        "撽",
+        "霅",
+        "甇",
+    ]
+    private_use = sorted({ch for ch in html if 0xE000 <= ord(ch) <= 0xF8FF})
     missing = [token for token in required_tokens if token not in html]
     forbidden = [token for token in forbidden_tokens if token in html]
-    ok = not missing and not forbidden
+    mojibake = [token for token in mojibake_markers if token in html]
+    ok = not missing and not forbidden and not mojibake and not private_use
     return Check(
         "frontend_static_contract",
         ok,
         "ready" if ok else "contract_drift",
-        {"path": str(template), "missing": missing, "forbidden": forbidden},
+        {
+            "path": str(template),
+            "missing": missing,
+            "forbidden": forbidden,
+            "mojibake": mojibake,
+            "private_use_codepoints": [f"U+{ord(ch):04X}" for ch in private_use[:20]],
+        },
     )
 
 

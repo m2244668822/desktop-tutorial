@@ -331,12 +331,28 @@ DOM_AUDIT_EXPRESSION = r"""
     sidebarMain: overlapArea(boxes.sidebar, boxes.main),
     rightPanelMain: overlapArea(boxes.rightPanel, boxes.main),
   };
+  const bodyText = document.body.innerText || "";
+  const privateUseChars = Array.from(new Set(
+    Array.from(bodyText).filter(ch => {
+      const code = ch.codePointAt(0);
+      return code >= 0xE000 && code <= 0xF8FF;
+    })
+  ));
+  const mojibakeMarkers = ["\uFFFD", "Ã", "Â", "â€™", "蝡", "嚗", "摰", "撠", "撌", "瘚", "銝", "頛", "撽", "霅", "甇"];
+  const requiredText = ["OpenClaw", "OpenClaw 治理", "系統監控"];
+  const textIntegrity = {
+    replacementChar: bodyText.includes("\uFFFD"),
+    privateUseCount: privateUseChars.length,
+    privateUseCodepoints: privateUseChars.slice(0, 12).map(ch => "U+" + ch.codePointAt(0).toString(16).toUpperCase().padStart(4, "0")),
+    mojibakeMarkers: mojibakeMarkers.filter(token => bodyText.includes(token)),
+    requiredText: Object.fromEntries(requiredText.map(token => [token, bodyText.includes(token)])),
+  };
   return {
     href: location.href,
     title: document.title,
     readyState: document.readyState,
     viewport: { width: innerWidth, height: innerHeight },
-    bodyTextLength: document.body.innerText.length,
+    bodyTextLength: bodyText.length,
     requiredIds: {
       hubView: !!byId("hubView"),
       tasksPanel: !!byId("tasksPanel"),
@@ -368,7 +384,13 @@ DOM_AUDIT_EXPRESSION = r"""
       renderAgentActivityBoard: typeof renderAgentActivityBoard === "function",
       fetchTasksSummary: typeof fetchTasksSummary === "function",
       bootstrapPolling: typeof bootstrapPolling === "function",
+      textIntegrity:
+        !textIntegrity.replacementChar &&
+        textIntegrity.privateUseCount === 0 &&
+        textIntegrity.mojibakeMarkers.length === 0 &&
+        Object.values(textIntegrity.requiredText).every(Boolean),
     },
+    textIntegrity,
     boxes,
     overlaps,
   };

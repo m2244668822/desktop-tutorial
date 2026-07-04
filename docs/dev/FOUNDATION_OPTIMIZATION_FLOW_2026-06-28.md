@@ -68,8 +68,8 @@ Expected checks:
 | `n8n` | n8n health endpoints and SQLite inventory are readable |
 | `n8n_workflow_preflight` | workflow activation state is visible |
 | `knowledge_hub` | data manifest and indexes are usable |
-| `frontend_static_contract` | canonical chat shell tokens have not drifted |
-| `browser_smoke` | real browser load has no visible/runtime/console breakage |
+| `frontend_static_contract` | canonical chat shell tokens and visible text integrity have not drifted |
+| `browser_smoke` | real browser load has no visible/runtime/console/text-integrity breakage |
 
 The JSON report also includes `next_actions`. These are sorted repair steps with:
 
@@ -108,6 +108,8 @@ python tools\chat_shell_browser_smoke.py --base-url http://127.0.0.1:5001 --widt
 ```
 
 The mobile contract is part of the foundation check. Removing the narrow viewport CSS must fail the static contract before it becomes a runtime surprise.
+
+Visible text integrity is also part of the gate. The static and browser smoke checks reject replacement characters, private-use mojibake codepoints, and common garbled UTF-8 markers in the chat shell.
 
 ## Phase 3: Backend Diagnosis From Multiple Angles
 

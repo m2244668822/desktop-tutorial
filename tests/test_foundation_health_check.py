@@ -272,6 +272,33 @@ class FoundationHealthCheckTests(unittest.TestCase):
         finally:
             foundation_health_check.ROOT = old_root
 
+    def test_frontend_static_contract_rejects_mojibake_text(self):
+        old_root = foundation_health_check.ROOT
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                template = root / "templates" / "chat.html"
+                template.parent.mkdir(parents=True)
+                html = (ROOT / "templates" / "chat.html").read_text(
+                    encoding="utf-8",
+                    errors="replace",
+                )
+                template.write_text(
+                    html.replace("尚未載入 OpenClaw 狀態", "撠頛 OpenClaw 狀態"),
+                    encoding="utf-8",
+                )
+                foundation_health_check.ROOT = root
+
+                check = foundation_health_check.check_frontend_static_contract()
+
+                self.assertFalse(check.ok)
+                self.assertEqual(check.status, "contract_drift")
+                self.assertIn("尚未載入 OpenClaw 狀態", check.detail["missing"])
+                self.assertIn("撠", check.detail["mojibake"])
+                self.assertTrue(check.detail["private_use_codepoints"])
+        finally:
+            foundation_health_check.ROOT = old_root
+
     def test_gateway_surfaces_openclaw_stopped_warning(self):
         old_http_get = foundation_health_check.http_get
         try:

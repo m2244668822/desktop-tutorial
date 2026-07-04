@@ -60,6 +60,43 @@ class FrontendSyncContractTests(unittest.TestCase):
         self.assertIn("governance.prophet_required_for_mutation", self.html)
         self.assertIn("需申言者", self.html)
 
+    def test_visible_text_integrity_contract_present(self):
+        for token in (
+            "未載入",
+            "尚未載入 OpenClaw 狀態",
+            "運行中",
+            "已停止",
+            "待申言者決策",
+            'label: "未解"',
+            'label: "待執行"',
+            'label: "執行中"',
+            'label: "已完成"',
+            'label: "失敗"',
+        ):
+            self.assertIn(token, self.html)
+
+        forbidden = (
+            "�",
+            "Ã",
+            "Â",
+            "â€™",
+            "蝡",
+            "嚗",
+            "摰",
+            "撠",
+            "撌",
+            "瘚",
+            "銝",
+            "頛",
+            "撽",
+            "霅",
+            "甇",
+        )
+        for token in forbidden:
+            self.assertNotIn(token, self.html)
+        private_use = [ch for ch in self.html if 0xE000 <= ord(ch) <= 0xF8FF]
+        self.assertEqual(private_use, [])
+
     def test_mobile_layout_contract_present(self):
         self.assertIn("@media (max-width: 640px)", self.html)
         self.assertIn(".right-panel{display:none}", self.html)
