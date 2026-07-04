@@ -94,7 +94,7 @@ PY
 | frontend static contract | canonical chat shell tokens plus mobile layout contract |
 | browser smoke | headless Chrome/Edge checks DOM, console, runtime exceptions, and layout |
 | n8n workflow | preflight blocks activation and emits a structured remediation plan |
-| OpenClaw | governed-stopped state is visible instead of silently auto-started |
+| OpenClaw | `openclaw_runtime` verifies CLI, local gateway listener, and `/healthz` |
 
 ## n8n Status
 
@@ -110,15 +110,23 @@ The Xiaobian workflow source spec has been hardened with timeout, cost controls,
 
 ## OpenClaw Status
 
-Expected safe state unless explicitly approved:
+Current Windows evidence shows local execution support is ready:
 
 ```text
-health=governed_stopped
-decision_state=prophet_decision_required
-auto_start_allowed=false
+health=ready
+decision_state=running
+local_execution.supported=true
+gateway.url=http://127.0.0.1:18789/healthz
 ```
 
-Do not start or mutate OpenClaw from automation without the governance approval path.
+Mutation remains governed:
+
+```text
+auto_start_allowed=false
+prophet_required_for_mutation=true
+```
+
+On Mac, rerun `python tools/foundation_health_check.py --browser-smoke required` and confirm `openclaw_runtime: ready` before treating OpenClaw as locally executable there.
 
 ## Git Scope
 

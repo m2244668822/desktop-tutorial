@@ -302,6 +302,61 @@ class FoundationHealthCheckTests(unittest.TestCase):
         finally:
             foundation_health_check.http_get = old_http_get
 
+    def test_openclaw_runtime_ready_when_local_execution_supported(self):
+        from core import openclaw_bridge
+
+        old_detect = openclaw_bridge.detect_openclaw_status
+        try:
+            openclaw_bridge.detect_openclaw_status = lambda _root: {
+                "installed": True,
+                "health": "ready",
+                "local_execution": {
+                    "supported": True,
+                    "criteria": {
+                        "cli_installed": True,
+                        "gateway_listening": True,
+                        "gateway_health_ok": True,
+                    },
+                },
+            }
+
+            check = foundation_health_check.check_openclaw_runtime()
+
+            self.assertTrue(check.ok)
+            self.assertEqual(check.status, "ready")
+            self.assertTrue(check.detail["local_execution"]["supported"])
+        finally:
+            openclaw_bridge.detect_openclaw_status = old_detect
+
+    def test_next_actions_include_openclaw_local_execution_gap(self):
+        checks = [
+            foundation_health_check.Check(
+                "openclaw_runtime",
+                True,
+                "governed_stopped",
+                {
+                    "installed": True,
+                    "health": "governed_stopped",
+                    "gateway": {"listening": False, "health_ok": False},
+                    "local_execution": {
+                        "supported": False,
+                        "criteria": {
+                            "cli_installed": True,
+                            "gateway_listening": False,
+                            "gateway_health_ok": False,
+                        },
+                    },
+                },
+            )
+        ]
+
+        actions = foundation_health_check.build_next_actions(checks)
+
+        self.assertEqual(actions[0]["source"], "openclaw_runtime")
+        self.assertEqual(actions[0]["priority"], "P1")
+        self.assertIn("OpenClaw Gateway", actions[0]["summary"])
+        self.assertIn("gateway_listening", actions[0]["evidence"]["criteria"])
+
     def test_browser_smoke_auto_skips_missing_browser(self):
         old_root = foundation_health_check.ROOT
         old_run = foundation_health_check.run

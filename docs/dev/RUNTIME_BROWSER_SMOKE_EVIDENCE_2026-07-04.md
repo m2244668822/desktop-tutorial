@@ -37,7 +37,8 @@ ollama serve
 |---|---|---|
 | workspace context | OK | `workspace_context: ready` |
 | ports | OK | `5001`, `5678`, `5679`, and `11434` listening |
-| gateway | OK | `gateway: ready_with_openclaw_stopped` |
+| gateway | OK | `gateway: ready` |
+| OpenClaw runtime | OK | `openclaw_runtime: ready`, `local_execution.supported=true` |
 | n8n | OK | `/healthz`, `/healthz/readiness`, and broker `/healthz` returned 200 |
 | n8n preflight | OK inventory, blocked activation | `blocked_for_activation` with remediation plan |
 | Knowledge Hub | OK | `knowledge_hub: ready` |
@@ -52,6 +53,20 @@ Port evidence:
 127.0.0.1:5679 listening
 127.0.0.1:11434 listening
 ```
+
+## OpenClaw Local Execution
+
+OpenClaw is locally executable on this Windows machine:
+
+| Criterion | Result |
+|---|---|
+| CLI installed | PASS |
+| version | `OpenClaw 2026.5.27 (27ae826)` |
+| local gateway listener | PASS, `127.0.0.1:18789` |
+| health endpoint | PASS, `http://127.0.0.1:18789/healthz` returned `{"ok":true,"status":"live"}` |
+| foundation check | PASS, `openclaw_runtime: ready` |
+
+The scheduled task can report `Ready` while the local gateway is live through `%USERPROFILE%\.openclaw\gateway.cmd`; the bridge now records that as `task_not_running_but_gateway_live` rather than incorrectly reporting OpenClaw as stopped.
 
 ## Frontend Viewport Smoke
 
@@ -82,8 +97,8 @@ The 180 second watchdog wait is still justified. Running the foundation check to
 | n8n credential DB empty | P1 | Create at least one provider credential |
 | FFmpeg not on PATH | P1 | Install FFmpeg and verify `ffmpeg -version` |
 | live workflow stale | P1 | Re-import `docs/superpowers/specs/n8n-workflow-xiaobian-video.json` |
-| OpenClaw governed-stopped | P1 | Keep stopped unless governance approval allows start |
+| OpenClaw mutation governance | P1 | Keep `prophet_required_for_mutation=true`; do not auto-mutate |
 
 ## Interpretation
 
-The runtime is operational for gateway, frontend, n8n visibility, Knowledge Hub, and browser smoke. It is not production-ready for Xiaobian n8n workflow activation until the preflight blockers are cleared.
+The runtime is operational for gateway, frontend, OpenClaw local execution, n8n visibility, Knowledge Hub, and browser smoke. It is not production-ready for Xiaobian n8n workflow activation until the preflight blockers are cleared.

@@ -4,6 +4,8 @@
 
 This note records the live Windows status after the June 28 optimization pass. It is meant to prevent older May notes from being treated as current runtime truth.
 
+Update note: the OpenClaw runtime state in this file has been superseded by `docs/dev/RUNTIME_BROWSER_SMOKE_EVIDENCE_2026-07-04.md`, where OpenClaw local execution is verified as ready through `openclaw_runtime`.
+
 ## Updated Runtime Status
 
 | Item | Status | Evidence |

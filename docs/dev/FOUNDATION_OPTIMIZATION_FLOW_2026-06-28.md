@@ -13,7 +13,7 @@ This document is the current operating flow for keeping the workspace maintainab
 | Backend core | Routing, agent status, memory, task board, workflow runtime | unit tests, `py_compile`, gateway API status |
 | Automation | n8n editor and task broker on `5678/5679` | n8n health endpoints, SQLite workflow inventory, workflow preflight |
 | Data and memory | Knowledge Hub manifest, SQLite, FAISS, conversation sources | `data/knowledge_hub/manifest.json`, sync scripts |
-| Governance | OpenClaw and high-impact automation state | `/api/get_status`, governed stopped policy |
+| Governance | OpenClaw and high-impact automation state | `/api/get_status`, `openclaw_runtime`, local gateway health |
 | Git and handoff | Branch, staged scope, cross-machine continuation | `git status -sb`, handoff docs, health reports |
 
 ## Non-Negotiable Rules
@@ -21,7 +21,7 @@ This document is the current operating flow for keeping the workspace maintainab
 1. The frontend must not be treated as healthy from static inspection alone. Use browser smoke for real DOM, console, runtime exception, and layout checks.
 2. Runtime reports under `reports/` are evidence, not source of truth. Commit tools, tests, specs, and docs; do not commit generated evidence unless explicitly archiving a snapshot.
 3. n8n workflows stay inactive until `tools/n8n_workflow_preflight.py` reports `ready_for_activation`.
-4. OpenClaw remains governed-stopped unless an explicit governance decision allows starting or mutating it.
+4. OpenClaw local execution must be observable through `openclaw_runtime`; starting or mutating OpenClaw still requires explicit governance approval.
 5. Every infrastructure change needs one of: a test, a health-check signal, or a runbook update. Prefer all three for shared behavior.
 6. Do not solve drift by adding another parallel entrypoint. Either strengthen the existing entrypoint or clearly retire the old path.
 
@@ -64,6 +64,7 @@ Expected checks:
 | `workspace_context` | cwd, git root, and required repo files are coherent |
 | `ports` | `5001`, `5678`, `5679`, and `11434` are listening when full runtime is expected |
 | `gateway` | frontend/backend gateway status APIs respond |
+| `openclaw_runtime` | OpenClaw CLI and local gateway health prove local execution support |
 | `n8n` | n8n health endpoints and SQLite inventory are readable |
 | `n8n_workflow_preflight` | workflow activation state is visible |
 | `knowledge_hub` | data manifest and indexes are usable |
@@ -118,7 +119,7 @@ Backend status is not a single signal. Inspect it from several directions:
 | Process and ports | `foundation_health_check.py`, PowerShell port checks |
 | Code importability | `python -m py_compile ...` |
 | Data state | Knowledge Hub manifest, n8n SQLite counts |
-| Governance state | OpenClaw status and `decision_state` |
+| Governance state | OpenClaw local execution, gateway health, and `decision_state` |
 | Task continuity | task board retry and unresolved-task views |
 
 Minimum backend gate:
@@ -201,7 +202,6 @@ python -m pytest tests --tb=short
 
 | Gap | Priority | Next Action |
 |---|---|---|
-| OpenClaw governed-stopped | P1 | Start only after explicit governance approval |
 | n8n activation blocked | P1 | Add credentials, FFmpeg, re-import hardened workflow, rerun preflight |
 | Mac runtime not reverified after latest Git handoff | P1 | Pull branch on Mac and run foundation health with browser smoke |
 | Obsidian vault state may differ from ProjectDocs | P2 | Audit vault-only edits separately from tracked docs |

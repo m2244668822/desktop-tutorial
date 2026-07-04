@@ -18,6 +18,8 @@ from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
 N8N_DB = Path.home() / ".n8n" / "database.sqlite"
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 
 try:
@@ -217,6 +219,33 @@ def check_gateway() -> Check:
             "openclaw": openclaw,
         },
     )
+
+
+def check_openclaw_runtime() -> Check:
+    try:
+        from core.openclaw_bridge import detect_openclaw_status
+    except Exception as exc:  # noqa: BLE001
+        return Check(
+            "openclaw_runtime",
+            False,
+            "bridge_import_failed",
+            {"error": str(exc)},
+        )
+    try:
+        status = detect_openclaw_status(ROOT)
+    except Exception as exc:  # noqa: BLE001
+        return Check(
+            "openclaw_runtime",
+            False,
+            "detect_failed",
+            {"error": str(exc)},
+        )
+    local_execution = status.get("local_execution") or {}
+    supported = bool(local_execution.get("supported"))
+    installed = bool(status.get("installed"))
+    ok = installed
+    check_status = "ready" if supported else str(status.get("health") or "degraded")
+    return Check("openclaw_runtime", ok, check_status, status)
 
 
 def check_n8n() -> Check:
@@ -450,6 +479,7 @@ def collect_checks(browser_smoke: str = "auto") -> list[Check]:
         check_workspace_context(),
         check_ports(),
         check_gateway(),
+        check_openclaw_runtime(),
         check_n8n(),
         check_n8n_workflow_preflight(),
         check_knowledge_hub(),
@@ -547,6 +577,45 @@ def build_next_actions(checks: list[Check]) -> list[dict[str, Any]]:
                 },
             )
         )
+
+    openclaw = by_name.get("openclaw_runtime")
+    if openclaw:
+        local_execution = openclaw.detail.get("local_execution") or {}
+        criteria = local_execution.get("criteria") or {}
+        if not openclaw.ok:
+            actions.append(
+                _action(
+                    "openclaw_runtime",
+                    "P1",
+                    "Install or expose OpenClaw before claiming local execution support.",
+                    windows=["openclaw --version"],
+                    macos=["openclaw --version"],
+                    verify="openclaw_runtime should report installed=true.",
+                    evidence=openclaw.detail,
+                )
+            )
+        elif not local_execution.get("supported"):
+            actions.append(
+                _action(
+                    "openclaw_runtime",
+                    "P1",
+                    "Start and verify the local OpenClaw Gateway health endpoint.",
+                    windows=[
+                        "%USERPROFILE%\\.openclaw\\gateway.cmd",
+                        "Invoke-WebRequest -UseBasicParsing http://127.0.0.1:18789/healthz",
+                    ],
+                    macos=[
+                        "openclaw gateway --port 18789",
+                        "curl http://127.0.0.1:18789/healthz",
+                    ],
+                    verify="openclaw_runtime local_execution.supported should be true.",
+                    evidence={
+                        "health": openclaw.detail.get("health"),
+                        "criteria": criteria,
+                        "gateway": openclaw.detail.get("gateway", {}),
+                    },
+                )
+            )
 
     preflight = by_name.get("n8n_workflow_preflight")
     if preflight:
@@ -657,12 +726,13 @@ def build_next_actions(checks: list[Check]) -> list[dict[str, Any]]:
         "workspace_context": 0,
         "ports": 1,
         "gateway": 2,
-        "n8n": 3,
-        "n8n_workflow_preflight": 4,
-        "frontend_static_contract": 5,
-        "browser_smoke": 6,
-        "py_compile": 7,
-        "git": 8,
+        "openclaw_runtime": 3,
+        "n8n": 4,
+        "n8n_workflow_preflight": 5,
+        "frontend_static_contract": 6,
+        "browser_smoke": 7,
+        "py_compile": 8,
+        "git": 9,
     }
     return sorted(
         _dedupe_actions(actions),
