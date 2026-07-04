@@ -70,6 +70,19 @@ Expected checks:
 | `frontend_static_contract` | canonical chat shell tokens have not drifted |
 | `browser_smoke` | real browser load has no visible/runtime/console breakage |
 
+The JSON report also includes `next_actions`. These are sorted repair steps with:
+
+| Field | Use |
+|---|---|
+| `source` | Which health check produced the action |
+| `priority` | `P0` to `P3` repair priority |
+| `summary` | Human-readable action |
+| `windows` / `macos` | Platform-specific commands or UI steps |
+| `verify` | The command or condition that proves the action worked |
+| `evidence` | Raw details that caused the action |
+
+The terminal prints the first actions directly, and the full set stays in the JSON report.
+
 ## Phase 2: Frontend Reliability
 
 The canonical frontend source is `templates/chat.html`. Keep `templates/chat_shell.html` synced when runtime compatibility needs the copy.

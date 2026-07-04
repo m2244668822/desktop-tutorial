@@ -60,6 +60,18 @@ python tools/n8n_workflow_preflight.py --allow-blockers
 python -m pytest tests/test_foundation_health_check.py tests/test_frontend_sync_contract.py tests/test_n8n_workflow_preflight.py --tb=short
 ```
 
+The foundation report now has a top-level `next_actions` list. To print it:
+
+```bash
+python - <<'PY'
+import json
+from pathlib import Path
+report = json.loads(Path("reports/foundation_health_latest.json").read_text())
+for item in report.get("next_actions", []):
+    print(f"[{item['priority']}] {item['source']}: {item['summary']}")
+PY
+```
+
 If n8n preflight is still blocked, open the JSON report and follow `remediation_plan`:
 
 ```bash

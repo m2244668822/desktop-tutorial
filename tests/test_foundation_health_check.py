@@ -105,6 +105,61 @@ class FoundationHealthCheckTests(unittest.TestCase):
             payload = json.loads(path.read_text(encoding="utf-8"))
             self.assertFalse(payload["ok"])
             self.assertEqual([row["name"] for row in payload["checks"]], ["one", "two"])
+            self.assertIn("next_actions", payload)
+
+    def test_next_actions_include_n8n_remediation_plan(self):
+        checks = [
+            foundation_health_check.Check(
+                "n8n_workflow_preflight",
+                True,
+                "blocked_for_activation",
+                {
+                    "report": {
+                        "remediation_plan": [
+                            {
+                                "code": "ffmpeg_not_found",
+                                "severity": "blocker",
+                                "manual": True,
+                                "summary": "Install FFmpeg and make sure ffmpeg is available on PATH.",
+                                "windows": ["winget install Gyan.FFmpeg"],
+                                "macos": ["brew install ffmpeg"],
+                                "verify": "ffmpeg -version",
+                                "evidence": {"node": "FFmpeg Assembly"},
+                            }
+                        ]
+                    }
+                },
+            )
+        ]
+
+        actions = foundation_health_check.build_next_actions(checks)
+
+        self.assertEqual(len(actions), 1)
+        self.assertEqual(actions[0]["source"], "n8n_workflow_preflight")
+        self.assertEqual(actions[0]["priority"], "P1")
+        self.assertIn("FFmpeg", actions[0]["summary"])
+        self.assertIn("winget install Gyan.FFmpeg", actions[0]["windows"])
+        self.assertIn("brew install ffmpeg", actions[0]["macos"])
+        self.assertEqual(actions[0]["evidence"]["code"], "ffmpeg_not_found")
+
+    def test_next_actions_report_missing_runtime_ports(self):
+        checks = [
+            foundation_health_check.Check(
+                "ports",
+                False,
+                "degraded",
+                {
+                    "5001": {"role": "main_web_gateway", "listening": False},
+                    "5678": {"role": "n8n_editor", "listening": True},
+                },
+            )
+        ]
+
+        actions = foundation_health_check.build_next_actions(checks)
+
+        self.assertEqual(actions[0]["source"], "ports")
+        self.assertEqual(actions[0]["priority"], "P1")
+        self.assertIn("5001:main_web_gateway", actions[0]["evidence"]["missing"])
 
     def test_knowledge_hub_requires_ready_indexes(self):
         old_root = foundation_health_check.ROOT

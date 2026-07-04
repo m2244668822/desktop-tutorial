@@ -35,6 +35,39 @@ class Check:
     detail: dict[str, Any]
 
 
+def _action(
+    source: str,
+    priority: str,
+    summary: str,
+    *,
+    windows: list[str] | None = None,
+    macos: list[str] | None = None,
+    verify: str = "",
+    evidence: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "source": source,
+        "priority": priority,
+        "summary": summary,
+        "windows": windows or [],
+        "macos": macos or [],
+        "verify": verify,
+        "evidence": evidence or {},
+    }
+
+
+def _dedupe_actions(actions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[tuple[str, str]] = set()
+    unique: list[dict[str, Any]] = []
+    for action in actions:
+        key = (str(action.get("source")), str(action.get("summary")))
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(action)
+    return unique
+
+
 def run(cmd: list[str], timeout: int = 20) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         cmd,
@@ -429,12 +462,226 @@ def collect_checks(browser_smoke: str = "auto") -> list[Check]:
     return checks
 
 
+def build_next_actions(checks: list[Check]) -> list[dict[str, Any]]:
+    by_name = {check.name: check for check in checks}
+    actions: list[dict[str, Any]] = []
+
+    workspace = by_name.get("workspace_context")
+    if workspace and not workspace.ok:
+        actions.append(
+            _action(
+                "workspace_context",
+                "P0",
+                "Fix the shell workspace path before debugging app services.",
+                windows=[
+                    f"Set-Location '{ROOT}'",
+                    "git rev-parse --show-toplevel",
+                ],
+                macos=[
+                    "cd /Volumes/<volume>/<repo>",
+                    "git rev-parse --show-toplevel",
+                ],
+                verify="workspace_context should report ready or ready_external_cwd.",
+                evidence=workspace.detail,
+            )
+        )
+
+    ports = by_name.get("ports")
+    if ports and not ports.ok:
+        missing = [
+            f"{port}:{item.get('role')}"
+            for port, item in ports.detail.items()
+            if not item.get("listening")
+        ]
+        actions.append(
+            _action(
+                "ports",
+                "P1",
+                "Start or verify missing runtime services.",
+                windows=[
+                    "powershell -ExecutionPolicy Bypass -File tools\\enforce_single_entry_gateway.ps1",
+                    ".\\tools\\start_n8n_windows.cmd",
+                    "ollama serve",
+                ],
+                macos=[
+                    "python desktop_chat_app.py web --host 127.0.0.1 --port 5001 --energy-lite",
+                    "N8N_HOST=127.0.0.1 N8N_PORT=5678 n8n start",
+                    "ollama serve",
+                ],
+                verify="Rerun python tools/foundation_health_check.py --browser-smoke off.",
+                evidence={"missing": missing},
+            )
+        )
+
+    gateway = by_name.get("gateway")
+    if gateway and not gateway.ok:
+        actions.append(
+            _action(
+                "gateway",
+                "P1",
+                "Bring the main web gateway up before running browser smoke.",
+                windows=["powershell -ExecutionPolicy Bypass -File tools\\enforce_single_entry_gateway.ps1"],
+                macos=["python desktop_chat_app.py web --host 127.0.0.1 --port 5001 --energy-lite"],
+                verify="/status and /api/gateway/policy should return 200.",
+                evidence={
+                    "status": gateway.detail.get("status", {}),
+                    "policy": gateway.detail.get("policy", {}),
+                },
+            )
+        )
+
+    n8n = by_name.get("n8n")
+    if n8n and not n8n.ok:
+        actions.append(
+            _action(
+                "n8n",
+                "P1",
+                "Start n8n and confirm its editor, broker, and SQLite database are inspectable.",
+                windows=[".\\tools\\start_n8n_windows.cmd"],
+                macos=["N8N_HOST=127.0.0.1 N8N_PORT=5678 n8n start"],
+                verify="n8n health/readiness/broker should be OK and db_ok should be true.",
+                evidence={
+                    "db_path": n8n.detail.get("db_path"),
+                    "db_ok": n8n.detail.get("db_ok"),
+                    "counts": n8n.detail.get("counts", {}),
+                },
+            )
+        )
+
+    preflight = by_name.get("n8n_workflow_preflight")
+    if preflight:
+        report = (preflight.detail.get("report") or {}) if isinstance(preflight.detail, dict) else {}
+        if preflight.status == "blocked_for_activation":
+            remediation = report.get("remediation_plan") or []
+            if remediation:
+                for item in remediation[:8]:
+                    actions.append(
+                        _action(
+                            "n8n_workflow_preflight",
+                            "P1",
+                            str(item.get("summary") or item.get("code") or "Resolve n8n blocker."),
+                            windows=list(item.get("windows") or []),
+                            macos=list(item.get("macos") or []),
+                            verify=str(item.get("verify") or "Rerun tools/n8n_workflow_preflight.py."),
+                            evidence={
+                                "code": item.get("code"),
+                                "severity": item.get("severity"),
+                                "manual": item.get("manual"),
+                                "issue_evidence": item.get("evidence", {}),
+                            },
+                        )
+                    )
+            else:
+                actions.append(
+                    _action(
+                        "n8n_workflow_preflight",
+                        "P1",
+                        "Inspect n8n workflow blockers before activation.",
+                        windows=["python tools\\n8n_workflow_preflight.py --allow-blockers"],
+                        macos=["python tools/n8n_workflow_preflight.py --allow-blockers"],
+                        verify="Preflight should report ready_for_activation before enabling workflow.",
+                        evidence={"status": preflight.status},
+                    )
+                )
+        elif not preflight.ok:
+            actions.append(
+                _action(
+                    "n8n_workflow_preflight",
+                    "P1",
+                    "Fix n8n preflight execution before trusting workflow activation state.",
+                    windows=["python tools\\n8n_workflow_preflight.py --allow-blockers"],
+                    macos=["python tools/n8n_workflow_preflight.py --allow-blockers"],
+                    verify="The preflight command should return a JSON report.",
+                    evidence={"status": preflight.status},
+                )
+            )
+
+    frontend = by_name.get("frontend_static_contract")
+    if frontend and not frontend.ok:
+        actions.append(
+            _action(
+                "frontend_static_contract",
+                "P1",
+                "Restore canonical chat shell contract tokens before browser validation.",
+                windows=["python -m pytest tests\\test_frontend_sync_contract.py --tb=short"],
+                macos=["python -m pytest tests/test_frontend_sync_contract.py --tb=short"],
+                verify="frontend_static_contract should report ready.",
+                evidence=frontend.detail,
+            )
+        )
+
+    browser = by_name.get("browser_smoke")
+    if browser and not browser.ok:
+        actions.append(
+            _action(
+                "browser_smoke",
+                "P1",
+                "Fix real browser /chat_shell runtime, console, or layout failures.",
+                windows=["python tools\\chat_shell_browser_smoke.py --base-url http://127.0.0.1:5001"],
+                macos=["python tools/chat_shell_browser_smoke.py --base-url http://127.0.0.1:5001"],
+                verify="browser_smoke should report ready.",
+                evidence={"status": browser.status, "report_path": browser.detail.get("report_path")},
+            )
+        )
+
+    compile_check = by_name.get("py_compile")
+    if compile_check and not compile_check.ok:
+        actions.append(
+            _action(
+                "py_compile",
+                "P0",
+                "Fix Python syntax/import compile failures before runtime testing.",
+                windows=["python -m py_compile desktop_chat_app.py core\\web_server.py tools\\foundation_health_check.py"],
+                macos=["python -m py_compile desktop_chat_app.py core/web_server.py tools/foundation_health_check.py"],
+                verify="py_compile should report ready.",
+                evidence=compile_check.detail,
+            )
+        )
+
+    git_check = by_name.get("git")
+    if git_check and git_check.ok and git_check.status == "dirty":
+        actions.append(
+            _action(
+                "git",
+                "P3",
+                "Review dirty worktree files and keep generated reports out of source commits.",
+                windows=["git status -sb", "git diff --stat"],
+                macos=["git status -sb", "git diff --stat"],
+                verify="Only intentional source changes should be staged.",
+                evidence={"dirty_count": git_check.detail.get("dirty_count")},
+            )
+        )
+
+    priority_order = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
+    source_order = {
+        "workspace_context": 0,
+        "ports": 1,
+        "gateway": 2,
+        "n8n": 3,
+        "n8n_workflow_preflight": 4,
+        "frontend_static_contract": 5,
+        "browser_smoke": 6,
+        "py_compile": 7,
+        "git": 8,
+    }
+    return sorted(
+        _dedupe_actions(actions),
+        key=lambda item: (
+            priority_order.get(str(item.get("priority")), 99),
+            source_order.get(str(item.get("source")), 99),
+            str(item.get("source")),
+        ),
+    )
+
+
 def write_report(checks: list[Check], path: Path) -> None:
+    next_actions = build_next_actions(checks)
     payload = {
         "generated_at": datetime.now().isoformat(),
         "workspace": str(ROOT),
         "ok": all(check.ok for check in checks),
         "checks": [asdict(check) for check in checks],
+        "next_actions": next_actions,
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -468,6 +715,13 @@ def main() -> int:
     for check in checks:
         mark = "OK" if check.ok else "FAIL"
         print(f"[{mark}] {check.name}: {check.status}")
+    next_actions = build_next_actions(checks)
+    if next_actions:
+        print("next actions:")
+        for item in next_actions[:8]:
+            print(f"- [{item['priority']}] {item['source']}: {item['summary']}")
+        if len(next_actions) > 8:
+            print(f"... {len(next_actions) - 8} more action(s) in the JSON report")
     return 0 if all(check.ok for check in checks) else 1
 
 
