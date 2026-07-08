@@ -95,8 +95,8 @@ The 180 second watchdog wait is still justified. Running the foundation check to
 |---|---|---|
 | n8n provider credentials | P1 | Bind Gemini/OpenAI credentials in n8n |
 | n8n credential DB empty | P1 | Create at least one provider credential |
-| FFmpeg not on PATH | P1 | Install FFmpeg and verify `ffmpeg -version` |
-| live workflow stale | P1 | Re-import `docs/superpowers/specs/n8n-workflow-xiaobian-video.json` |
+| FFmpeg unavailable | P1 | Install FFmpeg and verify `ffmpeg -version`, or set `FFMPEG_PATH` / `XIAOBIAN_FFMPEG_PATH` before starting n8n |
+| live workflow stale | P1 | Re-import `docs/superpowers/specs/n8n-workflow-xiaobian-video.json` so FFmpeg path override support reaches n8n DB |
 | OpenClaw mutation governance | P1 | Keep `prophet_required_for_mutation=true`; do not auto-mutate |
 
 ## Interpretation

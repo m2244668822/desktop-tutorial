@@ -170,7 +170,7 @@ Known activation blockers:
 |---|---|
 | provider credentials | Configure Gemini/OpenAI credentials in n8n |
 | n8n DB credentials | Ensure `credentials_entity` is non-empty |
-| FFmpeg | Install FFmpeg and confirm it is on PATH |
+| FFmpeg | Install FFmpeg and confirm PATH, `FFMPEG_PATH`, or `XIAOBIAN_FFMPEG_PATH` points to the binary |
 | stale imported workflow | Re-import the hardened source spec |
 | zero executions | Run a controlled manual test only after preflight is ready |
 
@@ -204,7 +204,7 @@ python -m pytest tests --tb=short
 
 | Gap | Priority | Next Action |
 |---|---|---|
-| n8n activation blocked | P1 | Add credentials, FFmpeg, re-import hardened workflow, rerun preflight |
+| n8n activation blocked | P1 | Add credentials, install FFmpeg or set `FFMPEG_PATH` / `XIAOBIAN_FFMPEG_PATH`, re-import hardened workflow, rerun preflight |
 | Mac runtime not reverified after latest Git handoff | P1 | Pull branch on Mac and run foundation health with browser smoke |
 | Obsidian vault state may differ from ProjectDocs | P2 | Audit vault-only edits separately from tracked docs |
 | Runtime services may be stopped between shifts | P2 | Treat port failures as startup state unless reproducible after launcher |

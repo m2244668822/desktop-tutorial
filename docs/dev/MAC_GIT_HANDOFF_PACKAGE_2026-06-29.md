@@ -98,14 +98,14 @@ PY
 
 ## n8n Status
 
-The Xiaobian workflow source spec has been hardened with timeout, cost controls, error policy, webhook header auth, and controlled FFmpeg output. Activation is still blocked until:
+The Xiaobian workflow source spec has been hardened with timeout, cost controls, error policy, webhook header auth, controlled FFmpeg output, and `FFMPEG_PATH` / `XIAOBIAN_FFMPEG_PATH` override support. Activation is still blocked until:
 
 | Blocker | Action |
 |---|---|
 | Gemini/OpenAI credentials | Configure provider credentials in n8n |
 | n8n credential DB | Ensure `credentials_entity` is non-empty |
-| FFmpeg | Install and expose `ffmpeg` on PATH |
-| live imported workflow | Re-import the hardened source spec |
+| FFmpeg | Install and expose `ffmpeg` on PATH, or set `FFMPEG_PATH` / `XIAOBIAN_FFMPEG_PATH` before starting n8n |
+| live imported workflow | Re-import the hardened source spec so FFmpeg path override support reaches n8n DB |
 | manual execution | Run only after preflight reports `ready_for_activation` |
 
 ## OpenClaw Status

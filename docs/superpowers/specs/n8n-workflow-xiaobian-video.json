@@ -54,7 +54,7 @@
     {
       "parameters": {
         "executeOnce": true,
-        "command": "node -e \"const fs=require('fs'),path=require('path'),cp=require('child_process');const root=process.env.XIAOBIAN_VIDEO_OUTPUT_DIR||path.join(process.cwd(),'data','generated','xiaobian-video');fs.mkdirSync(root,{recursive:true});const image=path.join(root,'image.png'),audio=path.join(root,'audio.mp3'),output=path.join(root,'output-'+Date.now()+'.mp4');for(const f of [image,audio]){if(!fs.existsSync(f)){throw new Error('missing input '+f)}}const args=['-y','-loop','1','-i',image,'-i',audio,'-c:v','libx264','-tune','stillimage','-c:a','aac','-shortest','-pix_fmt','yuv420p',output];const r=cp.spawnSync('ffmpeg',args,{stdio:'inherit'});if(r.status)process.exit(r.status);console.log(JSON.stringify({output}));\""
+        "command": "node -e \"const fs=require('fs'),path=require('path'),cp=require('child_process');const root=process.env.XIAOBIAN_VIDEO_OUTPUT_DIR||path.join(process.cwd(),'data','generated','xiaobian-video');const ffmpeg=process.env.FFMPEG_PATH||process.env.XIAOBIAN_FFMPEG_PATH||'ffmpeg';fs.mkdirSync(root,{recursive:true});const image=path.join(root,'image.png'),audio=path.join(root,'audio.mp3'),output=path.join(root,'output-'+Date.now()+'.mp4');for(const f of [image,audio]){if(!fs.existsSync(f)){throw new Error('missing input '+f)}}const args=['-y','-loop','1','-i',image,'-i',audio,'-c:v','libx264','-tune','stillimage','-c:a','aac','-shortest','-pix_fmt','yuv420p',output];const r=cp.spawnSync(ffmpeg,args,{stdio:'inherit'});if(r.status)process.exit(r.status);console.log(JSON.stringify({output}));\""
       },
       "name": "FFmpeg Assembly",
       "type": "n8n-nodes-base.executeCommand",
@@ -107,6 +107,8 @@
     },
     "runtime_contract": {
       "output_dir_env": "XIAOBIAN_VIDEO_OUTPUT_DIR",
+      "ffmpeg_path_env": "FFMPEG_PATH",
+      "ffmpeg_fallback_env": "XIAOBIAN_FFMPEG_PATH",
       "default_output_dir": "data/generated/xiaobian-video",
       "required_inputs": ["image.png", "audio.mp3"],
       "final_output_pattern": "output-<timestamp>.mp4"

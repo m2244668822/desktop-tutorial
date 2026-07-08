@@ -116,6 +116,41 @@ class N8nWorkflowPreflightTests(unittest.TestCase):
         self.assertEqual(len(plan), 1)
         self.assertEqual(plan[0]["code"], "ffmpeg_not_found")
 
+    def test_explicit_ffmpeg_path_satisfies_execute_command_probe(self):
+        old_which = n8n_workflow_preflight.shutil.which
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                ffmpeg = root / "ffmpeg.exe"
+                ffmpeg.write_text("stub", encoding="utf-8")
+                nodes = [
+                    {
+                        "name": "FFmpeg Assembly",
+                        "type": "n8n-nodes-base.executeCommand",
+                        "parameters": {
+                            "command": (
+                                "node -e \"const ffmpeg=process.env.FFMPEG_PATH||"
+                                "process.env.XIAOBIAN_FFMPEG_PATH||'ffmpeg';"
+                                "const root=process.env.XIAOBIAN_VIDEO_OUTPUT_DIR||"
+                                "path.join(process.cwd(),'data','generated','xiaobian-video');"
+                                "cp.spawnSync(ffmpeg,[]);\""
+                            )
+                        },
+                    }
+                ]
+                n8n_workflow_preflight.shutil.which = lambda _name: None
+
+                issues = n8n_workflow_preflight.audit_execute_commands(
+                    nodes,
+                    n8n_workflow_preflight.resolve_ffmpeg(str(ffmpeg)),
+                )
+
+                codes = {issue.code for issue in issues}
+                self.assertNotIn("ffmpeg_not_found", codes)
+                self.assertNotIn("missing_ffmpeg_path_override", codes)
+        finally:
+            n8n_workflow_preflight.shutil.which = old_which
+
     def test_db_contract_detects_hardened_import(self):
         contract = n8n_workflow_preflight.workflow_contract_snapshot(
             [
@@ -128,7 +163,9 @@ class N8nWorkflowPreflightTests(unittest.TestCase):
                     "parameters": {
                         "command": (
                             "node -e \"const root=process.env.XIAOBIAN_VIDEO_OUTPUT_DIR||"
-                            "path.join(process.cwd(),'data','generated','xiaobian-video');\""
+                            "path.join(process.cwd(),'data','generated','xiaobian-video');"
+                            "const ffmpeg=process.env.FFMPEG_PATH||"
+                            "process.env.XIAOBIAN_FFMPEG_PATH||'ffmpeg';\""
                         )
                     },
                 },
@@ -139,6 +176,8 @@ class N8nWorkflowPreflightTests(unittest.TestCase):
 
         self.assertTrue(contract["webhook_auth"])
         self.assertTrue(contract["hardened_command"])
+        self.assertTrue(contract["ffmpeg_path_env"])
+        self.assertTrue(contract["ffmpeg_fallback_env"])
         self.assertFalse(contract["placeholder_command"])
         self.assertFalse(contract["relative_media_paths"])
         self.assertTrue(contract["execution_timeout"])

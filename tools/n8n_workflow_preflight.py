@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import sqlite3
 import sys
@@ -64,14 +65,21 @@ def remediation_for_issue(issue: Issue) -> dict[str, Any]:
         "ffmpeg_not_found": {
             "owner": "operator",
             "manual": True,
-            "summary": "Install FFmpeg and make sure ffmpeg is available on PATH.",
+            "summary": "Install FFmpeg or set FFMPEG_PATH to an existing ffmpeg binary.",
             "windows": [
                 "winget install Gyan.FFmpeg",
                 "Restart the shell after installation.",
-                "ffmpeg -version",
+                "where ffmpeg",
+                "or set FFMPEG_PATH=C:\\path\\to\\ffmpeg.exe before starting n8n.",
+                "XIAOBIAN_FFMPEG_PATH is also accepted as a project-specific fallback.",
             ],
-            "macos": ["brew install ffmpeg", "ffmpeg -version"],
-            "verify": "where ffmpeg on Windows, or which ffmpeg on macOS, then rerun preflight.",
+            "macos": [
+                "brew install ffmpeg",
+                "which ffmpeg",
+                "or export FFMPEG_PATH=/path/to/ffmpeg before starting n8n.",
+                "XIAOBIAN_FFMPEG_PATH is also accepted as a project-specific fallback.",
+            ],
+            "verify": "Rerun preflight and confirm the report ffmpeg.found is true.",
         },
         "n8n_database_workflow_stale": {
             "owner": "operator",
@@ -190,7 +198,7 @@ def build_remediation_plan(issues: list[Issue]) -> list[dict[str, Any]]:
 def activation_sequence() -> list[str]:
     return [
         "Keep the workflow inactive while any blocker exists.",
-        "Install and verify FFmpeg on the target machine.",
+        "Install FFmpeg and verify PATH or FFMPEG_PATH on the target machine.",
         "Create provider credentials in n8n and bind them to every provider node.",
         "Re-import the hardened source workflow spec.",
         "Run python tools/n8n_workflow_preflight.py until status is ready_for_activation.",
@@ -306,6 +314,8 @@ def workflow_contract_snapshot(
         meta = {}
     webhook_auth = False
     hardened_command = False
+    ffmpeg_path_env = False
+    ffmpeg_fallback_env = False
     placeholder_command = False
     relative_media_paths = False
     for node in nodes:
@@ -321,6 +331,8 @@ def workflow_contract_snapshot(
                 "XIAOBIAN_VIDEO_OUTPUT_DIR" in command
                 and "data','generated','xiaobian-video" in command
             )
+            ffmpeg_path_env = "FFMPEG_PATH" in command
+            ffmpeg_fallback_env = "XIAOBIAN_FFMPEG_PATH" in command
             placeholder_command = "..." in command
             relative_media_paths = any(
                 token in f" {command} "
@@ -329,6 +341,8 @@ def workflow_contract_snapshot(
     return {
         "webhook_auth": webhook_auth,
         "hardened_command": hardened_command,
+        "ffmpeg_path_env": ffmpeg_path_env,
+        "ffmpeg_fallback_env": ffmpeg_fallback_env,
         "placeholder_command": placeholder_command,
         "relative_media_paths": relative_media_paths,
         "execution_timeout": bool(settings.get("executionTimeout")),
@@ -383,9 +397,42 @@ def audit_credentials(nodes: list[dict[str, Any]], db: dict[str, Any]) -> list[I
     return issues
 
 
-def audit_execute_commands(nodes: list[dict[str, Any]]) -> list[Issue]:
+def resolve_ffmpeg(ffmpeg_path: str | None = None) -> dict[str, Any]:
+    explicit = ffmpeg_path or os.environ.get("FFMPEG_PATH") or os.environ.get("XIAOBIAN_FFMPEG_PATH")
+    if explicit:
+        path = Path(explicit).expanduser()
+        if path.exists() and path.is_file():
+            return {
+                "found": True,
+                "source": "argument_or_env",
+                "path": str(path),
+                "configured_path": explicit,
+                "path_lookup": shutil.which("ffmpeg") or "",
+            }
+        return {
+            "found": False,
+            "source": "argument_or_env",
+            "path": "",
+            "configured_path": explicit,
+            "path_lookup": shutil.which("ffmpeg") or "",
+            "error": "configured_path_not_found",
+        }
+    found = shutil.which("ffmpeg")
+    return {
+        "found": bool(found),
+        "source": "PATH" if found else "missing",
+        "path": found or "",
+        "configured_path": "",
+        "path_lookup": found or "",
+    }
+
+
+def audit_execute_commands(
+    nodes: list[dict[str, Any]],
+    ffmpeg: dict[str, Any] | None = None,
+) -> list[Issue]:
     issues: list[Issue] = []
-    ffmpeg_found = shutil.which("ffmpeg")
+    ffmpeg = ffmpeg or resolve_ffmpeg()
     command_nodes = [
         node for node in nodes if str(node.get("type") or "") == "n8n-nodes-base.executeCommand"
     ]
@@ -393,6 +440,15 @@ def audit_execute_commands(nodes: list[dict[str, Any]]) -> list[Issue]:
         params = node.get("parameters") or {}
         command = str(params.get("command") or "")
         evidence = {"node": _node_name(node), "command": command}
+        if "FFMPEG_PATH" not in command:
+            issues.append(
+                Issue(
+                    "warning",
+                    "missing_ffmpeg_path_override",
+                    "Execute Command node does not support FFMPEG_PATH override.",
+                    evidence,
+                )
+            )
         if "..." in command:
             issues.append(
                 Issue(
@@ -416,13 +472,13 @@ def audit_execute_commands(nodes: list[dict[str, Any]]) -> list[Issue]:
                     {**evidence, "bare_paths": [item.strip() for item in bare_outputs]},
                 )
             )
-        if not ffmpeg_found:
+        if not ffmpeg.get("found"):
             issues.append(
                 Issue(
                     "blocker",
                     "ffmpeg_not_found",
-                    "ffmpeg is not available on PATH for the Execute Command node.",
-                    {"node": _node_name(node)},
+                    "ffmpeg is not available through PATH, FFMPEG_PATH, or XIAOBIAN_FFMPEG_PATH for the Execute Command node.",
+                    {"node": _node_name(node), "ffmpeg": ffmpeg},
                 )
             )
     if not command_nodes:
@@ -493,6 +549,8 @@ def audit_db_workflow_contract(db: dict[str, Any]) -> list[Issue]:
     expected = {
         "webhook_auth": True,
         "hardened_command": True,
+        "ffmpeg_path_env": True,
+        "ffmpeg_fallback_env": True,
         "placeholder_command": False,
         "relative_media_paths": False,
         "execution_timeout": True,
@@ -545,7 +603,12 @@ def audit_webhooks(nodes: list[dict[str, Any]]) -> list[Issue]:
     return issues
 
 
-def run_preflight(spec_path: Path, db_path: Path) -> dict[str, Any]:
+def run_preflight(
+    spec_path: Path,
+    db_path: Path,
+    ffmpeg_path: str | None = None,
+) -> dict[str, Any]:
+    ffmpeg = resolve_ffmpeg(ffmpeg_path)
     workflow, issues = load_workflow(spec_path)
     if workflow is None:
         blockers = [issue for issue in issues if issue.severity == "blocker"]
@@ -553,6 +616,7 @@ def run_preflight(spec_path: Path, db_path: Path) -> dict[str, Any]:
             "ok_for_activation": False,
             "status": "invalid",
             "spec_path": str(spec_path),
+            "ffmpeg": ffmpeg,
             "db": {"path": str(db_path), "exists": db_path.exists()},
             "issues": [asdict(issue) for issue in issues],
             "remediation_plan": build_remediation_plan(issues),
@@ -579,7 +643,7 @@ def run_preflight(spec_path: Path, db_path: Path) -> dict[str, Any]:
         str(workflow.get("name") or ""),
     )
     issues.extend(audit_credentials(nodes, db))
-    issues.extend(audit_execute_commands(nodes))
+    issues.extend(audit_execute_commands(nodes, ffmpeg))
     issues.extend(audit_webhooks(nodes))
     issues.extend(audit_safety(workflow, db))
     issues.extend(audit_db_workflow_contract(db))
@@ -590,6 +654,7 @@ def run_preflight(spec_path: Path, db_path: Path) -> dict[str, Any]:
         "ok_for_activation": not blockers,
         "status": "ready_for_activation" if not blockers else "blocked_for_activation",
         "spec_path": str(spec_path),
+        "ffmpeg": ffmpeg,
         "workflow": {
             "id": workflow.get("id", ""),
             "name": workflow.get("name", ""),
@@ -616,13 +681,18 @@ def main() -> int:
     parser.add_argument("--db", default=str(DEFAULT_DB))
     parser.add_argument("--json-out", default=str(DEFAULT_REPORT))
     parser.add_argument(
+        "--ffmpeg-path",
+        default="",
+        help="Optional explicit ffmpeg binary path; also supports FFMPEG_PATH or XIAOBIAN_FFMPEG_PATH.",
+    )
+    parser.add_argument(
         "--allow-blockers",
         action="store_true",
         help="Return 0 even when activation blockers are found; useful for inventory health checks.",
     )
     args = parser.parse_args()
 
-    payload = run_preflight(Path(args.workflow_spec), Path(args.db))
+    payload = run_preflight(Path(args.workflow_spec), Path(args.db), args.ffmpeg_path or None)
     write_report(payload, Path(args.json_out))
 
     print("== n8n Workflow Preflight ==")
