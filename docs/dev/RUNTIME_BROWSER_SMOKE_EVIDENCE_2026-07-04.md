@@ -187,6 +187,8 @@ python tools\n8n_workflow_preflight.py --allow-blockers
 python tools\foundation_health_check.py --browser-smoke required
 ```
 
+The preflight now reports `workflow.credential_binding_source` and `credential_setup_plan.binding_source`. When the workflow exists in the local n8n DB, credential binding is checked against `n8n_database_workflow` nodes and `credentials_entity` metadata by id/name/type. It does not read `credentials_entity.data`.
+
 ## 2026-07-09 Goal Audit Gate
 
 The foundation health check now includes `runtime_service_controller` as its own gate, so service readiness is proven through the controlled entrypoint as well as direct port/API checks.

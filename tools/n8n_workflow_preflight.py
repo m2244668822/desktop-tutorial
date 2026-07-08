@@ -86,10 +86,135 @@ def _credential_count(db: dict[str, Any]) -> int:
         return 0
 
 
+def compact_workflow_nodes(nodes: list[dict[str, Any]] | Any) -> list[dict[str, Any]]:
+    if not isinstance(nodes, list):
+        return []
+    compact: list[dict[str, Any]] = []
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        compact.append(
+            {
+                "name": _node_name(node),
+                "type": str(node.get("type") or ""),
+                "credentials": node.get("credentials") if isinstance(node.get("credentials"), dict) else {},
+            }
+        )
+    return compact
+
+
+def credential_audit_nodes(
+    spec_nodes: list[dict[str, Any]] | Any,
+    db: dict[str, Any],
+) -> tuple[list[dict[str, Any]], str]:
+    db_nodes = db.get("workflow_nodes") or []
+    if isinstance(db_nodes, list) and db_nodes:
+        return db_nodes, "n8n_database_workflow"
+    if isinstance(spec_nodes, list):
+        return spec_nodes, "workflow_spec"
+    return [], "workflow_spec"
+
+
+def _binding_record(node: dict[str, Any], requirement: dict[str, Any]) -> dict[str, Any]:
+    credentials = node.get("credentials") if isinstance(node.get("credentials"), dict) else {}
+    exact_type = requirement.get("credential_type")
+    candidates = list(requirement.get("credential_type_candidates") or [])
+    if exact_type:
+        binding = credentials.get(str(exact_type))
+        if isinstance(binding, dict):
+            return {
+                "has_binding": True,
+                "binding_type": str(exact_type),
+                "binding": binding,
+                "type_ok": True,
+                "type_mismatch": False,
+                "available_binding_types": sorted(str(key) for key in credentials),
+            }
+        return {
+            "has_binding": bool(credentials),
+            "binding_type": "",
+            "binding": {},
+            "type_ok": False,
+            "type_mismatch": bool(credentials),
+            "available_binding_types": sorted(str(key) for key in credentials),
+        }
+    for candidate in candidates:
+        binding = credentials.get(str(candidate))
+        if isinstance(binding, dict):
+            return {
+                "has_binding": True,
+                "binding_type": str(candidate),
+                "binding": binding,
+                "type_ok": True,
+                "type_mismatch": False,
+                "available_binding_types": sorted(str(key) for key in credentials),
+            }
+    if credentials:
+        first_type = sorted(str(key) for key in credentials)[0]
+        binding = credentials.get(first_type)
+        return {
+            "has_binding": True,
+            "binding_type": first_type,
+            "binding": binding if isinstance(binding, dict) else {},
+            "type_ok": True,
+            "type_mismatch": False,
+            "available_binding_types": sorted(str(key) for key in credentials),
+            "accepted_by": "n8n_database_ui_binding",
+        }
+    return {
+        "has_binding": False,
+        "binding_type": "",
+        "binding": {},
+        "type_ok": False,
+        "type_mismatch": False,
+        "available_binding_types": [],
+    }
+
+
+def _credential_reference_status(
+    binding_type: str,
+    binding: dict[str, Any],
+    db: dict[str, Any],
+) -> dict[str, Any]:
+    credentials = db.get("credentials") or []
+    if not db.get("ok"):
+        return {"checked": False, "ok": False, "reason": "database_unavailable"}
+    if not isinstance(credentials, list) or not credentials:
+        return {"checked": True, "ok": False, "reason": "no_credentials_in_database"}
+    binding_id = str(binding.get("id") or "")
+    binding_name = str(binding.get("name") or "")
+    matches = []
+    for credential in credentials:
+        if not isinstance(credential, dict):
+            continue
+        if binding_type and str(credential.get("type") or "") != binding_type:
+            continue
+        id_matches = bool(binding_id) and str(credential.get("id") or "") == binding_id
+        name_matches = bool(binding_name) and str(credential.get("name") or "") == binding_name
+        if id_matches or name_matches:
+            matches.append(
+                {
+                    "id": credential.get("id"),
+                    "name": credential.get("name"),
+                    "type": credential.get("type"),
+                }
+            )
+    return {
+        "checked": True,
+        "ok": bool(matches),
+        "reason": "matched" if matches else "credential_not_found",
+        "binding_id": binding_id,
+        "binding_name": binding_name,
+        "binding_type": binding_type,
+        "matches": matches[:3],
+    }
+
+
 def build_credential_setup_plan(
     nodes: list[dict[str, Any]] | Any,
     db: dict[str, Any],
     workflow: dict[str, Any] | None = None,
+    binding_source: str = "workflow_spec",
 ) -> dict[str, Any]:
     if not isinstance(nodes, list):
         nodes = []
@@ -126,8 +251,15 @@ def build_credential_setup_plan(
             group["node_types"].append(node_type)
         node_name = _node_name(node)
         group["nodes"].append(node_name)
-        has_binding = bool(node.get("credentials"))
-        if not has_binding:
+        binding = _binding_record(node, requirement)
+        reference = (
+            _credential_reference_status(binding["binding_type"], binding["binding"], db)
+            if binding.get("has_binding")
+            else {"checked": False, "ok": False, "reason": "missing_binding"}
+        )
+        if not binding.get("has_binding") or not binding.get("type_ok") or (
+            reference.get("checked") and not reference.get("ok")
+        ):
             group["nodes_needing_binding"].append(node_name)
             missing_bindings.append(
                 {
@@ -137,6 +269,14 @@ def build_credential_setup_plan(
                     "credential_type": requirement.get("credential_type"),
                     "credential_type_candidates": requirement.get("credential_type_candidates") or [],
                     "credential_type_source": requirement["credential_type_source"],
+                    "binding_source": binding_source,
+                    "binding": {
+                        "has_binding": binding.get("has_binding"),
+                        "binding_type": binding.get("binding_type"),
+                        "type_ok": binding.get("type_ok"),
+                        "available_binding_types": binding.get("available_binding_types", []),
+                    },
+                    "credential_reference": reference,
                 }
             )
 
@@ -170,6 +310,7 @@ def build_credential_setup_plan(
         "database_available": bool(db.get("ok")),
         "n8n_credentials_url": "http://127.0.0.1:5678/credentials",
         "workflow_url_hint": f"http://127.0.0.1:5678/workflow/{workflow_id}",
+        "binding_source": binding_source,
         "required_credentials": required_credentials,
         "missing_bindings": missing_bindings,
     }
@@ -203,6 +344,34 @@ def remediation_for_issue(issue: Issue) -> dict[str, Any]:
             "windows": ["Open http://127.0.0.1:5678/credentials and create the required credentials."],
             "macos": ["Open http://127.0.0.1:5678/credentials and create the required credentials."],
             "verify": "Preflight should report credentials_entity > 0.",
+        },
+        "credential_type_mismatch": {
+            "owner": "operator",
+            "manual": True,
+            "summary": f"Rebind {node or 'the node'} to the credential type expected by its n8n node.",
+            "windows": [
+                "Open http://127.0.0.1:5678/credentials",
+                f"Open workflow node {node or '<node>'} and reselect the provider credential.",
+            ],
+            "macos": [
+                "Open http://127.0.0.1:5678/credentials",
+                f"Open workflow node {node or '<node>'} and reselect the provider credential.",
+            ],
+            "verify": "Rerun preflight and confirm credential_type_mismatch is gone.",
+        },
+        "credential_reference_missing": {
+            "owner": "operator",
+            "manual": True,
+            "summary": f"Rebind {node or 'the node'} because its credential reference is missing from the n8n DB.",
+            "windows": [
+                "Open http://127.0.0.1:5678/credentials",
+                f"Open workflow node {node or '<node>'} and bind an existing provider credential.",
+            ],
+            "macos": [
+                "Open http://127.0.0.1:5678/credentials",
+                f"Open workflow node {node or '<node>'} and bind an existing provider credential.",
+            ],
+            "verify": "Rerun preflight and confirm credential_reference_missing is gone.",
         },
         "ffmpeg_not_found": {
             "owner": "operator",
@@ -387,7 +556,10 @@ def db_snapshot(db_path: Path, workflow_id: str, workflow_name: str) -> dict[str
         "exists": db_path.exists(),
         "ok": False,
         "counts": {},
+        "credentials": [],
+        "credential_types": {},
         "workflow": {},
+        "workflow_nodes": [],
         "workflow_contract": {},
         "error": "",
     }
@@ -401,6 +573,22 @@ def db_snapshot(db_path: Path, workflow_id: str, workflow_name: str) -> dict[str
             snapshot["counts"][table] = int(
                 con.execute(f"select count(*) from {table}").fetchone()[0]
             )
+        credential_columns = {
+            str(row[1])
+            for row in con.execute("pragma table_info(credentials_entity)").fetchall()
+        }
+        if {"id", "name", "type"}.issubset(credential_columns):
+            credential_rows = con.execute(
+                "select id, name, type from credentials_entity order by type, name"
+            ).fetchall()
+            snapshot["credentials"] = [dict(row) for row in credential_rows]
+            credential_types: dict[str, int] = {}
+            for row in credential_rows:
+                credential_type = str(row["type"] or "")
+                credential_types[credential_type] = credential_types.get(credential_type, 0) + 1
+            snapshot["credential_types"] = credential_types
+        else:
+            snapshot["credential_metadata_unavailable"] = sorted(credential_columns)
         columns = {
             str(row[1])
             for row in con.execute("pragma table_info(workflow_entity)").fetchall()
@@ -420,8 +608,10 @@ def db_snapshot(db_path: Path, workflow_id: str, workflow_name: str) -> dict[str
                 "name": raw.get("name"),
                 "active": raw.get("active"),
             }
+            db_nodes = _json_or_default(raw.get("nodes"), [])
+            snapshot["workflow_nodes"] = compact_workflow_nodes(db_nodes)
             snapshot["workflow_contract"] = workflow_contract_snapshot(
-                _json_or_default(raw.get("nodes"), []),
+                db_nodes,
                 _json_or_default(raw.get("settings"), {}),
                 _json_or_default(raw.get("meta"), {}),
             )
@@ -499,24 +689,57 @@ def _node_name(node: dict[str, Any]) -> str:
 
 def audit_credentials(nodes: list[dict[str, Any]], db: dict[str, Any]) -> list[Issue]:
     issues: list[Issue] = []
-    for node in nodes:
+    audit_nodes, binding_source = credential_audit_nodes(nodes, db)
+    for node in audit_nodes:
         node_type = str(node.get("type") or "")
         requirement = credential_requirement_for_node(node_type)
         if not requirement:
             continue
-        if not node.get("credentials"):
+        binding = _binding_record(node, requirement)
+        base_evidence = {
+            "node": _node_name(node),
+            "type": node_type,
+            "provider": requirement["provider"],
+            "credential_type": requirement.get("credential_type"),
+            "credential_type_candidates": requirement.get("credential_type_candidates") or [],
+            "credential_type_source": requirement["credential_type_source"],
+            "binding_source": binding_source,
+            "available_binding_types": binding.get("available_binding_types", []),
+        }
+        if not binding.get("has_binding"):
             issues.append(
                 Issue(
                     "blocker",
                     "missing_node_credentials",
                     f"{_node_name(node)} has no credential binding.",
+                    base_evidence,
+                )
+            )
+            continue
+        if not binding.get("type_ok"):
+            issues.append(
+                Issue(
+                    "blocker",
+                    "credential_type_mismatch",
+                    f"{_node_name(node)} is bound to a credential type that does not match the node contract.",
                     {
-                        "node": _node_name(node),
-                        "type": node_type,
-                        "provider": requirement["provider"],
-                        "credential_type": requirement.get("credential_type"),
-                        "credential_type_candidates": requirement.get("credential_type_candidates") or [],
-                        "credential_type_source": requirement["credential_type_source"],
+                        **base_evidence,
+                        "binding_type": binding.get("binding_type"),
+                    },
+                )
+            )
+            continue
+        reference = _credential_reference_status(binding["binding_type"], binding["binding"], db)
+        if reference.get("checked") and not reference.get("ok"):
+            issues.append(
+                Issue(
+                    "blocker",
+                    "credential_reference_missing",
+                    f"{_node_name(node)} references a credential that is not present in the n8n database.",
+                    {
+                        **base_evidence,
+                        "binding_type": binding.get("binding_type"),
+                        "credential_reference": reference,
                     },
                 )
             )
@@ -766,12 +989,18 @@ def run_preflight(
         str(workflow.get("id") or ""),
         str(workflow.get("name") or ""),
     )
+    credential_nodes, credential_binding_source = credential_audit_nodes(nodes, db)
     issues.extend(audit_credentials(nodes, db))
     issues.extend(audit_execute_commands(nodes, ffmpeg))
     issues.extend(audit_webhooks(nodes))
     issues.extend(audit_safety(workflow, db))
     issues.extend(audit_db_workflow_contract(db))
-    credential_setup_plan = build_credential_setup_plan(nodes, db, workflow)
+    credential_setup_plan = build_credential_setup_plan(
+        credential_nodes,
+        db,
+        workflow,
+        credential_binding_source,
+    )
 
     blockers = [issue for issue in issues if issue.severity == "blocker"]
     warnings = [issue for issue in issues if issue.severity == "warning"]
@@ -785,6 +1014,7 @@ def run_preflight(
             "name": workflow.get("name", ""),
             "active": bool(workflow.get("active")),
             "node_count": len(nodes),
+            "credential_binding_source": credential_binding_source,
         },
         "db": db,
         "issues": [asdict(issue) for issue in issues],

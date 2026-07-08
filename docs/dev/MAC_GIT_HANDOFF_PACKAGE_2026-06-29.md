@@ -122,6 +122,8 @@ The Xiaobian workflow source spec has been hardened with timeout, cost controls,
 | live imported workflow | Cleared on Windows by re-importing the hardened source spec; re-import again on Mac if using a separate n8n DB |
 | manual execution | Run only after preflight reports `ready_for_activation` |
 
+Credential binding is intentionally local-machine state. Keep API keys and n8n credential IDs out of the source workflow spec. On Mac, re-import the hardened spec, bind credentials in the n8n UI, then rerun preflight. The preflight will prefer `n8n_database_workflow` bindings from the local n8n DB and verify credential metadata by id/name/type without reading encrypted credential data.
+
 ## OpenClaw Status
 
 Current Windows evidence shows local execution support is ready:

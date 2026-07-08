@@ -165,10 +165,12 @@ The preflight JSON report includes:
 | Field | Use |
 |---|---|
 | `issues` | Raw blockers and warnings with evidence |
-| `credential_setup_plan` | Provider-grouped manual credential checklist with n8n URLs, required fields, node bindings, and no secret values |
+| `credential_setup_plan` | Provider-grouped manual credential checklist with n8n URLs, required fields, node bindings, binding source, and no secret values |
 | `remediation_plan` | Deduplicated Windows/macOS repair steps for each recurring blocker |
 | `activation_sequence` | Ordered checklist that must be completed before unattended automation |
 | `db.workflow_contract` | Live imported workflow contract for stale-import detection |
+| `db.workflow_nodes` | Compact imported node list with credential binding metadata only; secret values are never read |
+| `db.credentials` | Credential metadata only: id, name, type; `credentials_entity.data` is never read |
 
 Known activation blockers:
 
@@ -176,9 +178,12 @@ Known activation blockers:
 |---|---|
 | provider credentials | Follow `credential_setup_plan` to create real Gemini/OpenAI credentials and bind every provider node |
 | n8n DB credentials | Ensure `credentials_entity` is non-empty after creating real credentials |
+| missing/stale credential references | Rebind the node in n8n UI if a workflow node references a credential that is not present in the local DB |
 | FFmpeg | Install FFmpeg and confirm PATH, `FFMPEG_PATH`, or `XIAOBIAN_FFMPEG_PATH` points to the binary |
 | stale imported workflow | Re-import the hardened source spec |
 | zero executions | Run a controlled manual test only after preflight is ready |
+
+Credential binding rule: the source workflow spec stays portable and should not store API keys. After re-importing the hardened spec, bind credentials in the local n8n UI. The preflight prefers the imported DB workflow nodes for credential binding checks, so a UI-bound workflow can clear credential blockers without committing machine-local secret material to the source spec.
 
 ## Phase 6: Anti-Sprawl Review
 

@@ -168,6 +168,99 @@ class N8nWorkflowPreflightTests(unittest.TestCase):
             "http://127.0.0.1:5678/workflow/xiaobianVideo001",
         )
 
+    def test_db_workflow_credentials_satisfy_source_spec_missing_bindings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db = root / "database.sqlite"
+            con = sqlite3.connect(db)
+            con.execute(
+                "create table workflow_entity (id text, name text, active integer, nodes text, settings text, meta text)"
+            )
+            con.execute(
+                "create table credentials_entity (id text, name text, data text, type text)"
+            )
+            con.execute("create table execution_entity (id text)")
+            con.execute(
+                "insert into credentials_entity (id, name, data, type) values (?, ?, ?, ?)",
+                ("cred-openai", "OpenAI Prod", "encrypted", "openAiApi"),
+            )
+            con.execute(
+                "insert into workflow_entity (id, name, active, nodes, settings, meta) values (?, ?, ?, ?, ?, ?)",
+                (
+                    "xiaobianVideo001",
+                    "Xiaobian Short Video Automation",
+                    0,
+                    json.dumps(
+                        [
+                            {
+                                "name": "OpenAI TTS",
+                                "type": "n8n-nodes-base.openAi",
+                                "credentials": {
+                                    "openAiApi": {"id": "cred-openai", "name": "OpenAI Prod"}
+                                },
+                            }
+                        ]
+                    ),
+                    "{}",
+                    "{}",
+                ),
+            )
+            con.commit()
+            con.close()
+            spec_nodes = [
+                {
+                    "name": "OpenAI TTS",
+                    "type": "n8n-nodes-base.openAi",
+                    "parameters": {"text": "hello"},
+                }
+            ]
+
+            snapshot = n8n_workflow_preflight.db_snapshot(
+                db,
+                "xiaobianVideo001",
+                "Xiaobian Short Video Automation",
+            )
+            issues = n8n_workflow_preflight.audit_credentials(spec_nodes, snapshot)
+            plan = n8n_workflow_preflight.build_credential_setup_plan(
+                snapshot["workflow_nodes"],
+                snapshot,
+                {"id": "xiaobianVideo001"},
+                "n8n_database_workflow",
+            )
+
+            self.assertEqual([issue.code for issue in issues], [])
+            self.assertEqual(plan["status"], "ready")
+            self.assertEqual(plan["binding_source"], "n8n_database_workflow")
+            self.assertEqual(snapshot["credential_types"]["openAiApi"], 1)
+            self.assertNotIn("data", json.dumps(snapshot["credentials"]))
+
+    def test_db_workflow_binding_must_reference_existing_credential(self):
+        db = {
+            "ok": True,
+            "counts": {"credentials_entity": 1},
+            "credentials": [{"id": "other", "name": "Other OpenAI", "type": "openAiApi"}],
+            "workflow_nodes": [
+                {
+                    "name": "OpenAI TTS",
+                    "type": "n8n-nodes-base.openAi",
+                    "credentials": {"openAiApi": {"id": "missing", "name": "Deleted OpenAI"}},
+                }
+            ],
+        }
+        spec_nodes = [
+            {
+                "name": "OpenAI TTS",
+                "type": "n8n-nodes-base.openAi",
+                "parameters": {},
+            }
+        ]
+
+        issues = n8n_workflow_preflight.audit_credentials(spec_nodes, db)
+
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].code, "credential_reference_missing")
+        self.assertEqual(issues[0].evidence["binding_source"], "n8n_database_workflow")
+
     def test_remediation_plan_deduplicates_same_issue_code_and_summary(self):
         issues = [
             n8n_workflow_preflight.Issue(
