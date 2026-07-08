@@ -161,7 +161,7 @@ Current evidence:
 | Check | Result |
 |---|---|
 | `runtime_dependency_doctor` | ready; FFmpeg, OpenClaw, n8n, Ollama, Python, and Node all OK |
-| `n8n_workflow_preflight` | blocked only by credentials; `ffmpeg_not_found` and stale workflow import are cleared |
+| `n8n_workflow_preflight` | blocked only by credentials; `credential_setup_plan` groups the manual n8n work by provider |
 | `foundation_health_check --browser-smoke required` | runtime/frontend/OpenClaw ready; attention remains for n8n credentials |
 
 Remaining activation blockers:
@@ -172,3 +172,17 @@ Remaining activation blockers:
 | DALL-E 3 Generator credentials | requires real OpenAI credential binding in n8n |
 | OpenAI TTS credentials | requires real OpenAI credential binding in n8n |
 | n8n credential DB empty | requires at least one real provider credential |
+
+Credential setup details now appear in the preflight JSON:
+
+| Provider | Credential Type Guidance | Nodes |
+|---|---|---|
+| OpenAI | installed n8n credential type `openAiApi`; required field `apiKey` | DALL-E 3 Generator, OpenAI TTS |
+| Google Gemini | exact Gemini credential file was not present in the installed n8n-nodes-base package; use UI/provider candidates from `credential_setup_plan` | Gemini Parser |
+
+No API keys or placeholder secrets are stored in the repo. Create credentials in each machine's n8n credential store, bind the listed nodes, then rerun:
+
+```powershell
+python tools\n8n_workflow_preflight.py --allow-blockers
+python tools\foundation_health_check.py --browser-smoke required
+```

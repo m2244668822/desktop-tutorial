@@ -77,15 +77,19 @@ PY
 
 Read `ok` and `attention_required` together. `ok=true` means the configured checks passed; `attention_required=true` means there are still follow-up actions such as n8n activation blockers.
 
-If n8n preflight is still blocked, open the JSON report and follow `remediation_plan`:
+If n8n preflight is still blocked, open the JSON report and follow `credential_setup_plan` plus `remediation_plan`:
 
 ```bash
 python - <<'PY'
 import json
 from pathlib import Path
 report = json.loads(Path("reports/n8n_workflow_preflight_latest.json").read_text())
+plan = report.get("credential_setup_plan", {})
+print(f"credential_setup_plan: {plan.get('status')}")
+for item in plan.get("required_credentials", []):
+    print(f"- credential {item['provider']}: bind {', '.join(item['nodes_needing_binding'] or item['nodes'])}")
 for item in report.get("remediation_plan", []):
-    print(f"- {item['code']}: {item['summary']}")
+    print(f"- remediation {item['code']}: {item['summary']}")
 PY
 ```
 
@@ -98,17 +102,17 @@ PY
 | service control | `runtime_service_controller.py` gives one status/start path for web, n8n, Ollama, and governed OpenClaw gateway |
 | frontend static contract | canonical chat shell tokens plus mobile layout contract |
 | browser smoke | headless Chrome/Edge checks DOM, console, runtime exceptions, and layout |
-| n8n workflow | preflight blocks activation and emits a structured remediation plan |
+| n8n workflow | preflight blocks activation and emits structured remediation plus credential setup plans |
 | OpenClaw | `openclaw_runtime` verifies CLI, local gateway listener, and `/healthz` |
 
 ## n8n Status
 
-The Xiaobian workflow source spec has been hardened with timeout, cost controls, error policy, webhook header auth, controlled FFmpeg output, and `FFMPEG_PATH` / `XIAOBIAN_FFMPEG_PATH` override support. Activation is still blocked until:
+The Xiaobian workflow source spec has been hardened with timeout, cost controls, error policy, webhook header auth, controlled FFmpeg output, and `FFMPEG_PATH` / `XIAOBIAN_FFMPEG_PATH` override support. The preflight now emits `credential_setup_plan` so the remaining manual n8n work is grouped by provider instead of scattered by node. Activation is still blocked until:
 
 | Blocker | Action |
 |---|---|
-| Gemini/OpenAI credentials | Configure provider credentials in n8n |
-| n8n credential DB | Ensure `credentials_entity` is non-empty |
+| Gemini/OpenAI credentials | Create real provider credentials in n8n, then bind Gemini Parser, DALL-E 3 Generator, and OpenAI TTS |
+| n8n credential DB | Ensure `credentials_entity` is non-empty after creating real credentials |
 | FFmpeg | Windows now resolves winget FFmpeg through `runtime_binary_locator.py`; on Mac install with Homebrew or set `FFMPEG_PATH` |
 | live imported workflow | Cleared on Windows by re-importing the hardened source spec; re-import again on Mac if using a separate n8n DB |
 | manual execution | Run only after preflight reports `ready_for_activation` |

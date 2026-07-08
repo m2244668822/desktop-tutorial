@@ -38,6 +38,11 @@ class N8nWorkflowPreflightTests(unittest.TestCase):
                                     "parameters": {"text": "hello"},
                                 },
                                 {
+                                    "name": "Gemini Parser",
+                                    "type": "n8n-nodes-base.googleGemini",
+                                    "parameters": {"prompt": "parse"},
+                                },
+                                {
                                     "name": "FFmpeg Assembly",
                                     "type": "n8n-nodes-base.executeCommand",
                                     "parameters": {
@@ -94,6 +99,18 @@ class N8nWorkflowPreflightTests(unittest.TestCase):
                 self.assertIn("n8n_database_has_no_credentials", remediation_codes)
                 self.assertIn("ffmpeg_not_found", remediation_codes)
                 self.assertIn("n8n_database_workflow_stale", remediation_codes)
+                credential_plan = payload["credential_setup_plan"]
+                self.assertEqual(credential_plan["status"], "needs_credentials")
+                self.assertTrue(credential_plan["manual_secret_required"])
+                self.assertEqual(credential_plan["credential_count"], 0)
+                required_providers = {
+                    item["provider"] for item in credential_plan["required_credentials"]
+                }
+                self.assertIn("OpenAI", required_providers)
+                self.assertIn("Google Gemini", required_providers)
+                self.assertIn("OpenAI TTS", json.dumps(credential_plan))
+                self.assertIn("Gemini Parser", json.dumps(credential_plan))
+                self.assertNotIn("sk-", json.dumps(credential_plan).lower())
                 ffmpeg_plan = next(
                     item for item in payload["remediation_plan"] if item["code"] == "ffmpeg_not_found"
                 )
@@ -104,6 +121,52 @@ class N8nWorkflowPreflightTests(unittest.TestCase):
         finally:
             n8n_workflow_preflight.shutil.which = old_which
             n8n_workflow_preflight.locate_ffmpeg = old_locate
+
+    def test_credential_setup_plan_groups_nodes_by_provider(self):
+        nodes = [
+            {
+                "name": "Gemini Parser",
+                "type": "n8n-nodes-base.googleGemini",
+                "parameters": {},
+            },
+            {
+                "name": "DALL-E 3 Generator",
+                "type": "n8n-nodes-base.openAi",
+                "parameters": {},
+            },
+            {
+                "name": "OpenAI TTS",
+                "type": "n8n-nodes-base.openAi",
+                "parameters": {},
+            },
+        ]
+        db = {"ok": True, "counts": {"credentials_entity": 0}}
+
+        plan = n8n_workflow_preflight.build_credential_setup_plan(
+            nodes,
+            db,
+            {"id": "xiaobianVideo001"},
+        )
+
+        self.assertEqual(plan["status"], "needs_credentials")
+        self.assertTrue(plan["manual_secret_required"])
+        self.assertEqual(len(plan["required_credentials"]), 2)
+        by_provider = {item["provider"]: item for item in plan["required_credentials"]}
+        self.assertEqual(by_provider["OpenAI"]["credential_type"], "openAiApi")
+        self.assertEqual(
+            by_provider["OpenAI"]["nodes_needing_binding"],
+            ["DALL-E 3 Generator", "OpenAI TTS"],
+        )
+        self.assertIsNone(by_provider["Google Gemini"]["credential_type"])
+        self.assertIn(
+            "googleGeminiApi",
+            by_provider["Google Gemini"]["credential_type_candidates"],
+        )
+        self.assertEqual(len(plan["missing_bindings"]), 3)
+        self.assertEqual(
+            plan["workflow_url_hint"],
+            "http://127.0.0.1:5678/workflow/xiaobianVideo001",
+        )
 
     def test_remediation_plan_deduplicates_same_issue_code_and_summary(self):
         issues = [

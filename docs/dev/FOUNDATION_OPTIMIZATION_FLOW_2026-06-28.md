@@ -164,6 +164,7 @@ The preflight JSON report includes:
 | Field | Use |
 |---|---|
 | `issues` | Raw blockers and warnings with evidence |
+| `credential_setup_plan` | Provider-grouped manual credential checklist with n8n URLs, required fields, node bindings, and no secret values |
 | `remediation_plan` | Deduplicated Windows/macOS repair steps for each recurring blocker |
 | `activation_sequence` | Ordered checklist that must be completed before unattended automation |
 | `db.workflow_contract` | Live imported workflow contract for stale-import detection |
@@ -172,8 +173,8 @@ Known activation blockers:
 
 | Blocker | Required Action |
 |---|---|
-| provider credentials | Configure Gemini/OpenAI credentials in n8n |
-| n8n DB credentials | Ensure `credentials_entity` is non-empty |
+| provider credentials | Follow `credential_setup_plan` to create real Gemini/OpenAI credentials and bind every provider node |
+| n8n DB credentials | Ensure `credentials_entity` is non-empty after creating real credentials |
 | FFmpeg | Install FFmpeg and confirm PATH, `FFMPEG_PATH`, or `XIAOBIAN_FFMPEG_PATH` points to the binary |
 | stale imported workflow | Re-import the hardened source spec |
 | zero executions | Run a controlled manual test only after preflight is ready |
@@ -208,7 +209,7 @@ python -m pytest tests --tb=short
 
 | Gap | Priority | Next Action |
 |---|---|---|
-| n8n activation blocked | P1 | Add real Gemini/OpenAI credentials in n8n, then rerun preflight |
+| n8n activation blocked | P1 | Follow `credential_setup_plan`, add real Gemini/OpenAI credentials in n8n, then rerun preflight |
 | Mac runtime not reverified after latest Git handoff | P1 | Pull branch on Mac and run `runtime_dependency_doctor`, then foundation health with browser smoke |
 | Obsidian vault state may differ from ProjectDocs | P2 | Audit vault-only edits separately from tracked docs |
 | Runtime services may be stopped between shifts | P2 | Treat port failures as startup state unless reproducible after launcher |

@@ -37,6 +37,144 @@ class Issue:
     evidence: dict[str, Any]
 
 
+CREDENTIAL_REQUIREMENTS: dict[str, dict[str, Any]] = {
+    "n8n-nodes-base.googleGemini": {
+        "provider": "Google Gemini",
+        "display_name": "Google Gemini",
+        "credential_type": None,
+        "credential_type_candidates": ["googlePalmApi", "googleGeminiApi", "googleApi"],
+        "credential_type_source": "inferred_from_workflow_node; exact Gemini credential file was not present in the installed n8n-nodes-base package",
+        "required_fields": ["apiKey"],
+        "optional_fields": [],
+    },
+    "n8n-nodes-base.openAi": {
+        "provider": "OpenAI",
+        "display_name": "OpenAI",
+        "credential_type": "openAiApi",
+        "credential_type_candidates": [],
+        "credential_type_source": "installed_n8n_nodes_base",
+        "required_fields": ["apiKey"],
+        "optional_fields": ["organizationId", "url", "customHeaders"],
+    },
+}
+
+
+def credential_requirement_for_node(node_type: str) -> dict[str, Any] | None:
+    requirement = CREDENTIAL_REQUIREMENTS.get(node_type)
+    if not requirement:
+        return None
+    return {
+        **requirement,
+        "credential_type_candidates": list(requirement.get("credential_type_candidates") or []),
+        "required_fields": list(requirement.get("required_fields") or []),
+        "optional_fields": list(requirement.get("optional_fields") or []),
+    }
+
+
+def _credential_group_key(requirement: dict[str, Any]) -> str:
+    credential_type = requirement.get("credential_type")
+    if credential_type:
+        return f"{requirement.get('provider')}|{credential_type}"
+    candidates = ",".join(str(item) for item in requirement.get("credential_type_candidates") or [])
+    return f"{requirement.get('provider')}|{candidates}"
+
+
+def _credential_count(db: dict[str, Any]) -> int:
+    try:
+        return int((db.get("counts") or {}).get("credentials_entity", 0) or 0)
+    except Exception:
+        return 0
+
+
+def build_credential_setup_plan(
+    nodes: list[dict[str, Any]] | Any,
+    db: dict[str, Any],
+    workflow: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if not isinstance(nodes, list):
+        nodes = []
+    workflow = workflow or {}
+    workflow_id = str(workflow.get("id") or "<workflow-id>")
+    credential_count = _credential_count(db)
+    groups: dict[str, dict[str, Any]] = {}
+    missing_bindings: list[dict[str, Any]] = []
+
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        node_type = str(node.get("type") or "")
+        requirement = credential_requirement_for_node(node_type)
+        if not requirement:
+            continue
+        key = _credential_group_key(requirement)
+        group = groups.setdefault(
+            key,
+            {
+                "provider": requirement["provider"],
+                "display_name": requirement["display_name"],
+                "credential_type": requirement.get("credential_type"),
+                "credential_type_candidates": requirement.get("credential_type_candidates") or [],
+                "credential_type_source": requirement["credential_type_source"],
+                "required_fields": requirement.get("required_fields") or [],
+                "optional_fields": requirement.get("optional_fields") or [],
+                "node_types": [],
+                "nodes": [],
+                "nodes_needing_binding": [],
+            },
+        )
+        if node_type not in group["node_types"]:
+            group["node_types"].append(node_type)
+        node_name = _node_name(node)
+        group["nodes"].append(node_name)
+        has_binding = bool(node.get("credentials"))
+        if not has_binding:
+            group["nodes_needing_binding"].append(node_name)
+            missing_bindings.append(
+                {
+                    "node": node_name,
+                    "type": node_type,
+                    "provider": requirement["provider"],
+                    "credential_type": requirement.get("credential_type"),
+                    "credential_type_candidates": requirement.get("credential_type_candidates") or [],
+                    "credential_type_source": requirement["credential_type_source"],
+                }
+            )
+
+    required_credentials = []
+    for group in groups.values():
+        bind_targets = group["nodes_needing_binding"] or group["nodes"]
+        group["ui_steps"] = [
+            "Open http://127.0.0.1:5678/credentials.",
+            f"Create or select a {group['display_name']} credential.",
+            "Enter the provider-owned secret values only in n8n; do not store them in Git.",
+            f"Open http://127.0.0.1:5678/workflow/{workflow_id} and bind the credential to: {', '.join(bind_targets)}.",
+        ]
+        group["verify"] = (
+            "Rerun python tools/n8n_workflow_preflight.py --allow-blockers and confirm "
+            "missing_node_credentials and n8n_database_has_no_credentials are gone."
+        )
+        required_credentials.append(group)
+
+    if not required_credentials:
+        status = "not_required"
+    elif not missing_bindings and credential_count > 0:
+        status = "ready"
+    else:
+        status = "needs_credentials"
+
+    return {
+        "status": status,
+        "manual_secret_required": status == "needs_credentials",
+        "secret_storage_policy": "Store API keys only in the n8n credential store on each machine; never commit secret values to this repository.",
+        "credential_count": credential_count,
+        "database_available": bool(db.get("ok")),
+        "n8n_credentials_url": "http://127.0.0.1:5678/credentials",
+        "workflow_url_hint": f"http://127.0.0.1:5678/workflow/{workflow_id}",
+        "required_credentials": required_credentials,
+        "missing_bindings": missing_bindings,
+    }
+
+
 def remediation_for_issue(issue: Issue) -> dict[str, Any]:
     evidence = issue.evidence or {}
     node = str(evidence.get("node") or "")
@@ -203,7 +341,7 @@ def activation_sequence() -> list[str]:
     return [
         "Keep the workflow inactive while any blocker exists.",
         "Install FFmpeg and verify PATH or FFMPEG_PATH on the target machine.",
-        "Create provider credentials in n8n and bind them to every provider node.",
+        "Follow credential_setup_plan to create provider credentials in n8n and bind them to every provider node.",
         "Re-import the hardened source workflow spec.",
         "Run python tools/n8n_workflow_preflight.py until status is ready_for_activation.",
         "Run one controlled manual execution before enabling unattended automation.",
@@ -361,14 +499,10 @@ def _node_name(node: dict[str, Any]) -> str:
 
 def audit_credentials(nodes: list[dict[str, Any]], db: dict[str, Any]) -> list[Issue]:
     issues: list[Issue] = []
-    external_types = {
-        "n8n-nodes-base.googleGemini": "Google Gemini",
-        "n8n-nodes-base.openAi": "OpenAI",
-    }
     for node in nodes:
         node_type = str(node.get("type") or "")
-        provider = external_types.get(node_type)
-        if not provider:
+        requirement = credential_requirement_for_node(node_type)
+        if not requirement:
             continue
         if not node.get("credentials"):
             issues.append(
@@ -376,10 +510,17 @@ def audit_credentials(nodes: list[dict[str, Any]], db: dict[str, Any]) -> list[I
                     "blocker",
                     "missing_node_credentials",
                     f"{_node_name(node)} has no credential binding.",
-                    {"node": _node_name(node), "type": node_type, "provider": provider},
+                    {
+                        "node": _node_name(node),
+                        "type": node_type,
+                        "provider": requirement["provider"],
+                        "credential_type": requirement.get("credential_type"),
+                        "credential_type_candidates": requirement.get("credential_type_candidates") or [],
+                        "credential_type_source": requirement["credential_type_source"],
+                    },
                 )
             )
-    credential_count = int((db.get("counts") or {}).get("credentials_entity", 0) or 0)
+    credential_count = _credential_count(db)
     if db.get("ok") and credential_count == 0:
         issues.append(
             Issue(
@@ -590,6 +731,10 @@ def run_preflight(
     workflow, issues = load_workflow(spec_path)
     if workflow is None:
         blockers = [issue for issue in issues if issue.severity == "blocker"]
+        credential_setup_plan = build_credential_setup_plan(
+            [],
+            {"path": str(db_path), "exists": db_path.exists(), "ok": False, "counts": {}},
+        )
         return {
             "ok_for_activation": False,
             "status": "invalid",
@@ -597,6 +742,7 @@ def run_preflight(
             "ffmpeg": ffmpeg,
             "db": {"path": str(db_path), "exists": db_path.exists()},
             "issues": [asdict(issue) for issue in issues],
+            "credential_setup_plan": credential_setup_plan,
             "remediation_plan": build_remediation_plan(issues),
             "activation_sequence": activation_sequence(),
             "blocker_count": len(blockers),
@@ -625,6 +771,7 @@ def run_preflight(
     issues.extend(audit_webhooks(nodes))
     issues.extend(audit_safety(workflow, db))
     issues.extend(audit_db_workflow_contract(db))
+    credential_setup_plan = build_credential_setup_plan(nodes, db, workflow)
 
     blockers = [issue for issue in issues if issue.severity == "blocker"]
     warnings = [issue for issue in issues if issue.severity == "warning"]
@@ -641,6 +788,7 @@ def run_preflight(
         },
         "db": db,
         "issues": [asdict(issue) for issue in issues],
+        "credential_setup_plan": credential_setup_plan,
         "remediation_plan": build_remediation_plan(issues),
         "activation_sequence": activation_sequence(),
         "blocker_count": len(blockers),
@@ -682,6 +830,9 @@ def main() -> int:
     if len(payload["issues"]) > 10:
         print(f"... {len(payload['issues']) - 10} more issue(s)")
     remediation = payload.get("remediation_plan") or []
+    credential_setup = payload.get("credential_setup_plan") or {}
+    if credential_setup:
+        print(f"credential_setup: {credential_setup.get('status', 'unknown')}")
     if remediation:
         print("remediation:")
         for item in remediation[:5]:
