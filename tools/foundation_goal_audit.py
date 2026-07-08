@@ -219,6 +219,36 @@ def evaluate_optimization_flow(health: dict[str, Any], checks: dict[str, dict[st
     )
 
 
+def evaluate_secret_hygiene(health: dict[str, Any], checks: dict[str, dict[str, Any]]) -> Requirement:
+    check = checks.get("repo_secret_hygiene")
+    detail = (check or {}).get("detail") or {}
+    report = detail.get("report") or {}
+    passed = bool(
+        check
+        and check.get("ok")
+        and check.get("status") == "ready"
+        and report.get("finding_count", 0) == 0
+        and (report.get("gitignore") or {}).get("ok")
+    )
+    return Requirement(
+        "repo_secret_hygiene_ready",
+        "Repo Secret Hygiene Ready",
+        "passed" if passed else ("missing_evidence" if not check else "incomplete"),
+        (
+            "Tracked files have no obvious API keys and .gitignore protects runtime/secret artifacts."
+            if passed
+            else "Repo secret hygiene is not fully proven; do not solve n8n credentials by committing secrets."
+        ),
+        {
+            "check": compact_check(check),
+            "finding_count": report.get("finding_count"),
+            "gitignore": report.get("gitignore", {}),
+            "report_path": detail.get("report_path"),
+        },
+        actions_for(health, {"repo_secret_hygiene"}),
+    )
+
+
 def evaluate_openclaw(checks: dict[str, dict[str, Any]], health: dict[str, Any]) -> Requirement:
     check = checks.get("openclaw_runtime")
     detail = (check or {}).get("detail") or {}
@@ -293,6 +323,7 @@ def build_audit(health: dict[str, Any], health_report_path: Path) -> dict[str, A
         evaluate_frontend(health, checks),
         evaluate_backend_detection(health, checks),
         evaluate_optimization_flow(health, checks),
+        evaluate_secret_hygiene(health, checks),
         evaluate_openclaw(checks, health),
         evaluate_n8n_activation(checks, health),
     ]

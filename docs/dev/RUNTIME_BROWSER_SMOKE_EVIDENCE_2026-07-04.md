@@ -191,6 +191,8 @@ python tools\foundation_health_check.py --browser-smoke required
 
 The foundation health check now includes `runtime_service_controller` as its own gate, so service readiness is proven through the controlled entrypoint as well as direct port/API checks.
 
+The health report also includes `repo_secret_hygiene`, which scans tracked text files for obvious provider keys and verifies that `.gitignore` protects runtime and secret artifacts. This keeps the n8n credential fix pointed at the n8n credential store rather than Git.
+
 Current completion audit command:
 
 ```powershell
@@ -205,6 +207,7 @@ Expected status before real n8n credentials are added:
 | foundation architecture ready | passed |
 | frontend issue-free gate | passed |
 | backend multi-angle detection | passed |
+| repo secret hygiene | passed when no tracked API keys are found |
 | OpenClaw local execution ready | passed |
 | n8n activation ready | blocked until real provider credentials are created and bound |
 

@@ -295,6 +295,78 @@ class FoundationHealthCheckTests(unittest.TestCase):
         self.assertIn("--allow-openclaw-mutation", actions[0]["windows"][0])
         self.assertTrue(actions[0]["evidence"]["governed"])
 
+    def test_repo_secret_hygiene_check_reads_report(self):
+        old_root = foundation_health_check.ROOT
+        old_run = foundation_health_check.run
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                report = root / "reports" / "repo_secret_hygiene_latest.json"
+                foundation_health_check.ROOT = root
+
+                def fake_run(*args, **kwargs):
+                    report.parent.mkdir(parents=True)
+                    report.write_text(
+                        json.dumps(
+                            {
+                                "ok": True,
+                                "status": "ready",
+                                "finding_count": 0,
+                                "gitignore": {"ok": True},
+                                "next_actions": [],
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                    return CompletedProcess(
+                        args=args[0],
+                        returncode=0,
+                        stdout="ready",
+                        stderr="",
+                    )
+
+                foundation_health_check.run = fake_run
+
+                check = foundation_health_check.check_repo_secret_hygiene()
+
+                self.assertTrue(check.ok)
+                self.assertEqual(check.status, "ready")
+                self.assertEqual(check.detail["report"]["finding_count"], 0)
+        finally:
+            foundation_health_check.ROOT = old_root
+            foundation_health_check.run = old_run
+
+    def test_next_actions_include_repo_secret_hygiene_findings(self):
+        checks = [
+            foundation_health_check.Check(
+                "repo_secret_hygiene",
+                False,
+                "attention_required",
+                {
+                    "report": {
+                        "next_actions": [
+                            {
+                                "source": "repo_secret_hygiene",
+                                "status": "possible_secret_found",
+                                "summary": "Remove possible secrets from tracked files and rotate any exposed keys.",
+                                "windows": ["git grep -n <redacted-pattern>"],
+                                "macos": ["git grep -n <redacted-pattern>"],
+                                "verify": "python tools/repo_secret_hygiene.py should report ready.",
+                                "evidence": {"finding_count": 1},
+                            }
+                        ]
+                    }
+                },
+            )
+        ]
+
+        actions = foundation_health_check.build_next_actions(checks)
+
+        self.assertEqual(actions[0]["source"], "repo_secret_hygiene")
+        self.assertEqual(actions[0]["priority"], "P0")
+        self.assertIn("Remove possible secrets", actions[0]["summary"])
+        self.assertEqual(actions[0]["evidence"]["status"], "possible_secret_found")
+
     def test_knowledge_hub_requires_ready_indexes(self):
         old_root = foundation_health_check.ROOT
         try:

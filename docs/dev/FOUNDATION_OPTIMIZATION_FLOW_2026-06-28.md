@@ -66,6 +66,7 @@ Expected checks:
 | `workspace_context` | cwd, git root, and required repo files are coherent |
 | `runtime_dependencies` | shell/PATH, project venv, Node, n8n, FFmpeg, Ollama, and OpenClaw dependency state are machine-readable |
 | `runtime_service_controller` | controlled status/start entrypoint for web, n8n, Ollama, and governed OpenClaw gateway |
+| `repo_secret_hygiene` | tracked files contain no obvious API keys and `.gitignore` protects local secret/runtime artifacts |
 | `ports` | `5001`, `5678`, `5679`, and `11434` are listening when full runtime is expected |
 | `gateway` | frontend/backend gateway status APIs respond |
 | `openclaw_runtime` | OpenClaw CLI and local gateway health prove local execution support |
@@ -206,6 +207,7 @@ The audit reads the health report and evaluates the active objective as separate
 | frontend issue-free gate | static contract plus real browser smoke |
 | backend multi-angle detection | dependencies, controller, ports, APIs, OpenClaw, n8n preflight, data, and compile checks |
 | optimization flow without sprawl | runbook/handoff docs plus controlled Git scope |
+| repo secret hygiene | no obvious API keys in tracked files and runtime/secret ignore patterns are present |
 | OpenClaw local execution ready | `openclaw_runtime.local_execution.supported=true` and all local execution criteria true |
 | n8n activation ready | preflight `ready_for_activation` and credential setup `ready` |
 
@@ -225,6 +227,7 @@ Full gate when runtime services are up:
 ```powershell
 python tools\foundation_health_check.py --browser-smoke required
 python tools\foundation_goal_audit.py --run-health --browser-smoke required --allow-incomplete
+python tools\repo_secret_hygiene.py
 python -m pytest tests --tb=short
 ```
 

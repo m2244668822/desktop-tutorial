@@ -303,6 +303,33 @@ def check_runtime_service_controller() -> Check:
     return Check("runtime_service_controller", ok, status, detail)
 
 
+def check_repo_secret_hygiene() -> Check:
+    report_path = ROOT / "reports" / "repo_secret_hygiene_latest.json"
+    cmd = [
+        sys.executable,
+        "tools/repo_secret_hygiene.py",
+        "--json-out",
+        str(report_path),
+    ]
+    proc = run(cmd, timeout=90)
+    detail: dict[str, Any] = {
+        "returncode": proc.returncode,
+        "stdout": proc.stdout[-2000:],
+        "stderr": proc.stderr[-2000:],
+        "report_path": str(report_path),
+    }
+    payload: dict[str, Any] = {}
+    if report_path.exists():
+        try:
+            payload = json.loads(report_path.read_text(encoding="utf-8"))
+            detail["report"] = payload
+        except Exception as exc:  # noqa: BLE001
+            detail["report_error"] = str(exc)
+    status = str(payload.get("status") or ("ready" if proc.returncode == 0 else "failed"))
+    ok = proc.returncode == 0 and bool(payload.get("ok"))
+    return Check("repo_secret_hygiene", ok, status, detail)
+
+
 def check_n8n() -> Check:
     health = http_get("/healthz", port=5678)
     readiness = http_get("/healthz/readiness", port=5678)
@@ -519,6 +546,7 @@ def check_py_compile() -> Check:
         "tools/chat_shell_browser_smoke.py",
         "tools/n8n_workflow_preflight.py",
         "tools/foundation_goal_audit.py",
+        "tools/repo_secret_hygiene.py",
     ]
     cmd = [sys.executable, "-m", "py_compile", *files]
     proc = run(cmd, timeout=120)
@@ -575,6 +603,7 @@ def collect_checks(browser_smoke: str = "auto") -> list[Check]:
         check_workspace_context(),
         check_runtime_dependencies(),
         check_runtime_service_controller(),
+        check_repo_secret_hygiene(),
         check_ports(),
         check_gateway(),
         check_openclaw_runtime(),
@@ -664,6 +693,37 @@ def build_next_actions(checks: list[Check]) -> list[dict[str, Any]]:
                     macos=["python tools/runtime_service_controller.py status"],
                     verify="runtime_service_controller should report ready.",
                     evidence=runtime_controller.detail,
+                )
+            )
+
+    secret_hygiene = by_name.get("repo_secret_hygiene")
+    if secret_hygiene and not secret_hygiene.ok:
+        report = secret_hygiene.detail.get("report") or {}
+        for action in list(report.get("next_actions") or [])[:8]:
+            actions.append(
+                _action(
+                    "repo_secret_hygiene",
+                    "P0" if action.get("status") == "possible_secret_found" else "P1",
+                    str(action.get("summary") or "Fix repo secret hygiene."),
+                    windows=list(action.get("windows") or []),
+                    macos=list(action.get("macos") or []),
+                    verify=str(action.get("verify") or "repo_secret_hygiene should report ready."),
+                    evidence={
+                        "status": action.get("status"),
+                        "evidence": action.get("evidence", {}),
+                    },
+                )
+            )
+        if not report.get("next_actions"):
+            actions.append(
+                _action(
+                    "repo_secret_hygiene",
+                    "P0",
+                    "Inspect repo secret hygiene failures before committing.",
+                    windows=["python tools\\repo_secret_hygiene.py"],
+                    macos=["python tools/repo_secret_hygiene.py"],
+                    verify="repo_secret_hygiene should report ready.",
+                    evidence=secret_hygiene.detail,
                 )
             )
 
@@ -894,15 +954,16 @@ def build_next_actions(checks: list[Check]) -> list[dict[str, Any]]:
         "workspace_context": 0,
         "runtime_dependencies": 1,
         "runtime_service_controller": 2,
-        "ports": 3,
-        "gateway": 4,
-        "openclaw_runtime": 5,
-        "n8n": 6,
-        "n8n_workflow_preflight": 7,
-        "frontend_static_contract": 8,
-        "browser_smoke": 9,
-        "py_compile": 10,
-        "git": 11,
+        "repo_secret_hygiene": 3,
+        "ports": 4,
+        "gateway": 5,
+        "openclaw_runtime": 6,
+        "n8n": 7,
+        "n8n_workflow_preflight": 8,
+        "frontend_static_contract": 9,
+        "browser_smoke": 10,
+        "py_compile": 11,
+        "git": 12,
     }
     return sorted(
         _dedupe_actions(actions),

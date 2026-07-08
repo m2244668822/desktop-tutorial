@@ -60,6 +60,18 @@ def base_health(preflight=None, include_browser=True, git_status=None):
         check("workspace_context"),
         check("runtime_dependencies"),
         check("runtime_service_controller"),
+        check(
+            "repo_secret_hygiene",
+            True,
+            "ready",
+            {
+                "report_path": "reports/repo_secret_hygiene_latest.json",
+                "report": {
+                    "finding_count": 0,
+                    "gitignore": {"ok": True, "missing": []},
+                },
+            },
+        ),
         check("ports"),
         check("gateway"),
         openclaw_ready_check(),
@@ -108,6 +120,7 @@ class FoundationGoalAuditTests(unittest.TestCase):
         by_id = {item["id"]: item for item in audit["requirements"]}
         self.assertEqual(by_id["n8n_activation_ready"]["status"], "blocked")
         self.assertEqual(by_id["optimization_flow_no_sprawl"]["status"], "passed")
+        self.assertEqual(by_id["repo_secret_hygiene_ready"]["status"], "passed")
         self.assertFalse(audit["completion_claim_allowed"])
 
     def test_goal_audit_requires_real_browser_smoke_evidence(self):
@@ -118,6 +131,18 @@ class FoundationGoalAuditTests(unittest.TestCase):
         by_id = {item["id"]: item for item in audit["requirements"]}
         self.assertEqual(by_id["frontend_issue_free"]["status"], "missing_evidence")
         self.assertIn("browser_smoke", by_id["frontend_issue_free"]["evidence"]["missing"])
+
+    def test_goal_audit_requires_repo_secret_hygiene(self):
+        health = base_health()
+        health["checks"] = [
+            item for item in health["checks"] if item["name"] != "repo_secret_hygiene"
+        ]
+
+        audit = foundation_goal_audit.build_audit(health, Path("health.json"))
+
+        by_id = {item["id"]: item for item in audit["requirements"]}
+        self.assertEqual(by_id["repo_secret_hygiene_ready"]["status"], "missing_evidence")
+        self.assertFalse(audit["completion_claim_allowed"])
 
     def test_goal_audit_passes_when_all_requirements_are_ready(self):
         health = base_health()

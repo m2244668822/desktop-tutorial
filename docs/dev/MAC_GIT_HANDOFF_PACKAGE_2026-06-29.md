@@ -60,6 +60,7 @@ python tools/runtime_service_controller.py status
 python tools/runtime_service_controller.py start --components web,n8n,ollama --dry-run
 python tools/foundation_health_check.py --browser-smoke required
 python tools/foundation_goal_audit.py --health-report reports/foundation_health_latest.json --allow-incomplete
+python tools/repo_secret_hygiene.py
 python tools/n8n_workflow_preflight.py --allow-blockers
 python -m pytest tests/test_foundation_health_check.py tests/test_runtime_dependency_doctor.py tests/test_runtime_service_controller.py tests/test_frontend_sync_contract.py tests/test_openclaw_bridge.py tests/test_n8n_workflow_preflight.py --tb=short
 ```
@@ -102,6 +103,7 @@ PY
 | runtime dependencies | `runtime_dependency_doctor.py` reports shell/PATH, `.venv`, Node, n8n, FFmpeg, Ollama, and OpenClaw readiness |
 | service control | `runtime_service_controller.py` gives one status/start path for web, n8n, Ollama, and governed OpenClaw gateway |
 | goal completion audit | `foundation_goal_audit.py` maps the health report back to the full foundation objective |
+| repo secret hygiene | `repo_secret_hygiene.py` blocks obvious API keys in tracked files and verifies secret/runtime ignore patterns |
 | frontend static contract | canonical chat shell tokens plus mobile layout contract |
 | browser smoke | headless Chrome/Edge checks DOM, console, runtime exceptions, and layout |
 | n8n workflow | preflight blocks activation and emits structured remediation plus credential setup plans |
@@ -115,6 +117,7 @@ The Xiaobian workflow source spec has been hardened with timeout, cost controls,
 |---|---|
 | Gemini/OpenAI credentials | Create real provider credentials in n8n, then bind Gemini Parser, DALL-E 3 Generator, and OpenAI TTS |
 | n8n credential DB | Ensure `credentials_entity` is non-empty after creating real credentials |
+| repo secret hygiene | Keep API keys inside n8n or local env only; run `python tools/repo_secret_hygiene.py` before staging |
 | FFmpeg | Windows now resolves winget FFmpeg through `runtime_binary_locator.py`; on Mac install with Homebrew or set `FFMPEG_PATH` |
 | live imported workflow | Cleared on Windows by re-importing the hardened source spec; re-import again on Mac if using a separate n8n DB |
 | manual execution | Run only after preflight reports `ready_for_activation` |
@@ -152,6 +155,7 @@ Before pushing from Mac:
 ```bash
 git status -sb
 git diff --stat
+python tools/repo_secret_hygiene.py
 python -m pytest tests/test_foundation_health_check.py tests/test_frontend_sync_contract.py --tb=short
 git push origin codex/git-governance-20260517
 ```
