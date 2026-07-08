@@ -106,6 +106,46 @@ class OpenClawBridgeTests(unittest.TestCase):
             openclaw_bridge._run_command = old_run
             openclaw_bridge.detect_gateway_health = old_gateway
 
+    def test_non_windows_uses_direct_cli_and_skips_windows_task_query(self):
+        old_run = openclaw_bridge._run_command
+        old_gateway = openclaw_bridge.detect_gateway_health
+        calls = []
+        try:
+            def fake_run(cmd, timeout=8):
+                calls.append(cmd)
+                if cmd == ["openclaw", "--version"]:
+                    return 0, "OpenClaw 2026.5.27 (abc123)", ""
+                return 1, "", "unexpected command"
+
+            openclaw_bridge._run_command = fake_run
+            openclaw_bridge.detect_gateway_health = lambda: {
+                "host": "127.0.0.1",
+                "port": 18789,
+                "url": "http://127.0.0.1:18789/healthz",
+                "listening": True,
+                "health_ok": True,
+                "response": {"ok": True, "status_code": 200, "data": {"ok": True, "status": "live"}},
+            }
+
+            status = openclaw_bridge.detect_openclaw_status(
+                Path("/repo"),
+                system_name="Darwin",
+            )
+
+            self.assertTrue(status["installed"])
+            self.assertTrue(status["local_execution"]["supported"])
+            self.assertTrue(status["daemon_running"])
+            self.assertEqual(status["daemon_state"], "running")
+            self.assertEqual(status["health"], "ready")
+            self.assertIn("windows_scheduled_task_not_applicable", status["notes"])
+            self.assertNotIn(
+                ["schtasks", "/Query", "/TN", "OpenClaw Gateway", "/FO", "LIST", "/V"],
+                calls,
+            )
+        finally:
+            openclaw_bridge._run_command = old_run
+            openclaw_bridge.detect_gateway_health = old_gateway
+
 
 if __name__ == "__main__":
     unittest.main()

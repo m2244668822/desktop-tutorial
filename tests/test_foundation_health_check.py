@@ -186,6 +186,35 @@ class FoundationHealthCheckTests(unittest.TestCase):
         self.assertEqual(actions[0]["priority"], "P1")
         self.assertIn("5001:main_web_gateway", actions[0]["evidence"]["missing"])
 
+    def test_next_actions_include_runtime_dependency_doctor_items(self):
+        checks = [
+            foundation_health_check.Check(
+                "runtime_dependencies",
+                False,
+                "attention_required",
+                {
+                    "next_actions": [
+                        {
+                            "source": "ffmpeg",
+                            "status": "missing",
+                            "summary": "Install FFmpeg",
+                            "windows": ["winget install Gyan.FFmpeg"],
+                            "macos": ["brew install ffmpeg"],
+                            "verify": "ffmpeg -version",
+                            "evidence": {"resolution": {"source": "missing"}},
+                        }
+                    ]
+                },
+            )
+        ]
+
+        actions = foundation_health_check.build_next_actions(checks)
+
+        self.assertEqual(actions[0]["source"], "runtime_dependencies")
+        self.assertEqual(actions[0]["priority"], "P1")
+        self.assertEqual(actions[0]["summary"], "Install FFmpeg")
+        self.assertEqual(actions[0]["evidence"]["source"], "ffmpeg")
+
     def test_knowledge_hub_requires_ready_indexes(self):
         old_root = foundation_health_check.ROOT
         try:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import subprocess
 import socket
 import json
+import platform
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -75,6 +76,7 @@ def _schtasks_state(output: str) -> str:
 
 
 def build_openclaw_governance(status: dict[str, Any]) -> dict[str, Any]:
+    system_name = str(status.get("platform") or platform.system())
     installed = bool(status.get("installed"))
     daemon_installed = bool(status.get("daemon_installed"))
     daemon_running = bool(status.get("daemon_running"))
@@ -94,6 +96,10 @@ def build_openclaw_governance(status: dict[str, Any]) -> dict[str, Any]:
     elif installed and daemon_installed:
         decision_state = "prophet_decision_required"
         next_action = "Ask the prophet role to approve starting or changing OpenClaw Gateway."
+        health = "governed_stopped"
+    elif installed and system_name != "Windows":
+        decision_state = "prophet_decision_required"
+        next_action = "Ask the prophet role to approve starting OpenClaw Gateway on this host."
         health = "governed_stopped"
     elif installed:
         decision_state = "task_missing"
@@ -141,12 +147,23 @@ def detect_gateway_health(
     }
 
 
-def detect_openclaw_status(workspace: Path | None = None) -> dict[str, Any]:
+def _openclaw_version_command(system_name: str) -> list[str]:
+    if system_name == "Windows":
+        return ["cmd", "/c", "openclaw --version"]
+    return ["openclaw", "--version"]
+
+
+def detect_openclaw_status(
+    workspace: Path | None = None,
+    system_name: str | None = None,
+) -> dict[str, Any]:
     """Return compact OpenClaw runtime and daemon status for system snapshots."""
     now = datetime.now().isoformat(timespec="seconds")
     ws = str(workspace) if workspace else ""
+    system_name = system_name or platform.system()
     status: dict[str, Any] = {
         "checked_at": now,
+        "platform": system_name,
         "workspace": ws,
         "installed": False,
         "version": "",
@@ -168,7 +185,7 @@ def detect_openclaw_status(workspace: Path | None = None) -> dict[str, Any]:
         "notes": [],
     }
 
-    rc, out, err = _run_command(["cmd", "/c", "openclaw --version"])
+    rc, out, err = _run_command(_openclaw_version_command(system_name))
     if rc == 0 and out:
         status["installed"] = True
         status["version"] = out.splitlines()[0].strip()
@@ -188,6 +205,17 @@ def detect_openclaw_status(workspace: Path | None = None) -> dict[str, Any]:
     status["local_execution"]["supported"] = all(
         bool(value) for value in status["local_execution"]["criteria"].values()
     )
+
+    if system_name != "Windows":
+        gateway_ok = bool(gateway.get("health_ok"))
+        status["daemon_state"] = "running" if gateway_ok else "not_applicable"
+        status["daemon_running"] = gateway_ok
+        status["notes"].append("windows_scheduled_task_not_applicable")
+        if not gateway_ok:
+            status["notes"].append("gateway_not_running")
+        status["governance"] = build_openclaw_governance(status)
+        status["health"] = status["governance"]["health"]
+        return status
 
     rc, out, err = _run_command(
         ["schtasks", "/Query", "/TN", "OpenClaw Gateway", "/FO", "LIST", "/V"]

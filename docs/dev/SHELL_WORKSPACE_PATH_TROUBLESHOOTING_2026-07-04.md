@@ -85,6 +85,7 @@ Once inside the repo, run:
 
 ```bash
 python tools/foundation_health_check.py --browser-smoke off
+python tools/runtime_dependency_doctor.py --allow-missing
 ```
 
 The `workspace_context` row records:
@@ -100,16 +101,19 @@ The `workspace_context` row records:
 
 `ready_external_cwd` means the repo itself is valid but the command was launched from another directory. That is acceptable for absolute script calls, but it is a warning for handoff and automation.
 
+`runtime_dependency_doctor.py` adds the next layer after the repo path is correct. It records whether the current shell can resolve the project venv, Node, n8n, FFmpeg, Ollama, and OpenClaw. If FFmpeg is present in one terminal but missing in another, compare the `shell_context.path_entries` and the failed probe's `resolution` block instead of changing app code.
+
 ## What To Fix First
 
 1. Fix missing cwd or stale volume paths before debugging app code.
 2. Verify `git rev-parse --show-toplevel` matches the intended repo.
-3. Regenerate path-sensitive data from the real repo root:
+3. Run `python tools/runtime_dependency_doctor.py --allow-missing` and fix missing PATH/env dependencies before debugging services.
+4. Regenerate path-sensitive data from the real repo root:
 
 ```bash
 python tools/sync_knowledge_hub.py
 ```
 
-4. Rerun the foundation check.
+5. Rerun the foundation check.
 
 This prevents a fake infrastructure problem from being caused by a shell that is simply standing in the wrong place.

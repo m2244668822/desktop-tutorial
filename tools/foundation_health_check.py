@@ -248,6 +248,33 @@ def check_openclaw_runtime() -> Check:
     return Check("openclaw_runtime", ok, check_status, status)
 
 
+def check_runtime_dependencies() -> Check:
+    try:
+        from tools.runtime_dependency_doctor import build_payload, collect_runtime_probes
+    except Exception as exc:  # noqa: BLE001
+        return Check(
+            "runtime_dependencies",
+            False,
+            "doctor_import_failed",
+            {"error": str(exc)},
+        )
+    try:
+        payload = build_payload(collect_runtime_probes(ROOT), ROOT)
+    except Exception as exc:  # noqa: BLE001
+        return Check(
+            "runtime_dependencies",
+            False,
+            "doctor_failed",
+            {"error": str(exc)},
+        )
+    return Check(
+        "runtime_dependencies",
+        bool(payload.get("ok")),
+        str(payload.get("status") or "unknown"),
+        payload,
+    )
+
+
 def check_n8n() -> Check:
     health = http_get("/healthz", port=5678)
     readiness = http_get("/healthz/readiness", port=5678)
@@ -453,10 +480,12 @@ def check_py_compile() -> Check:
     files = [
         "desktop_chat_app.py",
         "core/web_server.py",
+        "core/openclaw_bridge.py",
         "core/knowledge_hub.py",
         "core/workflow_runtime.py",
         "core/langgraph_workflow.py",
         "tools/foundation_health_check.py",
+        "tools/runtime_dependency_doctor.py",
         "tools/chat_shell_browser_smoke.py",
         "tools/n8n_workflow_preflight.py",
     ]
@@ -513,6 +542,7 @@ def check_browser_smoke(mode: str = "auto") -> Check:
 def collect_checks(browser_smoke: str = "auto") -> list[Check]:
     checks = [
         check_workspace_context(),
+        check_runtime_dependencies(),
         check_ports(),
         check_gateway(),
         check_openclaw_runtime(),
@@ -551,6 +581,25 @@ def build_next_actions(checks: list[Check]) -> list[dict[str, Any]]:
                 evidence=workspace.detail,
             )
         )
+
+    runtime_dependencies = by_name.get("runtime_dependencies")
+    if runtime_dependencies and not runtime_dependencies.ok:
+        for action in list(runtime_dependencies.detail.get("next_actions") or [])[:8]:
+            actions.append(
+                _action(
+                    "runtime_dependencies",
+                    "P1",
+                    str(action.get("summary") or action.get("source") or "Fix runtime dependency."),
+                    windows=list(action.get("windows") or []),
+                    macos=list(action.get("macos") or []),
+                    verify=str(action.get("verify") or "runtime_dependencies should report ready."),
+                    evidence={
+                        "source": action.get("source"),
+                        "status": action.get("status"),
+                        "evidence": action.get("evidence", {}),
+                    },
+                )
+            )
 
     ports = by_name.get("ports")
     if ports and not ports.ok:
@@ -760,15 +809,16 @@ def build_next_actions(checks: list[Check]) -> list[dict[str, Any]]:
     priority_order = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
     source_order = {
         "workspace_context": 0,
-        "ports": 1,
-        "gateway": 2,
-        "openclaw_runtime": 3,
-        "n8n": 4,
-        "n8n_workflow_preflight": 5,
-        "frontend_static_contract": 6,
-        "browser_smoke": 7,
-        "py_compile": 8,
-        "git": 9,
+        "runtime_dependencies": 1,
+        "ports": 2,
+        "gateway": 3,
+        "openclaw_runtime": 4,
+        "n8n": 5,
+        "n8n_workflow_preflight": 6,
+        "frontend_static_contract": 7,
+        "browser_smoke": 8,
+        "py_compile": 9,
+        "git": 10,
     }
     return sorted(
         _dedupe_actions(actions),

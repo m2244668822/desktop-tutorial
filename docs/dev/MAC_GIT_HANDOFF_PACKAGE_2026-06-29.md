@@ -55,9 +55,10 @@ python tools/chat_shell_browser_smoke.py --base-url http://127.0.0.1:5001 --widt
 Then run:
 
 ```bash
+python tools/runtime_dependency_doctor.py --allow-missing
 python tools/foundation_health_check.py --browser-smoke required
 python tools/n8n_workflow_preflight.py --allow-blockers
-python -m pytest tests/test_foundation_health_check.py tests/test_frontend_sync_contract.py tests/test_n8n_workflow_preflight.py --tb=short
+python -m pytest tests/test_foundation_health_check.py tests/test_runtime_dependency_doctor.py tests/test_frontend_sync_contract.py tests/test_openclaw_bridge.py tests/test_n8n_workflow_preflight.py --tb=short
 ```
 
 The foundation report now has a top-level `next_actions` list. To print it:
@@ -91,6 +92,7 @@ PY
 | Area | Current Gate |
 |---|---|
 | workspace context | `foundation_health_check.py` reports cwd, git root, and required files |
+| runtime dependencies | `runtime_dependency_doctor.py` reports shell/PATH, `.venv`, Node, n8n, FFmpeg, Ollama, and OpenClaw readiness |
 | frontend static contract | canonical chat shell tokens plus mobile layout contract |
 | browser smoke | headless Chrome/Edge checks DOM, console, runtime exceptions, and layout |
 | n8n workflow | preflight blocks activation and emits a structured remediation plan |
@@ -126,7 +128,7 @@ auto_start_allowed=false
 prophet_required_for_mutation=true
 ```
 
-On Mac, rerun `python tools/foundation_health_check.py --browser-smoke required` and confirm `openclaw_runtime: ready` before treating OpenClaw as locally executable there.
+On Mac, rerun `python tools/runtime_dependency_doctor.py --allow-missing` and `python tools/foundation_health_check.py --browser-smoke required`; confirm `openclaw_local_execution: ready` and `openclaw_runtime: ready` before treating OpenClaw as locally executable there.
 
 ## Git Scope
 
@@ -148,7 +150,8 @@ git push origin codex/git-governance-20260517
 ## Next Best Work On Mac
 
 1. Verify the Mac clone path and run `git status -sb`.
-2. Start the gateway and run browser smoke at mobile and desktop widths.
-3. Run `tools/foundation_health_check.py --browser-smoke required`.
-4. Fix n8n activation blockers before enabling the workflow.
-5. Keep runtime reports separate from source commits.
+2. Run `python tools/runtime_dependency_doctor.py --allow-missing` to separate shell/PATH dependency gaps from app bugs.
+3. Start the gateway and run browser smoke at mobile and desktop widths.
+4. Run `tools/foundation_health_check.py --browser-smoke required`.
+5. Fix n8n activation blockers before enabling the workflow.
+6. Keep runtime reports separate from source commits.
