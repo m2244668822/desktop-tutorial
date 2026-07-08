@@ -485,6 +485,7 @@ def check_py_compile() -> Check:
         "core/workflow_runtime.py",
         "core/langgraph_workflow.py",
         "tools/foundation_health_check.py",
+        "tools/runtime_binary_locator.py",
         "tools/runtime_dependency_doctor.py",
         "tools/runtime_service_controller.py",
         "tools/chat_shell_browser_smoke.py",

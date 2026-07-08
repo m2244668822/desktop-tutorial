@@ -143,3 +143,32 @@ Results:
 | desktop browser smoke `1440x1000` | ready |
 
 Mobile note: the first 390px run failed because the browser smoke required OpenClaw monitor copy in visible `innerText`, while the mobile layout intentionally hides the right monitor panel. The smoke gate now audits required copy through DOM `textContent` while still checking the full DOM for mojibake, replacement characters, and private-use codepoints.
+
+## 2026-07-08 FFmpeg And n8n Import Recheck
+
+FFmpeg was installed with winget and the hardened workflow spec was re-imported into the live n8n database:
+
+```powershell
+winget install --id Gyan.FFmpeg -e --silent --accept-source-agreements --accept-package-agreements
+cmd /c n8n import:workflow --input docs\superpowers\specs\n8n-workflow-xiaobian-video.json
+python tools\runtime_service_controller.py start --components n8n --wait-seconds 180
+```
+
+The current shell still could not resolve `ffmpeg` through PATH immediately after install, so the repo now uses `tools/runtime_binary_locator.py` as a shared resolver. It finds the winget package path and lets preflight, dependency doctor, and the n8n controller agree on the same FFmpeg binary.
+
+Current evidence:
+
+| Check | Result |
+|---|---|
+| `runtime_dependency_doctor` | ready; FFmpeg, OpenClaw, n8n, Ollama, Python, and Node all OK |
+| `n8n_workflow_preflight` | blocked only by credentials; `ffmpeg_not_found` and stale workflow import are cleared |
+| `foundation_health_check --browser-smoke required` | runtime/frontend/OpenClaw ready; attention remains for n8n credentials |
+
+Remaining activation blockers:
+
+| Blocker | Reason |
+|---|---|
+| Gemini Parser credentials | requires real Gemini credential binding in n8n |
+| DALL-E 3 Generator credentials | requires real OpenAI credential binding in n8n |
+| OpenAI TTS credentials | requires real OpenAI credential binding in n8n |
+| n8n credential DB empty | requires at least one real provider credential |

@@ -19,6 +19,7 @@ SPEC.loader.exec_module(n8n_workflow_preflight)
 class N8nWorkflowPreflightTests(unittest.TestCase):
     def test_xiaobian_workflow_blocks_activation_when_unsafe(self):
         old_which = n8n_workflow_preflight.shutil.which
+        old_locate = n8n_workflow_preflight.locate_ffmpeg
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
@@ -65,6 +66,14 @@ class N8nWorkflowPreflightTests(unittest.TestCase):
                 con.commit()
                 con.close()
                 n8n_workflow_preflight.shutil.which = lambda _name: None
+                n8n_workflow_preflight.locate_ffmpeg = lambda *_args, **_kwargs: {
+                    "found": False,
+                    "source": "missing",
+                    "path": "",
+                    "configured_path": "",
+                    "path_lookup": "",
+                    "candidate_paths": [],
+                }
 
                 payload = n8n_workflow_preflight.run_preflight(spec, db)
 
@@ -94,6 +103,7 @@ class N8nWorkflowPreflightTests(unittest.TestCase):
                 self.assertIn("ready_for_activation", " ".join(payload["activation_sequence"]))
         finally:
             n8n_workflow_preflight.shutil.which = old_which
+            n8n_workflow_preflight.locate_ffmpeg = old_locate
 
     def test_remediation_plan_deduplicates_same_issue_code_and_summary(self):
         issues = [

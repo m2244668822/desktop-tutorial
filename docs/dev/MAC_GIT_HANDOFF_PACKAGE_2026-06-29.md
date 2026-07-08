@@ -109,8 +109,8 @@ The Xiaobian workflow source spec has been hardened with timeout, cost controls,
 |---|---|
 | Gemini/OpenAI credentials | Configure provider credentials in n8n |
 | n8n credential DB | Ensure `credentials_entity` is non-empty |
-| FFmpeg | Install and expose `ffmpeg` on PATH, or set `FFMPEG_PATH` / `XIAOBIAN_FFMPEG_PATH` before starting n8n |
-| live imported workflow | Re-import the hardened source spec so FFmpeg path override support reaches n8n DB |
+| FFmpeg | Windows now resolves winget FFmpeg through `runtime_binary_locator.py`; on Mac install with Homebrew or set `FFMPEG_PATH` |
+| live imported workflow | Cleared on Windows by re-importing the hardened source spec; re-import again on Mac if using a separate n8n DB |
 | manual execution | Run only after preflight reports `ready_for_activation` |
 
 ## OpenClaw Status

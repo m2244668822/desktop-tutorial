@@ -131,8 +131,8 @@ Backend status is not a single signal. Inspect it from several directions:
 Minimum backend gate:
 
 ```powershell
-python -m py_compile desktop_chat_app.py core\web_server.py core\openclaw_bridge.py core\knowledge_hub.py core\workflow_runtime.py tools\foundation_health_check.py tools\runtime_dependency_doctor.py tools\runtime_service_controller.py tools\n8n_workflow_preflight.py
-python -m pytest tests\test_foundation_health_check.py tests\test_runtime_dependency_doctor.py tests\test_runtime_service_controller.py tests\test_openclaw_bridge.py tests\test_n8n_workflow_preflight.py --tb=short
+python -m py_compile desktop_chat_app.py core\web_server.py core\openclaw_bridge.py core\knowledge_hub.py core\workflow_runtime.py tools\foundation_health_check.py tools\runtime_binary_locator.py tools\runtime_dependency_doctor.py tools\runtime_service_controller.py tools\n8n_workflow_preflight.py
+python -m pytest tests\test_foundation_health_check.py tests\test_runtime_binary_locator.py tests\test_runtime_dependency_doctor.py tests\test_runtime_service_controller.py tests\test_openclaw_bridge.py tests\test_n8n_workflow_preflight.py --tb=short
 ```
 
 ## Phase 4: Data And Memory Governance
@@ -193,8 +193,8 @@ Before committing:
 Recommended focused gate:
 
 ```powershell
-python -m pytest tests\test_foundation_health_check.py tests\test_runtime_dependency_doctor.py tests\test_runtime_service_controller.py tests\test_frontend_sync_contract.py tests\test_openclaw_bridge.py tests\test_n8n_workflow_preflight.py --tb=short
-python -m py_compile core\openclaw_bridge.py tools\foundation_health_check.py tools\runtime_dependency_doctor.py tools\runtime_service_controller.py tools\chat_shell_browser_smoke.py tools\n8n_workflow_preflight.py
+python -m pytest tests\test_foundation_health_check.py tests\test_runtime_binary_locator.py tests\test_runtime_dependency_doctor.py tests\test_runtime_service_controller.py tests\test_frontend_sync_contract.py tests\test_openclaw_bridge.py tests\test_n8n_workflow_preflight.py --tb=short
+python -m py_compile core\openclaw_bridge.py tools\foundation_health_check.py tools\runtime_binary_locator.py tools\runtime_dependency_doctor.py tools\runtime_service_controller.py tools\chat_shell_browser_smoke.py tools\n8n_workflow_preflight.py
 ```
 
 Full gate when runtime services are up:
@@ -208,7 +208,7 @@ python -m pytest tests --tb=short
 
 | Gap | Priority | Next Action |
 |---|---|---|
-| n8n activation blocked | P1 | Add credentials, install FFmpeg or set `FFMPEG_PATH` / `XIAOBIAN_FFMPEG_PATH`, re-import hardened workflow, rerun preflight |
+| n8n activation blocked | P1 | Add real Gemini/OpenAI credentials in n8n, then rerun preflight |
 | Mac runtime not reverified after latest Git handoff | P1 | Pull branch on Mac and run `runtime_dependency_doctor`, then foundation health with browser smoke |
 | Obsidian vault state may differ from ProjectDocs | P2 | Audit vault-only edits separately from tracked docs |
 | Runtime services may be stopped between shifts | P2 | Treat port failures as startup state unless reproducible after launcher |

@@ -16,6 +16,10 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SPEC = ROOT / "docs" / "superpowers" / "specs" / "n8n-workflow-xiaobian-video.json"
 DEFAULT_DB = Path.home() / ".n8n" / "database.sqlite"
 DEFAULT_REPORT = ROOT / "reports" / "n8n_workflow_preflight_latest.json"
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from tools.runtime_binary_locator import resolve_ffmpeg as locate_ffmpeg
 
 
 try:
@@ -398,33 +402,7 @@ def audit_credentials(nodes: list[dict[str, Any]], db: dict[str, Any]) -> list[I
 
 
 def resolve_ffmpeg(ffmpeg_path: str | None = None) -> dict[str, Any]:
-    explicit = ffmpeg_path or os.environ.get("FFMPEG_PATH") or os.environ.get("XIAOBIAN_FFMPEG_PATH")
-    if explicit:
-        path = Path(explicit).expanduser()
-        if path.exists() and path.is_file():
-            return {
-                "found": True,
-                "source": "argument_or_env",
-                "path": str(path),
-                "configured_path": explicit,
-                "path_lookup": shutil.which("ffmpeg") or "",
-            }
-        return {
-            "found": False,
-            "source": "argument_or_env",
-            "path": "",
-            "configured_path": explicit,
-            "path_lookup": shutil.which("ffmpeg") or "",
-            "error": "configured_path_not_found",
-        }
-    found = shutil.which("ffmpeg")
-    return {
-        "found": bool(found),
-        "source": "PATH" if found else "missing",
-        "path": found or "",
-        "configured_path": "",
-        "path_lookup": found or "",
-    }
+    return dict(locate_ffmpeg(ffmpeg_path, which=shutil.which))
 
 
 def audit_execute_commands(

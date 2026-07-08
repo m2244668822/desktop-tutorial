@@ -19,6 +19,8 @@ DEFAULT_REPORT = ROOT / "reports" / "runtime_dependency_doctor_latest.json"
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from tools.runtime_binary_locator import resolve_binary, resolve_ffmpeg
+
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -92,81 +94,7 @@ def _resolve_binary(
     env: dict[str, str] | os._Environ[str] = os.environ,
     which: WhichCommand = shutil.which,
 ) -> dict[str, Any]:
-    env_checks: list[dict[str, Any]] = []
-    for key in env_keys:
-        raw = _clean_env_path(str(env.get(key, "") or ""))
-        if not raw:
-            env_checks.append({"key": key, "value": "", "configured": False})
-            continue
-        if _has_path_separator(raw) or Path(raw).is_absolute():
-            candidate = Path(raw).expanduser()
-            exists = candidate.exists()
-            is_file = candidate.is_file()
-            env_checks.append(
-                {
-                    "key": key,
-                    "value": raw,
-                    "configured": True,
-                    "exists": exists,
-                    "is_file": is_file,
-                }
-            )
-            if exists and is_file:
-                return {
-                    "found": True,
-                    "source": key,
-                    "path": str(candidate),
-                    "configured_path": raw,
-                    "env_checks": env_checks,
-                    "path_lookup": which(name) or "",
-                }
-            return {
-                "found": False,
-                "source": key,
-                "path": "",
-                "configured_path": raw,
-                "env_checks": env_checks,
-                "path_lookup": which(name) or "",
-                "error": "configured_path_not_found",
-            }
-        resolved = which(raw)
-        env_checks.append(
-            {
-                "key": key,
-                "value": raw,
-                "configured": True,
-                "exists": bool(resolved),
-                "is_file": bool(resolved),
-            }
-        )
-        if resolved:
-            return {
-                "found": True,
-                "source": key,
-                "path": resolved,
-                "configured_path": raw,
-                "env_checks": env_checks,
-                "path_lookup": which(name) or "",
-            }
-        return {
-            "found": False,
-            "source": key,
-            "path": "",
-            "configured_path": raw,
-            "env_checks": env_checks,
-            "path_lookup": which(name) or "",
-            "error": "configured_command_not_found",
-        }
-
-    found = which(name)
-    return {
-        "found": bool(found),
-        "source": "PATH" if found else "missing",
-        "path": found or "",
-        "configured_path": "",
-        "env_checks": env_checks,
-        "path_lookup": found or "",
-    }
+    return dict(resolve_binary(name, env_keys=env_keys, env=env, which=which))
 
 
 def _version_probe(
@@ -358,14 +286,9 @@ def probe_ffmpeg(
     runner: RunCommand = run_command,
     which: WhichCommand = shutil.which,
 ) -> Probe:
-    return _version_probe(
-        "ffmpeg",
-        ["-version"],
-        env_keys=("FFMPEG_PATH", "XIAOBIAN_FFMPEG_PATH"),
-        env=env,
-        runner=runner,
-        which=which,
-        remediation=_action(
+    resolved = dict(resolve_ffmpeg(env=env, which=which))
+    detail: dict[str, Any] = {"resolution": resolved}
+    remediation = _action(
             "Install FFmpeg or set a valid FFmpeg path override for n8n Execute Command nodes.",
             windows=[
                 "winget install Gyan.FFmpeg",
@@ -378,8 +301,19 @@ def probe_ffmpeg(
                 "export FFMPEG_PATH=/path/to/ffmpeg",
             ],
             verify="ffmpeg -version or $FFMPEG_PATH -version should return successfully.",
-        ),
     )
+    if not resolved["found"]:
+        return Probe("ffmpeg", False, str(resolved.get("error") or "missing"), detail, remediation)
+    version = runner([str(resolved["path"]), "-version"], 8)
+    detail["version_check"] = {
+        "command": [str(resolved["path"]), "-version"],
+        "returncode": version.get("returncode"),
+        "stdout": str(version.get("stdout") or "")[:500],
+        "stderr": str(version.get("stderr") or "")[:500],
+        "error": version.get("error") or "",
+    }
+    ok = int(version.get("returncode") or 0) == 0
+    return Probe("ffmpeg", ok, "ready" if ok else "version_failed", detail, remediation)
 
 
 def probe_ollama_cli(

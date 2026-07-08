@@ -19,6 +19,10 @@ from urllib.request import urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_REPORT = ROOT / "reports" / "runtime_service_controller_latest.json"
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from tools.runtime_binary_locator import resolve_ffmpeg
 
 
 try:
@@ -77,6 +81,21 @@ def service_specs(root: Path = ROOT, system_name: str | None = None) -> dict[str
         "PYTHONUTF8": "1",
         "PYTHONIOENCODING": "utf-8",
     }
+    ffmpeg = resolve_ffmpeg()
+    n8n_env = {
+        "N8N_HOST": "127.0.0.1",
+        "N8N_PORT": "5678",
+        "N8N_DIAGNOSTICS_ENABLED": "false",
+        "N8N_VERSION_NOTIFICATIONS_ENABLED": "false",
+        "N8N_TEMPLATES_ENABLED": "false",
+        "N8N_PERSONALIZATION_ENABLED": "false",
+        "N8N_PUBLIC_API_DISABLED": "true",
+        "N8N_HIRING_BANNER_ENABLED": "false",
+        "SKIP_STATISTICS_EVENTS": "true",
+        "EXTERNAL_FRONTEND_HOOKS_URLS": "",
+    }
+    if ffmpeg.get("found") and ffmpeg.get("path"):
+        n8n_env["FFMPEG_PATH"] = str(ffmpeg["path"])
 
     if system_name == "Windows":
         return {
@@ -107,18 +126,7 @@ def service_specs(root: Path = ROOT, system_name: str | None = None) -> dict[str
                     str(root / "tools" / "n8n_watchdog_windows.ps1"),
                     "-Once",
                 ),
-                {
-                    "N8N_HOST": "127.0.0.1",
-                    "N8N_PORT": "5678",
-                    "N8N_DIAGNOSTICS_ENABLED": "false",
-                    "N8N_VERSION_NOTIFICATIONS_ENABLED": "false",
-                    "N8N_TEMPLATES_ENABLED": "false",
-                    "N8N_PERSONALIZATION_ENABLED": "false",
-                    "N8N_PUBLIC_API_DISABLED": "true",
-                    "N8N_HIRING_BANNER_ENABLED": "false",
-                    "SKIP_STATISTICS_EVENTS": "true",
-                    "EXTERNAL_FRONTEND_HOOKS_URLS": "",
-                },
+                n8n_env,
                 str(logs / "runtime_controller_n8n.log"),
                 health_urls=(
                     "http://127.0.0.1:5678/healthz",
@@ -157,18 +165,7 @@ def service_specs(root: Path = ROOT, system_name: str | None = None) -> dict[str
             "n8n",
             (5678, 5679),
             ("n8n", "start"),
-            {
-                "N8N_HOST": "127.0.0.1",
-                "N8N_PORT": "5678",
-                "N8N_DIAGNOSTICS_ENABLED": "false",
-                "N8N_VERSION_NOTIFICATIONS_ENABLED": "false",
-                "N8N_TEMPLATES_ENABLED": "false",
-                "N8N_PERSONALIZATION_ENABLED": "false",
-                "N8N_PUBLIC_API_DISABLED": "true",
-                "N8N_HIRING_BANNER_ENABLED": "false",
-                "SKIP_STATISTICS_EVENTS": "true",
-                "EXTERNAL_FRONTEND_HOOKS_URLS": "",
-            },
+            n8n_env,
             str(logs / "runtime_controller_n8n.log"),
             health_urls=(
                 "http://127.0.0.1:5678/healthz",
