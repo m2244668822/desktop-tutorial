@@ -1,0 +1,134 @@
+import importlib.util
+import sys
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+MODULE_PATH = ROOT / "tools" / "foundation_goal_audit.py"
+SPEC = importlib.util.spec_from_file_location("foundation_goal_audit", MODULE_PATH)
+foundation_goal_audit = importlib.util.module_from_spec(SPEC)
+assert SPEC and SPEC.loader
+sys.modules["foundation_goal_audit"] = foundation_goal_audit
+SPEC.loader.exec_module(foundation_goal_audit)
+
+
+def check(name, ok=True, status="ready", detail=None):
+    return {"name": name, "ok": ok, "status": status, "detail": detail or {}}
+
+
+def openclaw_ready_check():
+    return check(
+        "openclaw_runtime",
+        True,
+        "ready",
+        {
+            "health": "ready",
+            "gateway": {"listening": True, "health_ok": True},
+            "governance": {"decision_state": "running"},
+            "local_execution": {
+                "supported": True,
+                "criteria": {
+                    "cli_installed": True,
+                    "gateway_listening": True,
+                    "gateway_health_ok": True,
+                },
+            },
+        },
+    )
+
+
+def preflight_ready_check():
+    return check(
+        "n8n_workflow_preflight",
+        True,
+        "ready_for_activation",
+        {
+            "report": {
+                "status": "ready_for_activation",
+                "ok_for_activation": True,
+                "blocker_count": 0,
+                "credential_setup_plan": {"status": "ready"},
+                "issues": [],
+            }
+        },
+    )
+
+
+def base_health(preflight=None, include_browser=True, git_status=None):
+    checks = [
+        check("workspace_context"),
+        check("runtime_dependencies"),
+        check("runtime_service_controller"),
+        check("ports"),
+        check("gateway"),
+        openclaw_ready_check(),
+        check("n8n"),
+        preflight or preflight_ready_check(),
+        check("knowledge_hub"),
+        check("frontend_static_contract"),
+        check(
+            "git",
+            True,
+            "dirty" if git_status else "ready",
+            {"status": git_status or ["## branch"]},
+        ),
+        check("py_compile"),
+    ]
+    if include_browser:
+        checks.append(check("browser_smoke"))
+    return {"checks": checks, "next_actions": []}
+
+
+class FoundationGoalAuditTests(unittest.TestCase):
+    def test_goal_audit_marks_n8n_credentials_blocker_incomplete(self):
+        preflight = check(
+            "n8n_workflow_preflight",
+            True,
+            "blocked_for_activation",
+            {
+                "report": {
+                    "status": "blocked_for_activation",
+                    "ok_for_activation": False,
+                    "blocker_count": 4,
+                    "credential_setup_plan": {"status": "needs_credentials"},
+                    "issues": [{"code": "missing_node_credentials"}],
+                }
+            },
+        )
+        health = base_health(
+            preflight=preflight,
+            git_status=["## branch", " M reports/AEG_SHARED_REPORT.md"],
+        )
+
+        audit = foundation_goal_audit.build_audit(health, Path("health.json"))
+
+        self.assertFalse(audit["ok"])
+        self.assertEqual(audit["status"], "incomplete")
+        by_id = {item["id"]: item for item in audit["requirements"]}
+        self.assertEqual(by_id["n8n_activation_ready"]["status"], "blocked")
+        self.assertEqual(by_id["optimization_flow_no_sprawl"]["status"], "passed")
+        self.assertFalse(audit["completion_claim_allowed"])
+
+    def test_goal_audit_requires_real_browser_smoke_evidence(self):
+        health = base_health(include_browser=False)
+
+        audit = foundation_goal_audit.build_audit(health, Path("health.json"))
+
+        by_id = {item["id"]: item for item in audit["requirements"]}
+        self.assertEqual(by_id["frontend_issue_free"]["status"], "missing_evidence")
+        self.assertIn("browser_smoke", by_id["frontend_issue_free"]["evidence"]["missing"])
+
+    def test_goal_audit_passes_when_all_requirements_are_ready(self):
+        health = base_health()
+
+        audit = foundation_goal_audit.build_audit(health, Path("health.json"))
+
+        self.assertTrue(audit["ok"])
+        self.assertEqual(audit["status"], "complete")
+        self.assertEqual(audit["passed_count"], audit["requirement_count"])
+        self.assertTrue(audit["completion_claim_allowed"])
+
+
+if __name__ == "__main__":
+    unittest.main()

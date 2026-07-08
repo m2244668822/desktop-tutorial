@@ -189,6 +189,28 @@ Before committing:
 4. Confirm Mac/Windows path assumptions are documented when they matter.
 5. Confirm the final `git diff --stat` matches the intended scope.
 
+## Phase 7: Goal Completion Audit
+
+After the health checks pass, run the goal-level audit before claiming the foundation objective is complete:
+
+```powershell
+python tools\foundation_health_check.py --browser-smoke required --json-out reports\foundation_health_latest.json
+python tools\foundation_goal_audit.py --health-report reports\foundation_health_latest.json --json-out reports\foundation_goal_audit_latest.json
+```
+
+The audit reads the health report and evaluates the active objective as separate requirements:
+
+| Requirement | Evidence |
+|---|---|
+| foundation architecture ready | workspace, dependencies, controller, ports, gateway, n8n, data, and compile checks |
+| frontend issue-free gate | static contract plus real browser smoke |
+| backend multi-angle detection | dependencies, controller, ports, APIs, OpenClaw, n8n preflight, data, and compile checks |
+| optimization flow without sprawl | runbook/handoff docs plus controlled Git scope |
+| OpenClaw local execution ready | `openclaw_runtime.local_execution.supported=true` and all local execution criteria true |
+| n8n activation ready | preflight `ready_for_activation` and credential setup `ready` |
+
+If it reports `incomplete`, keep the goal active. At the current stage, n8n can still be operationally visible while the full objective remains incomplete until real provider credentials are created and bound.
+
 ## Commit Gate
 
 Recommended focused gate:
@@ -202,6 +224,7 @@ Full gate when runtime services are up:
 
 ```powershell
 python tools\foundation_health_check.py --browser-smoke required
+python tools\foundation_goal_audit.py --run-health --browser-smoke required --allow-incomplete
 python -m pytest tests --tb=short
 ```
 

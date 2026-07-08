@@ -216,6 +216,85 @@ class FoundationHealthCheckTests(unittest.TestCase):
         self.assertEqual(actions[0]["summary"], "Install FFmpeg")
         self.assertEqual(actions[0]["evidence"]["source"], "ffmpeg")
 
+    def test_runtime_service_controller_check_reads_status_report(self):
+        old_root = foundation_health_check.ROOT
+        old_run = foundation_health_check.run
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                report = root / "reports" / "runtime_service_controller_health_latest.json"
+                foundation_health_check.ROOT = root
+
+                def fake_run(*args, **kwargs):
+                    report.parent.mkdir(parents=True)
+                    report.write_text(
+                        json.dumps(
+                            {
+                                "ok": True,
+                                "status": "ready",
+                                "results": [
+                                    {"name": "web", "ok": True, "status": "ready"},
+                                ],
+                                "next_actions": [],
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                    return CompletedProcess(
+                        args=args[0],
+                        returncode=0,
+                        stdout="ready",
+                        stderr="",
+                    )
+
+                foundation_health_check.run = fake_run
+
+                check = foundation_health_check.check_runtime_service_controller()
+
+                self.assertTrue(check.ok)
+                self.assertEqual(check.status, "ready")
+                self.assertEqual(check.detail["report"]["results"][0]["name"], "web")
+        finally:
+            foundation_health_check.ROOT = old_root
+            foundation_health_check.run = old_run
+
+    def test_next_actions_include_runtime_service_controller_items(self):
+        checks = [
+            foundation_health_check.Check(
+                "runtime_service_controller",
+                False,
+                "attention_required",
+                {
+                    "report": {
+                        "next_actions": [
+                            {
+                                "source": "openclaw",
+                                "status": "governance_required",
+                                "summary": "Approve and start OpenClaw Gateway.",
+                                "governed": True,
+                                "controller_command": [
+                                    "python",
+                                    "tools/runtime_service_controller.py",
+                                    "start",
+                                    "--components",
+                                    "openclaw",
+                                    "--allow-openclaw-mutation",
+                                ],
+                                "evidence": {"ports": {"18789": False}},
+                            }
+                        ]
+                    }
+                },
+            )
+        ]
+
+        actions = foundation_health_check.build_next_actions(checks)
+
+        self.assertEqual(actions[0]["source"], "runtime_service_controller")
+        self.assertEqual(actions[0]["priority"], "P1")
+        self.assertIn("--allow-openclaw-mutation", actions[0]["windows"][0])
+        self.assertTrue(actions[0]["evidence"]["governed"])
+
     def test_knowledge_hub_requires_ready_indexes(self):
         old_root = foundation_health_check.ROOT
         try:

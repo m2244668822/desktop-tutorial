@@ -275,6 +275,34 @@ def check_runtime_dependencies() -> Check:
     )
 
 
+def check_runtime_service_controller() -> Check:
+    report_path = ROOT / "reports" / "runtime_service_controller_health_latest.json"
+    cmd = [
+        sys.executable,
+        "tools/runtime_service_controller.py",
+        "status",
+        "--json-out",
+        str(report_path),
+    ]
+    proc = run(cmd, timeout=90)
+    detail: dict[str, Any] = {
+        "returncode": proc.returncode,
+        "stdout": proc.stdout[-2000:],
+        "stderr": proc.stderr[-2000:],
+        "report_path": str(report_path),
+    }
+    payload: dict[str, Any] = {}
+    if report_path.exists():
+        try:
+            payload = json.loads(report_path.read_text(encoding="utf-8"))
+            detail["report"] = payload
+        except Exception as exc:  # noqa: BLE001
+            detail["report_error"] = str(exc)
+    status = str(payload.get("status") or ("ready" if proc.returncode == 0 else "failed"))
+    ok = proc.returncode == 0 and bool(payload.get("ok"))
+    return Check("runtime_service_controller", ok, status, detail)
+
+
 def check_n8n() -> Check:
     health = http_get("/healthz", port=5678)
     readiness = http_get("/healthz/readiness", port=5678)
@@ -490,6 +518,7 @@ def check_py_compile() -> Check:
         "tools/runtime_service_controller.py",
         "tools/chat_shell_browser_smoke.py",
         "tools/n8n_workflow_preflight.py",
+        "tools/foundation_goal_audit.py",
     ]
     cmd = [sys.executable, "-m", "py_compile", *files]
     proc = run(cmd, timeout=120)
@@ -545,6 +574,7 @@ def collect_checks(browser_smoke: str = "auto") -> list[Check]:
     checks = [
         check_workspace_context(),
         check_runtime_dependencies(),
+        check_runtime_service_controller(),
         check_ports(),
         check_gateway(),
         check_openclaw_runtime(),
@@ -600,6 +630,40 @@ def build_next_actions(checks: list[Check]) -> list[dict[str, Any]]:
                         "status": action.get("status"),
                         "evidence": action.get("evidence", {}),
                     },
+                )
+            )
+
+    runtime_controller = by_name.get("runtime_service_controller")
+    if runtime_controller and not runtime_controller.ok:
+        report = runtime_controller.detail.get("report") or {}
+        for action in list(report.get("next_actions") or [])[:8]:
+            command = list(action.get("controller_command") or [])
+            actions.append(
+                _action(
+                    "runtime_service_controller",
+                    "P1",
+                    str(action.get("summary") or action.get("source") or "Start or inspect runtime service."),
+                    windows=[" ".join(command)] if command else [],
+                    macos=[" ".join(command)] if command else [],
+                    verify="runtime_service_controller should report ready.",
+                    evidence={
+                        "source": action.get("source"),
+                        "status": action.get("status"),
+                        "governed": action.get("governed"),
+                        "evidence": action.get("evidence", {}),
+                    },
+                )
+            )
+        if not report.get("next_actions"):
+            actions.append(
+                _action(
+                    "runtime_service_controller",
+                    "P1",
+                    "Fix runtime service controller status before trusting service readiness.",
+                    windows=["python tools\\runtime_service_controller.py status"],
+                    macos=["python tools/runtime_service_controller.py status"],
+                    verify="runtime_service_controller should report ready.",
+                    evidence=runtime_controller.detail,
                 )
             )
 
@@ -829,15 +893,16 @@ def build_next_actions(checks: list[Check]) -> list[dict[str, Any]]:
     source_order = {
         "workspace_context": 0,
         "runtime_dependencies": 1,
-        "ports": 2,
-        "gateway": 3,
-        "openclaw_runtime": 4,
-        "n8n": 5,
-        "n8n_workflow_preflight": 6,
-        "frontend_static_contract": 7,
-        "browser_smoke": 8,
-        "py_compile": 9,
-        "git": 10,
+        "runtime_service_controller": 2,
+        "ports": 3,
+        "gateway": 4,
+        "openclaw_runtime": 5,
+        "n8n": 6,
+        "n8n_workflow_preflight": 7,
+        "frontend_static_contract": 8,
+        "browser_smoke": 9,
+        "py_compile": 10,
+        "git": 11,
     }
     return sorted(
         _dedupe_actions(actions),

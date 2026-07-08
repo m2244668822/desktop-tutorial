@@ -186,3 +186,26 @@ No API keys or placeholder secrets are stored in the repo. Create credentials in
 python tools\n8n_workflow_preflight.py --allow-blockers
 python tools\foundation_health_check.py --browser-smoke required
 ```
+
+## 2026-07-09 Goal Audit Gate
+
+The foundation health check now includes `runtime_service_controller` as its own gate, so service readiness is proven through the controlled entrypoint as well as direct port/API checks.
+
+Current completion audit command:
+
+```powershell
+python tools\foundation_health_check.py --browser-smoke required --json-out reports\foundation_health_goal_audit_current.json
+python tools\foundation_goal_audit.py --health-report reports\foundation_health_goal_audit_current.json --json-out reports\foundation_goal_audit_current.json --allow-incomplete
+```
+
+Expected status before real n8n credentials are added:
+
+| Requirement | Status |
+|---|---|
+| foundation architecture ready | passed |
+| frontend issue-free gate | passed |
+| backend multi-angle detection | passed |
+| OpenClaw local execution ready | passed |
+| n8n activation ready | blocked until real provider credentials are created and bound |
+
+During source edits, the optimization flow requirement may also report incomplete because Git has uncommitted source changes. After committing source changes, only generated report files should remain dirty.

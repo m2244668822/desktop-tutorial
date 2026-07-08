@@ -59,6 +59,7 @@ python tools/runtime_dependency_doctor.py --allow-missing
 python tools/runtime_service_controller.py status
 python tools/runtime_service_controller.py start --components web,n8n,ollama --dry-run
 python tools/foundation_health_check.py --browser-smoke required
+python tools/foundation_goal_audit.py --health-report reports/foundation_health_latest.json --allow-incomplete
 python tools/n8n_workflow_preflight.py --allow-blockers
 python -m pytest tests/test_foundation_health_check.py tests/test_runtime_dependency_doctor.py tests/test_runtime_service_controller.py tests/test_frontend_sync_contract.py tests/test_openclaw_bridge.py tests/test_n8n_workflow_preflight.py --tb=short
 ```
@@ -100,6 +101,7 @@ PY
 | workspace context | `foundation_health_check.py` reports cwd, git root, and required files |
 | runtime dependencies | `runtime_dependency_doctor.py` reports shell/PATH, `.venv`, Node, n8n, FFmpeg, Ollama, and OpenClaw readiness |
 | service control | `runtime_service_controller.py` gives one status/start path for web, n8n, Ollama, and governed OpenClaw gateway |
+| goal completion audit | `foundation_goal_audit.py` maps the health report back to the full foundation objective |
 | frontend static contract | canonical chat shell tokens plus mobile layout contract |
 | browser smoke | headless Chrome/Edge checks DOM, console, runtime exceptions, and layout |
 | n8n workflow | preflight blocks activation and emits structured remediation plus credential setup plans |
@@ -161,5 +163,6 @@ git push origin codex/git-governance-20260517
 3. Run `python tools/runtime_service_controller.py status`, then dry-run service start before launching missing services.
 4. Start the gateway and run browser smoke at mobile and desktop widths.
 5. Run `tools/foundation_health_check.py --browser-smoke required`.
-6. Fix n8n activation blockers before enabling the workflow.
-7. Keep runtime reports separate from source commits.
+6. Run `tools/foundation_goal_audit.py --allow-incomplete`; do not claim complete while n8n activation is blocked.
+7. Fix n8n activation blockers before enabling the workflow.
+8. Keep runtime reports separate from source commits.
