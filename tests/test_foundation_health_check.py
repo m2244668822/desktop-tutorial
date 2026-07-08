@@ -185,6 +185,7 @@ class FoundationHealthCheckTests(unittest.TestCase):
         self.assertEqual(actions[0]["source"], "ports")
         self.assertEqual(actions[0]["priority"], "P1")
         self.assertIn("5001:main_web_gateway", actions[0]["evidence"]["missing"])
+        self.assertIn("runtime_service_controller.py start", " ".join(actions[0]["windows"]))
 
     def test_next_actions_include_runtime_dependency_doctor_items(self):
         checks = [

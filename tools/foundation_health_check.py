@@ -486,6 +486,7 @@ def check_py_compile() -> Check:
         "core/langgraph_workflow.py",
         "tools/foundation_health_check.py",
         "tools/runtime_dependency_doctor.py",
+        "tools/runtime_service_controller.py",
         "tools/chat_shell_browser_smoke.py",
         "tools/n8n_workflow_preflight.py",
     ]
@@ -614,14 +615,13 @@ def build_next_actions(checks: list[Check]) -> list[dict[str, Any]]:
                 "P1",
                 "Start or verify missing runtime services.",
                 windows=[
+                    "python tools\\runtime_service_controller.py start --components web,n8n,ollama --dry-run",
+                    "python tools\\runtime_service_controller.py start --components web,n8n,ollama",
                     "powershell -ExecutionPolicy Bypass -File tools\\enforce_single_entry_gateway.ps1",
-                    ".\\tools\\start_n8n_windows.cmd",
-                    "ollama serve",
                 ],
                 macos=[
-                    "python desktop_chat_app.py web --host 127.0.0.1 --port 5001 --energy-lite",
-                    "N8N_HOST=127.0.0.1 N8N_PORT=5678 n8n start",
-                    "ollama serve",
+                    "python tools/runtime_service_controller.py start --components web,n8n,ollama --dry-run",
+                    "python tools/runtime_service_controller.py start --components web,n8n,ollama",
                 ],
                 verify="Rerun python tools/foundation_health_check.py --browser-smoke off.",
                 evidence={"missing": missing},
@@ -635,8 +635,14 @@ def build_next_actions(checks: list[Check]) -> list[dict[str, Any]]:
                 "gateway",
                 "P1",
                 "Bring the main web gateway up before running browser smoke.",
-                windows=["powershell -ExecutionPolicy Bypass -File tools\\enforce_single_entry_gateway.ps1"],
-                macos=["python desktop_chat_app.py web --host 127.0.0.1 --port 5001 --energy-lite"],
+                windows=[
+                    "python tools\\runtime_service_controller.py start --components web --dry-run",
+                    "python tools\\runtime_service_controller.py start --components web",
+                ],
+                macos=[
+                    "python tools/runtime_service_controller.py start --components web --dry-run",
+                    "python tools/runtime_service_controller.py start --components web",
+                ],
                 verify="/status and /api/gateway/policy should return 200.",
                 evidence={
                     "status": gateway.detail.get("status", {}),
@@ -652,8 +658,14 @@ def build_next_actions(checks: list[Check]) -> list[dict[str, Any]]:
                 "n8n",
                 "P1",
                 "Start n8n and confirm its editor, broker, and SQLite database are inspectable.",
-                windows=[".\\tools\\start_n8n_windows.cmd"],
-                macos=["N8N_HOST=127.0.0.1 N8N_PORT=5678 n8n start"],
+                windows=[
+                    "python tools\\runtime_service_controller.py start --components n8n --dry-run",
+                    "python tools\\runtime_service_controller.py start --components n8n",
+                ],
+                macos=[
+                    "python tools/runtime_service_controller.py start --components n8n --dry-run",
+                    "python tools/runtime_service_controller.py start --components n8n",
+                ],
                 verify="n8n health/readiness/broker should be OK and db_ok should be true.",
                 evidence={
                     "db_path": n8n.detail.get("db_path"),
@@ -686,11 +698,13 @@ def build_next_actions(checks: list[Check]) -> list[dict[str, Any]]:
                     "P1",
                     "Start and verify the local OpenClaw Gateway health endpoint.",
                     windows=[
-                        "%USERPROFILE%\\.openclaw\\gateway.cmd",
+                        "python tools\\runtime_service_controller.py start --components openclaw --dry-run",
+                        "python tools\\runtime_service_controller.py start --components openclaw --allow-openclaw-mutation",
                         "Invoke-WebRequest -UseBasicParsing http://127.0.0.1:18789/healthz",
                     ],
                     macos=[
-                        "openclaw gateway --port 18789",
+                        "python tools/runtime_service_controller.py start --components openclaw --dry-run",
+                        "python tools/runtime_service_controller.py start --components openclaw --allow-openclaw-mutation",
                         "curl http://127.0.0.1:18789/healthz",
                     ],
                     verify="openclaw_runtime local_execution.supported should be true.",
@@ -785,8 +799,12 @@ def build_next_actions(checks: list[Check]) -> list[dict[str, Any]]:
                 "py_compile",
                 "P0",
                 "Fix Python syntax/import compile failures before runtime testing.",
-                windows=["python -m py_compile desktop_chat_app.py core\\web_server.py tools\\foundation_health_check.py"],
-                macos=["python -m py_compile desktop_chat_app.py core/web_server.py tools/foundation_health_check.py"],
+                windows=[
+                    "python -m py_compile desktop_chat_app.py core\\web_server.py core\\openclaw_bridge.py tools\\foundation_health_check.py tools\\runtime_dependency_doctor.py tools\\runtime_service_controller.py"
+                ],
+                macos=[
+                    "python -m py_compile desktop_chat_app.py core/web_server.py core/openclaw_bridge.py tools/foundation_health_check.py tools/runtime_dependency_doctor.py tools/runtime_service_controller.py"
+                ],
                 verify="py_compile should report ready.",
                 evidence=compile_check.detail,
             )

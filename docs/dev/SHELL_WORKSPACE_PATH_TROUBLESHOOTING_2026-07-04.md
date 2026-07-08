@@ -86,6 +86,7 @@ Once inside the repo, run:
 ```bash
 python tools/foundation_health_check.py --browser-smoke off
 python tools/runtime_dependency_doctor.py --allow-missing
+python tools/runtime_service_controller.py status
 ```
 
 The `workspace_context` row records:
@@ -103,17 +104,20 @@ The `workspace_context` row records:
 
 `runtime_dependency_doctor.py` adds the next layer after the repo path is correct. It records whether the current shell can resolve the project venv, Node, n8n, FFmpeg, Ollama, and OpenClaw. If FFmpeg is present in one terminal but missing in another, compare the `shell_context.path_entries` and the failed probe's `resolution` block instead of changing app code.
 
+`runtime_service_controller.py` is the controlled startup layer after dependencies are understood. Use `status` or `start --dry-run` first. OpenClaw startup is intentionally gated behind `--allow-openclaw-mutation`.
+
 ## What To Fix First
 
 1. Fix missing cwd or stale volume paths before debugging app code.
 2. Verify `git rev-parse --show-toplevel` matches the intended repo.
 3. Run `python tools/runtime_dependency_doctor.py --allow-missing` and fix missing PATH/env dependencies before debugging services.
-4. Regenerate path-sensitive data from the real repo root:
+4. Run `python tools/runtime_service_controller.py status` before starting services.
+5. Regenerate path-sensitive data from the real repo root:
 
 ```bash
 python tools/sync_knowledge_hub.py
 ```
 
-5. Rerun the foundation check.
+6. Rerun the foundation check.
 
 This prevents a fake infrastructure problem from being caused by a shell that is simply standing in the wrong place.

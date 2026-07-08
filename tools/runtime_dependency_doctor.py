@@ -431,12 +431,14 @@ def probe_openclaw(root: Path = ROOT, *, system_name: str | None = None) -> Prob
             "Expose OpenClaw CLI and verify the local gateway health endpoint.",
             windows=[
                 "openclaw --version",
-                "%USERPROFILE%\\.openclaw\\gateway.cmd",
+                "python tools\\runtime_service_controller.py start --components openclaw --dry-run",
+                "python tools\\runtime_service_controller.py start --components openclaw --allow-openclaw-mutation",
                 "Invoke-WebRequest -UseBasicParsing http://127.0.0.1:18789/healthz",
             ],
             macos=[
                 "openclaw --version",
-                "openclaw gateway --port 18789",
+                "python tools/runtime_service_controller.py start --components openclaw --dry-run",
+                "python tools/runtime_service_controller.py start --components openclaw --allow-openclaw-mutation",
                 "curl http://127.0.0.1:18789/healthz",
             ],
             verify="openclaw_local_execution should report ready.",
