@@ -59,6 +59,40 @@ class RuntimeServiceControllerTests(unittest.TestCase):
         self.assertEqual(result.action, "dry_run")
         self.assertEqual(launched, [])
 
+    def test_status_requires_health_when_port_is_listening(self):
+        spec = runtime_service_controller.ServiceSpec(
+            "openclaw",
+            (18789,),
+            ("openclaw", "gateway", "--port", "18789"),
+            {},
+            "logs/openclaw.log",
+            governed=True,
+            health_urls=("http://127.0.0.1:18789/healthz",),
+        )
+        old_health = runtime_service_controller._health_state
+        try:
+            runtime_service_controller._health_state = lambda _spec: {
+                "http://127.0.0.1:18789/healthz": {
+                    "ok": False,
+                    "status_code": 0,
+                    "body": "",
+                    "error": "timed out",
+                }
+            }
+
+            result = runtime_service_controller.control_service(
+                spec,
+                action="status",
+                port_checker=lambda _port: True,
+            )
+
+            self.assertFalse(result.ok)
+            self.assertEqual(result.status, "health_unready")
+            self.assertTrue(result.ports["18789"])
+            self.assertFalse(result.health["http://127.0.0.1:18789/healthz"]["ok"])
+        finally:
+            runtime_service_controller._health_state = old_health
+
     def test_openclaw_requires_explicit_governance_flag(self):
         spec = runtime_service_controller.ServiceSpec(
             "openclaw",

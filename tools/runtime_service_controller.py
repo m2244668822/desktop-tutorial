@@ -13,6 +13,8 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
+from urllib.error import HTTPError, URLError
+from urllib.request import urlopen
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,6 +36,7 @@ class ServiceSpec:
     env: dict[str, str]
     log_file: str
     governed: bool = False
+    health_urls: tuple[str, ...] = ()
 
 
 @dataclass
@@ -48,6 +51,7 @@ class ServiceResult:
     pid: int | None
     error: str
     governed: bool
+    health: dict[str, dict[str, Any]] | None = None
 
 
 PortChecker = Callable[[int], bool]
@@ -89,6 +93,7 @@ def service_specs(root: Path = ROOT, system_name: str | None = None) -> dict[str
                 ),
                 common_env,
                 str(logs / "runtime_controller_web.log"),
+                health_urls=("http://127.0.0.1:5001/status",),
             ),
             "n8n": ServiceSpec(
                 "n8n",
@@ -115,6 +120,10 @@ def service_specs(root: Path = ROOT, system_name: str | None = None) -> dict[str
                     "EXTERNAL_FRONTEND_HOOKS_URLS": "",
                 },
                 str(logs / "runtime_controller_n8n.log"),
+                health_urls=(
+                    "http://127.0.0.1:5678/healthz",
+                    "http://127.0.0.1:5679/healthz",
+                ),
             ),
             "ollama": ServiceSpec(
                 "ollama",
@@ -122,6 +131,7 @@ def service_specs(root: Path = ROOT, system_name: str | None = None) -> dict[str
                 ("ollama", "serve"),
                 {},
                 str(logs / "runtime_controller_ollama.log"),
+                health_urls=("http://127.0.0.1:11434/api/tags",),
             ),
             "openclaw": ServiceSpec(
                 "openclaw",
@@ -130,6 +140,7 @@ def service_specs(root: Path = ROOT, system_name: str | None = None) -> dict[str
                 {},
                 str(logs / "runtime_controller_openclaw.log"),
                 governed=True,
+                health_urls=("http://127.0.0.1:18789/healthz",),
             ),
         }
 
@@ -140,6 +151,7 @@ def service_specs(root: Path = ROOT, system_name: str | None = None) -> dict[str
             ("bash", str(root / "tools" / "start_web_server_5001.sh")),
             common_env,
             str(logs / "runtime_controller_web.log"),
+            health_urls=("http://127.0.0.1:5001/status",),
         ),
         "n8n": ServiceSpec(
             "n8n",
@@ -158,6 +170,10 @@ def service_specs(root: Path = ROOT, system_name: str | None = None) -> dict[str
                 "EXTERNAL_FRONTEND_HOOKS_URLS": "",
             },
             str(logs / "runtime_controller_n8n.log"),
+            health_urls=(
+                "http://127.0.0.1:5678/healthz",
+                "http://127.0.0.1:5679/healthz",
+            ),
         ),
         "ollama": ServiceSpec(
             "ollama",
@@ -165,6 +181,7 @@ def service_specs(root: Path = ROOT, system_name: str | None = None) -> dict[str
             ("ollama", "serve"),
             {},
             str(logs / "runtime_controller_ollama.log"),
+            health_urls=("http://127.0.0.1:11434/api/tags",),
         ),
         "openclaw": ServiceSpec(
             "openclaw",
@@ -173,6 +190,7 @@ def service_specs(root: Path = ROOT, system_name: str | None = None) -> dict[str
             {},
             str(logs / "runtime_controller_openclaw.log"),
             governed=True,
+            health_urls=("http://127.0.0.1:18789/healthz",),
         ),
     }
 
@@ -210,6 +228,40 @@ def _all_required_ports_listening(ports: dict[str, bool]) -> bool:
     return bool(ports) and all(ports.values())
 
 
+def _health_state(spec: ServiceSpec, timeout: int = 5) -> dict[str, dict[str, Any]]:
+    health: dict[str, dict[str, Any]] = {}
+    for url in spec.health_urls:
+        try:
+            with urlopen(url, timeout=timeout) as resp:
+                body = resp.read(300).decode("utf-8", errors="replace")
+                health[url] = {
+                    "ok": 200 <= int(resp.status) < 400,
+                    "status_code": int(resp.status),
+                    "body": body,
+                    "error": "",
+                }
+        except HTTPError as exc:
+            health[url] = {
+                "ok": False,
+                "status_code": int(exc.code),
+                "body": exc.read(300).decode("utf-8", errors="replace"),
+                "error": str(exc),
+            }
+        except (URLError, TimeoutError, OSError) as exc:
+            health[url] = {"ok": False, "status_code": 0, "body": "", "error": str(exc)}
+        except Exception as exc:  # noqa: BLE001
+            health[url] = {"ok": False, "status_code": 0, "body": "", "error": str(exc)}
+    return health
+
+
+def _health_ok(health: dict[str, dict[str, Any]]) -> bool:
+    return all(bool(item.get("ok")) for item in health.values())
+
+
+def _service_ready(ports: dict[str, bool], health: dict[str, dict[str, Any]]) -> bool:
+    return _all_required_ports_listening(ports) and _health_ok(health)
+
+
 def control_service(
     spec: ServiceSpec,
     *,
@@ -223,7 +275,8 @@ def control_service(
     sleep: Callable[[float], None] = time.sleep,
 ) -> ServiceResult:
     before = _ports_state(spec, port_checker)
-    if _all_required_ports_listening(before):
+    before_health = _health_state(spec) if _all_required_ports_listening(before) else {}
+    if _service_ready(before, before_health):
         return ServiceResult(
             spec.name,
             before,
@@ -235,20 +288,23 @@ def control_service(
             None,
             "",
             spec.governed,
+            before_health,
         )
 
     if action == "status":
+        status = "not_listening" if not _all_required_ports_listening(before) else "health_unready"
         return ServiceResult(
             spec.name,
             before,
             False,
-            "not_listening",
+            status,
             "status_only",
             list(spec.command),
             spec.log_file,
             None,
             "",
             spec.governed,
+            before_health,
         )
 
     if spec.governed and not allow_governed:
@@ -263,6 +319,7 @@ def control_service(
             None,
             "OpenClaw start requires --allow-openclaw-mutation.",
             spec.governed,
+            before_health,
         )
 
     if dry_run:
@@ -277,6 +334,7 @@ def control_service(
             None,
             "",
             spec.governed,
+            before_health,
         )
 
     pid, error = launcher(spec, root)
@@ -292,26 +350,30 @@ def control_service(
             pid,
             error,
             spec.governed,
+            before_health,
         )
 
     deadline = time.monotonic() + max(0, wait_seconds)
     after = _ports_state(spec, port_checker)
-    while not _all_required_ports_listening(after) and time.monotonic() < deadline:
+    after_health = _health_state(spec) if _all_required_ports_listening(after) else {}
+    while not _service_ready(after, after_health) and time.monotonic() < deadline:
         sleep(1)
         after = _ports_state(spec, port_checker)
+        after_health = _health_state(spec) if _all_required_ports_listening(after) else {}
 
-    ok = _all_required_ports_listening(after)
+    ok = _service_ready(after, after_health)
     return ServiceResult(
         spec.name,
         after,
         ok,
-        "ready" if ok else "started_waiting",
+        "ready" if ok else ("health_unready" if _all_required_ports_listening(after) else "started_waiting"),
         "start",
         list(spec.command),
         spec.log_file,
         pid,
         "",
         spec.governed,
+        after_health,
     )
 
 
@@ -358,7 +420,7 @@ def build_payload(results: list[ServiceResult], root: Path = ROOT) -> dict[str, 
                 "controller_command": controller_command(item),
                 "command": item.command,
                 "log_file": item.log_file,
-                "evidence": {"ports": item.ports, "error": item.error},
+                "evidence": {"ports": item.ports, "health": item.health or {}, "error": item.error},
             }
             for item in results
             if not item.ok
@@ -406,6 +468,9 @@ def main() -> int:
     for item in results:
         label = "OK" if item.ok else "WAIT"
         print(f"[{label}] {item.name}: {item.status} action={item.action} ports={item.ports}")
+        if item.health:
+            health_summary = {url: data.get("ok") for url, data in item.health.items()}
+            print(f"  health: {health_summary}")
         if item.error:
             print(f"  error: {item.error}")
     return 0 if payload["ok"] else 1

@@ -102,3 +102,44 @@ The 180 second watchdog wait is still justified. Running the foundation check to
 ## Interpretation
 
 The runtime is operational for gateway, frontend, OpenClaw local execution, n8n visibility, Knowledge Hub, and browser smoke. It is not production-ready for Xiaobian n8n workflow activation until the preflight blockers are cleared.
+
+## 2026-07-08 Runtime Controller Recheck
+
+The runtime was restarted through the controlled service entrypoint:
+
+```powershell
+python tools\runtime_service_controller.py start --components web,n8n,ollama --wait-seconds 180
+python tools\runtime_service_controller.py start --components openclaw --allow-openclaw-mutation --wait-seconds 90
+python tools\runtime_service_controller.py status --json-out reports\runtime_service_controller_health_status.json
+```
+
+The controller now requires both listening ports and HTTP health URLs before reporting a service as ready. This prevents a false ready state where OpenClaw listens on `18789` but `/healthz` is still not responsive.
+
+| Service | Result |
+|---|---|
+| web | ready, `5001`, `/status` OK |
+| n8n | ready, `5678/5679`, both `/healthz` endpoints OK |
+| Ollama | ready, `11434`, `/api/tags` OK |
+| OpenClaw | ready, `18789`, `/healthz` OK |
+
+Follow-up verification:
+
+```powershell
+python tools\runtime_dependency_doctor.py --allow-missing --json-out reports\runtime_dependency_doctor_after_mobile_fix.json
+python tools\foundation_health_check.py --browser-smoke required --json-out reports\foundation_health_after_mobile_fix.json
+python tools\chat_shell_browser_smoke.py --base-url http://127.0.0.1:5001 --width 390 --height 844
+python tools\chat_shell_browser_smoke.py --base-url http://127.0.0.1:5001 --width 768 --height 1024
+python tools\chat_shell_browser_smoke.py --base-url http://127.0.0.1:5001 --width 1440 --height 1000
+```
+
+Results:
+
+| Check | Result |
+|---|---|
+| `runtime_dependency_doctor` | attention required only for FFmpeg; OpenClaw local execution ready |
+| `foundation_health_check --browser-smoke required` | all runtime/frontend checks ready; attention remains for FFmpeg and n8n activation |
+| mobile browser smoke `390x844` | ready after text-integrity contract fix |
+| tablet browser smoke `768x1024` | ready |
+| desktop browser smoke `1440x1000` | ready |
+
+Mobile note: the first 390px run failed because the browser smoke required OpenClaw monitor copy in visible `innerText`, while the mobile layout intentionally hides the right monitor panel. The smoke gate now audits required copy through DOM `textContent` while still checking the full DOM for mojibake, replacement characters, and private-use codepoints.

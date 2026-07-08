@@ -331,9 +331,10 @@ DOM_AUDIT_EXPRESSION = r"""
     sidebarMain: overlapArea(boxes.sidebar, boxes.main),
     rightPanelMain: overlapArea(boxes.rightPanel, boxes.main),
   };
-  const bodyText = document.body.innerText || "";
+  const visibleText = document.body.innerText || "";
+  const domText = document.body.textContent || "";
   const privateUseChars = Array.from(new Set(
-    Array.from(bodyText).filter(ch => {
+    Array.from(domText).filter(ch => {
       const code = ch.codePointAt(0);
       return code >= 0xE000 && code <= 0xF8FF;
     })
@@ -341,18 +342,19 @@ DOM_AUDIT_EXPRESSION = r"""
   const mojibakeMarkers = ["\uFFFD", "Ã", "Â", "â€™", "蝡", "嚗", "摰", "撠", "撌", "瘚", "銝", "頛", "撽", "霅", "甇"];
   const requiredText = ["OpenClaw", "OpenClaw 治理", "系統監控"];
   const textIntegrity = {
-    replacementChar: bodyText.includes("\uFFFD"),
+    replacementChar: domText.includes("\uFFFD"),
     privateUseCount: privateUseChars.length,
     privateUseCodepoints: privateUseChars.slice(0, 12).map(ch => "U+" + ch.codePointAt(0).toString(16).toUpperCase().padStart(4, "0")),
-    mojibakeMarkers: mojibakeMarkers.filter(token => bodyText.includes(token)),
-    requiredText: Object.fromEntries(requiredText.map(token => [token, bodyText.includes(token)])),
+    mojibakeMarkers: mojibakeMarkers.filter(token => domText.includes(token)),
+    requiredText: Object.fromEntries(requiredText.map(token => [token, domText.includes(token)])),
   };
   return {
     href: location.href,
     title: document.title,
     readyState: document.readyState,
     viewport: { width: innerWidth, height: innerHeight },
-    bodyTextLength: bodyText.length,
+    bodyTextLength: visibleText.length,
+    domTextLength: domText.length,
     requiredIds: {
       hubView: !!byId("hubView"),
       tasksPanel: !!byId("tasksPanel"),
