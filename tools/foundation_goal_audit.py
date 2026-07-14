@@ -211,7 +211,11 @@ def evaluate_backend_detection(health: dict[str, Any], checks: dict[str, dict[st
         summary_ok="Backend state is observable through dependency, controller, port, API, OpenClaw, n8n, data, and compile checks.",
         summary_bad="Backend diagnosis is missing one or more required evidence angles.",
         accepted_status={
-            "n8n_workflow_preflight": {"ready_for_activation", "blocked_for_activation"},
+            "n8n_workflow_preflight": {
+                "ready_for_activation",
+                "ready_for_manual_execution",
+                "blocked_for_activation",
+            },
         },
     )
 
@@ -316,11 +320,13 @@ def evaluate_n8n_activation(checks: dict[str, dict[str, Any]], health: dict[str,
     check = checks.get("n8n_workflow_preflight")
     report = ((check or {}).get("detail") or {}).get("report") or {}
     credential_plan = report.get("credential_setup_plan") or {}
+    manual_plan = report.get("manual_execution_plan") or {}
     ready = (
         bool(check and check.get("ok"))
         and str(report.get("status")) == "ready_for_activation"
         and bool(report.get("ok_for_activation"))
         and str(credential_plan.get("status") or "ready") == "ready"
+        and str(manual_plan.get("status") or "ready") == "ready"
     )
     if ready:
         status = "passed"
@@ -331,6 +337,9 @@ def evaluate_n8n_activation(checks: dict[str, dict[str, Any]], health: dict[str,
     elif str(report.get("status")) == "blocked_for_activation":
         status = "blocked"
         summary = "n8n activation is blocked by preflight, currently by real provider credential work."
+    elif str(report.get("status")) == "ready_for_manual_execution":
+        status = "incomplete"
+        summary = "n8n credentials are ready enough to run a controlled manual execution, but activation is not proven yet."
     else:
         status = "incomplete"
         summary = "n8n activation readiness is incomplete or preflight did not produce a ready report."
@@ -345,6 +354,7 @@ def evaluate_n8n_activation(checks: dict[str, dict[str, Any]], health: dict[str,
             "ok_for_activation": report.get("ok_for_activation"),
             "blocker_count": report.get("blocker_count"),
             "credential_setup_plan": credential_plan,
+            "manual_execution_plan": manual_plan,
             "issues": report.get("issues", [])[:8],
         },
         actions_for(health, {"n8n_workflow_preflight"}),

@@ -167,6 +167,35 @@ class FoundationHealthCheckTests(unittest.TestCase):
         self.assertIn("brew install ffmpeg", actions[0]["macos"])
         self.assertEqual(actions[0]["evidence"]["code"], "ffmpeg_not_found")
 
+    def test_next_actions_include_n8n_manual_execution_plan(self):
+        checks = [
+            foundation_health_check.Check(
+                "n8n_workflow_preflight",
+                True,
+                "ready_for_manual_execution",
+                {
+                    "report": {
+                        "status": "ready_for_manual_execution",
+                        "manual_execution_plan": {
+                            "status": "needs_manual_execution",
+                            "ui_steps": ["Keep the workflow inactive.", "Run one controlled manual execution."],
+                            "verify": "Rerun preflight and confirm ready_for_activation.",
+                        },
+                    }
+                },
+            )
+        ]
+
+        actions = foundation_health_check.build_next_actions(checks)
+
+        self.assertEqual(len(actions), 1)
+        self.assertEqual(actions[0]["source"], "n8n_workflow_preflight")
+        self.assertEqual(actions[0]["priority"], "P1")
+        self.assertIn("manual n8n execution", actions[0]["summary"])
+        self.assertIn("Run one controlled manual execution.", actions[0]["windows"])
+        self.assertEqual(actions[0]["verify"], "Rerun preflight and confirm ready_for_activation.")
+        self.assertEqual(actions[0]["evidence"]["manual_execution_plan"]["status"], "needs_manual_execution")
+
     def test_next_actions_report_missing_runtime_ports(self):
         checks = [
             foundation_health_check.Check(

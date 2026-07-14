@@ -20,7 +20,7 @@ This document is the current operating flow for keeping the workspace maintainab
 
 1. The frontend must not be treated as healthy from static inspection alone. Use browser smoke for real DOM, console, runtime exception, and layout checks.
 2. Runtime reports under `reports/` are evidence, not source of truth. Commit tools, tests, specs, and docs; do not commit generated evidence unless explicitly archiving a snapshot.
-3. n8n workflows stay inactive until `tools/n8n_workflow_preflight.py` reports `ready_for_activation`.
+3. n8n workflows stay inactive until `tools/n8n_workflow_preflight.py` reports `ready_for_activation` after credential binding and one successful controlled manual execution.
 4. OpenClaw local execution must be observable through `openclaw_runtime`; starting or mutating OpenClaw still requires explicit governance approval.
 5. Every infrastructure change needs one of: a test, a health-check signal, or a runbook update. Prefer all three for shared behavior.
 6. Do not solve drift by adding another parallel entrypoint. Either strengthen the existing entrypoint or clearly retire the old path.
@@ -97,7 +97,7 @@ The report separates execution health from remaining work:
 | `attention_required` | At least one `next_actions` item remains |
 | `action_summary.blocking_attention` | A `P0` or `P1` action still needs attention |
 
-This matters because n8n preflight can be operationally visible while still `blocked_for_activation`.
+This matters because n8n preflight can be operationally visible while still `blocked_for_activation` or `ready_for_manual_execution`.
 
 ## Phase 2: Frontend Reliability
 
@@ -166,6 +166,7 @@ The preflight JSON report includes:
 |---|---|
 | `issues` | Raw blockers and warnings with evidence |
 | `credential_setup_plan` | Provider-grouped manual credential checklist with n8n URLs, required fields, node bindings, binding source, and no secret values |
+| `manual_execution_plan` | Manual-run evidence gate based on execution metadata only; activation stays pending until one successful manual execution is recorded |
 | `remediation_plan` | Deduplicated Windows/macOS repair steps for each recurring blocker |
 | `activation_sequence` | Ordered checklist that must be completed before unattended automation |
 | `db.workflow_contract` | Live imported workflow contract for stale-import detection |
@@ -181,7 +182,7 @@ Known activation blockers:
 | missing/stale credential references | Rebind the node in n8n UI if a workflow node references a credential that is not present in the local DB |
 | FFmpeg | Install FFmpeg and confirm PATH, `FFMPEG_PATH`, or `XIAOBIAN_FFMPEG_PATH` points to the binary |
 | stale imported workflow | Re-import the hardened source spec |
-| zero executions | Run a controlled manual test only after preflight is ready |
+| zero successful manual executions | Run a controlled manual test only after preflight reaches `ready_for_manual_execution` |
 
 Credential binding rule: the source workflow spec stays portable and should not store API keys. After re-importing the hardened spec, bind credentials in the local n8n UI. The preflight prefers the imported DB workflow nodes for credential binding checks, so a UI-bound workflow can clear credential blockers without committing machine-local secret material to the source spec.
 
@@ -214,9 +215,9 @@ The audit reads the health report and evaluates the active objective as separate
 | optimization flow without sprawl | runbook/handoff docs plus controlled Git scope |
 | repo secret hygiene | no obvious API keys in tracked files and runtime/secret ignore patterns are present |
 | OpenClaw local execution ready | `openclaw_runtime.local_execution.supported=true` and all local execution criteria true |
-| n8n activation ready | preflight `ready_for_activation` and credential setup `ready` |
+| n8n activation ready | preflight `ready_for_activation`, credential setup `ready`, and manual execution plan `ready` |
 
-If it reports `incomplete`, keep the goal active. At the current stage, n8n can still be operationally visible while the full objective remains incomplete until real provider credentials are created and bound.
+If it reports `incomplete`, keep the goal active. At the current stage, n8n can still be operationally visible while the full objective remains incomplete until real provider credentials are created, bound, and proven by one successful controlled manual execution.
 
 ## Commit Gate
 
@@ -240,7 +241,7 @@ python -m pytest tests --tb=short
 
 | Gap | Priority | Next Action |
 |---|---|---|
-| n8n activation blocked | P1 | Follow `credential_setup_plan`, add real Gemini/OpenAI credentials in n8n, then rerun preflight |
+| n8n activation blocked or pending manual run | P1 | Follow `credential_setup_plan`, add real Gemini/OpenAI credentials in n8n, rerun preflight, then run one controlled manual execution when it reaches `ready_for_manual_execution` |
 | Mac runtime not reverified after latest Git handoff | P1 | Pull branch on Mac and run `runtime_dependency_doctor`, then foundation health with browser smoke |
 | Obsidian vault state may differ from ProjectDocs | P2 | Audit vault-only edits separately from tracked docs |
 | Runtime services may be stopped between shifts | P2 | Treat port failures as startup state unless reproducible after launcher |

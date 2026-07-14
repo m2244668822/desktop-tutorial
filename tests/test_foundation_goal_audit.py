@@ -136,6 +136,36 @@ class FoundationGoalAuditTests(unittest.TestCase):
         self.assertEqual(by_id["repo_secret_hygiene_ready"]["status"], "passed")
         self.assertFalse(audit["completion_claim_allowed"])
 
+    def test_goal_audit_marks_n8n_manual_execution_incomplete(self):
+        preflight = check(
+            "n8n_workflow_preflight",
+            True,
+            "ready_for_manual_execution",
+            {
+                "report": {
+                    "status": "ready_for_manual_execution",
+                    "ok_for_activation": False,
+                    "blocker_count": 0,
+                    "credential_setup_plan": {"status": "ready"},
+                    "manual_execution_plan": {"status": "needs_manual_execution"},
+                    "issues": [],
+                }
+            },
+        )
+        health = base_health(preflight=preflight)
+
+        audit = foundation_goal_audit.build_audit(health, Path("health.json"))
+
+        self.assertFalse(audit["ok"])
+        self.assertEqual(audit["status"], "incomplete")
+        by_id = {item["id"]: item for item in audit["requirements"]}
+        self.assertEqual(by_id["n8n_activation_ready"]["status"], "incomplete")
+        self.assertEqual(
+            by_id["n8n_activation_ready"]["evidence"]["manual_execution_plan"]["status"],
+            "needs_manual_execution",
+        )
+        self.assertFalse(audit["completion_claim_allowed"])
+
     def test_goal_audit_requires_real_browser_smoke_evidence(self):
         health = base_health(include_browser=False)
 

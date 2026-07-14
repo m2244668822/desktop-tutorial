@@ -17,6 +17,90 @@ SPEC.loader.exec_module(n8n_workflow_preflight)
 
 
 class N8nWorkflowPreflightTests(unittest.TestCase):
+    def write_ready_workflow_with_db(
+        self,
+        root: Path,
+        *,
+        manual_success: bool = False,
+    ) -> tuple[Path, Path]:
+        spec = root / "workflow.json"
+        db = root / "database.sqlite"
+        nodes = [
+            {
+                "name": "Webhook Trigger",
+                "type": "n8n-nodes-base.webhook",
+                "parameters": {"httpMethod": "POST", "path": "video-script", "authentication": "headerAuth"},
+            },
+            {
+                "name": "OpenAI TTS",
+                "type": "n8n-nodes-base.openAi",
+                "parameters": {"text": "hello"},
+                "credentials": {"openAiApi": {"id": "cred-openai", "name": "OpenAI Prod"}},
+            },
+            {
+                "name": "FFmpeg Assembly",
+                "type": "n8n-nodes-base.executeCommand",
+                "parameters": {
+                    "command": (
+                        "node -e \"const path=require('path');"
+                        "const root=process.env.XIAOBIAN_VIDEO_OUTPUT_DIR||"
+                        "path.join(process.cwd(),'data','generated','xiaobian-video');"
+                        "const ffmpeg=process.env.FFMPEG_PATH||"
+                        "process.env.XIAOBIAN_FFMPEG_PATH||'ffmpeg';\""
+                    )
+                },
+            },
+        ]
+        workflow = {
+            "id": "xiaobianVideo001",
+            "name": "Xiaobian Short Video Automation",
+            "active": False,
+            "nodes": nodes,
+            "settings": {"executionTimeout": 900},
+            "meta": {"cost_controls": {"max": 1}, "error_policy": {"default": "fail_closed"}},
+        }
+        spec.write_text(json.dumps(workflow), encoding="utf-8")
+        con = sqlite3.connect(db)
+        con.execute(
+            "create table workflow_entity (id text, name text, active integer, nodes text, settings text, meta text)"
+        )
+        con.execute("create table credentials_entity (id text, name text, data text, type text)")
+        con.execute(
+            "create table execution_entity (id integer, workflowId text, finished integer, mode text, status text, startedAt text, stoppedAt text, createdAt text)"
+        )
+        con.execute(
+            "insert into credentials_entity (id, name, data, type) values (?, ?, ?, ?)",
+            ("cred-openai", "OpenAI Prod", "encrypted", "openAiApi"),
+        )
+        con.execute(
+            "insert into workflow_entity (id, name, active, nodes, settings, meta) values (?, ?, ?, ?, ?, ?)",
+            (
+                workflow["id"],
+                workflow["name"],
+                0,
+                json.dumps(nodes),
+                json.dumps(workflow["settings"]),
+                json.dumps(workflow["meta"]),
+            ),
+        )
+        if manual_success:
+            con.execute(
+                "insert into execution_entity (id, workflowId, finished, mode, status, startedAt, stoppedAt, createdAt) values (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    1,
+                    workflow["id"],
+                    1,
+                    "manual",
+                    "success",
+                    "2026-07-14 08:00:00",
+                    "2026-07-14 08:01:00",
+                    "2026-07-14 08:00:00",
+                ),
+            )
+        con.commit()
+        con.close()
+        return spec, db
+
     def test_xiaobian_workflow_blocks_activation_when_unsafe(self):
         old_which = n8n_workflow_preflight.shutil.which
         old_locate = n8n_workflow_preflight.locate_ffmpeg
@@ -260,6 +344,53 @@ class N8nWorkflowPreflightTests(unittest.TestCase):
         self.assertEqual(len(issues), 1)
         self.assertEqual(issues[0].code, "credential_reference_missing")
         self.assertEqual(issues[0].evidence["binding_source"], "n8n_database_workflow")
+
+    def test_preflight_requires_manual_execution_after_blockers_clear(self):
+        old_locate = n8n_workflow_preflight.locate_ffmpeg
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                spec, db = self.write_ready_workflow_with_db(Path(tmp), manual_success=False)
+                n8n_workflow_preflight.locate_ffmpeg = lambda *_args, **_kwargs: {
+                    "found": True,
+                    "source": "test",
+                    "path": "ffmpeg",
+                    "configured_path": "",
+                    "path_lookup": "ffmpeg",
+                    "candidate_paths": [],
+                }
+
+                payload = n8n_workflow_preflight.run_preflight(spec, db)
+
+                self.assertFalse(payload["ok_for_activation"])
+                self.assertEqual(payload["status"], "ready_for_manual_execution")
+                self.assertEqual(payload["blocker_count"], 0)
+                self.assertEqual(payload["credential_setup_plan"]["status"], "ready")
+                self.assertEqual(payload["manual_execution_plan"]["status"], "needs_manual_execution")
+        finally:
+            n8n_workflow_preflight.locate_ffmpeg = old_locate
+
+    def test_preflight_ready_for_activation_after_successful_manual_execution(self):
+        old_locate = n8n_workflow_preflight.locate_ffmpeg
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                spec, db = self.write_ready_workflow_with_db(Path(tmp), manual_success=True)
+                n8n_workflow_preflight.locate_ffmpeg = lambda *_args, **_kwargs: {
+                    "found": True,
+                    "source": "test",
+                    "path": "ffmpeg",
+                    "configured_path": "",
+                    "path_lookup": "ffmpeg",
+                    "candidate_paths": [],
+                }
+
+                payload = n8n_workflow_preflight.run_preflight(spec, db)
+
+                self.assertTrue(payload["ok_for_activation"])
+                self.assertEqual(payload["status"], "ready_for_activation")
+                self.assertEqual(payload["manual_execution_plan"]["status"], "ready")
+                self.assertEqual(payload["manual_execution_plan"]["manual_successful"], 1)
+        finally:
+            n8n_workflow_preflight.locate_ffmpeg = old_locate
 
     def test_remediation_plan_deduplicates_same_issue_code_and_summary(self):
         issues = [

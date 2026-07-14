@@ -210,6 +210,108 @@ def _credential_reference_status(
     }
 
 
+def execution_snapshot(con: sqlite3.Connection, workflow_id: str) -> dict[str, Any]:
+    snapshot: dict[str, Any] = {
+        "checked": False,
+        "total_for_workflow": 0,
+        "successful": 0,
+        "manual_successful": 0,
+        "status_counts": {},
+        "mode_counts": {},
+        "latest": [],
+        "error": "",
+    }
+    try:
+        columns = {
+            str(row[1])
+            for row in con.execute("pragma table_info(execution_entity)").fetchall()
+        }
+        required = {"id", "workflowId", "finished", "mode", "status"}
+        if not required.issubset(columns):
+            snapshot["error"] = "execution_entity_schema_missing_required_columns"
+            return snapshot
+        summary_rows = con.execute(
+            "select id, finished, mode, status from execution_entity where workflowId = ?",
+            (workflow_id,),
+        ).fetchall()
+        selected = ["id", "workflowId", "finished", "mode", "status"]
+        for column in ("startedAt", "stoppedAt", "createdAt"):
+            if column in columns:
+                selected.append(column)
+        latest_rows = con.execute(
+            f"select {', '.join(selected)} from execution_entity where workflowId = ? order by id desc limit 20",
+            (workflow_id,),
+        ).fetchall()
+        snapshot["checked"] = True
+        status_counts: dict[str, int] = {}
+        mode_counts: dict[str, int] = {}
+        successful = 0
+        manual_successful = 0
+        for row in summary_rows:
+            raw = dict(row)
+            status = str(raw.get("status") or "").lower()
+            mode = str(raw.get("mode") or "").lower()
+            finished = bool(raw.get("finished"))
+            is_success = finished and status in {"success", "successful", "completed", "finished"}
+            status_counts[status or "<empty>"] = status_counts.get(status or "<empty>", 0) + 1
+            mode_counts[mode or "<empty>"] = mode_counts.get(mode or "<empty>", 0) + 1
+            successful += 1 if is_success else 0
+            manual_successful += 1 if is_success and mode == "manual" else 0
+
+        latest = []
+        for row in latest_rows:
+            raw = dict(row)
+            finished = bool(raw.get("finished"))
+            latest.append(
+                {
+                    "id": raw.get("id"),
+                    "mode": raw.get("mode"),
+                    "status": raw.get("status"),
+                    "finished": finished,
+                    "startedAt": raw.get("startedAt"),
+                    "stoppedAt": raw.get("stoppedAt"),
+                    "createdAt": raw.get("createdAt"),
+                }
+            )
+        snapshot["total_for_workflow"] = len(summary_rows)
+        snapshot["successful"] = successful
+        snapshot["manual_successful"] = manual_successful
+        snapshot["status_counts"] = status_counts
+        snapshot["mode_counts"] = mode_counts
+        snapshot["latest"] = latest
+    except Exception as exc:  # noqa: BLE001
+        snapshot["error"] = str(exc)
+    return snapshot
+
+
+def build_manual_execution_plan(db: dict[str, Any], has_blockers: bool) -> dict[str, Any]:
+    executions = db.get("executions") or {}
+    manual_successful = int(executions.get("manual_successful", 0) or 0)
+    checked = bool(executions.get("checked"))
+    if has_blockers:
+        status = "blocked_by_preflight"
+    elif manual_successful > 0:
+        status = "ready"
+    else:
+        status = "needs_manual_execution"
+    return {
+        "status": status,
+        "checked": checked,
+        "manual_successful": manual_successful,
+        "execution_count": int(executions.get("total_for_workflow", 0) or 0),
+        "successful": int(executions.get("successful", 0) or 0),
+        "error": str(executions.get("error") or ""),
+        "latest": list(executions.get("latest") or [])[:5],
+        "ui_steps": [
+            "Keep the workflow inactive.",
+            "Open the workflow in n8n.",
+            "Run one controlled manual execution after every preflight blocker is cleared.",
+            "Inspect generated media/output manually before enabling unattended automation.",
+        ],
+        "verify": "Rerun python tools/n8n_workflow_preflight.py and confirm status is ready_for_activation.",
+    }
+
+
 def build_credential_setup_plan(
     nodes: list[dict[str, Any]] | Any,
     db: dict[str, Any],
@@ -512,8 +614,9 @@ def activation_sequence() -> list[str]:
         "Install FFmpeg and verify PATH or FFMPEG_PATH on the target machine.",
         "Follow credential_setup_plan to create provider credentials in n8n and bind them to every provider node.",
         "Re-import the hardened source workflow spec.",
-        "Run python tools/n8n_workflow_preflight.py until status is ready_for_activation.",
+        "Run python tools/n8n_workflow_preflight.py until status is ready_for_manual_execution.",
         "Run one controlled manual execution before enabling unattended automation.",
+        "Rerun python tools/n8n_workflow_preflight.py and confirm status is ready_for_activation.",
     ]
 
 
@@ -561,6 +664,7 @@ def db_snapshot(db_path: Path, workflow_id: str, workflow_name: str) -> dict[str
         "workflow": {},
         "workflow_nodes": [],
         "workflow_contract": {},
+        "executions": {},
         "error": "",
     }
     if not db_path.exists():
@@ -615,6 +719,7 @@ def db_snapshot(db_path: Path, workflow_id: str, workflow_name: str) -> dict[str
                 _json_or_default(raw.get("settings"), {}),
                 _json_or_default(raw.get("meta"), {}),
             )
+            snapshot["executions"] = execution_snapshot(con, str(raw.get("id") or workflow_id))
         con.close()
         snapshot["ok"] = True
     except Exception as exc:  # noqa: BLE001
@@ -1004,9 +1109,18 @@ def run_preflight(
 
     blockers = [issue for issue in issues if issue.severity == "blocker"]
     warnings = [issue for issue in issues if issue.severity == "warning"]
+    manual_execution_plan = build_manual_execution_plan(db, bool(blockers))
+    manual_execution_ready = manual_execution_plan["status"] == "ready"
+    ok_for_activation = not blockers and manual_execution_ready
+    if blockers:
+        status = "blocked_for_activation"
+    elif manual_execution_ready:
+        status = "ready_for_activation"
+    else:
+        status = "ready_for_manual_execution"
     return {
-        "ok_for_activation": not blockers,
-        "status": "ready_for_activation" if not blockers else "blocked_for_activation",
+        "ok_for_activation": ok_for_activation,
+        "status": status,
         "spec_path": str(spec_path),
         "ffmpeg": ffmpeg,
         "workflow": {
@@ -1019,6 +1133,7 @@ def run_preflight(
         "db": db,
         "issues": [asdict(issue) for issue in issues],
         "credential_setup_plan": credential_setup_plan,
+        "manual_execution_plan": manual_execution_plan,
         "remediation_plan": build_remediation_plan(issues),
         "activation_sequence": activation_sequence(),
         "blocker_count": len(blockers),
@@ -1063,6 +1178,9 @@ def main() -> int:
     credential_setup = payload.get("credential_setup_plan") or {}
     if credential_setup:
         print(f"credential_setup: {credential_setup.get('status', 'unknown')}")
+    manual_execution = payload.get("manual_execution_plan") or {}
+    if manual_execution:
+        print(f"manual_execution: {manual_execution.get('status', 'unknown')}")
     if remediation:
         print("remediation:")
         for item in remediation[:5]:

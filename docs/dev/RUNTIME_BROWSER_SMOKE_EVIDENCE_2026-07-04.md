@@ -226,3 +226,23 @@ During source edits, the optimization flow requirement may also report incomplet
 | desktop | `1440x1000` |
 
 `foundation_goal_audit.py` also requires all three viewport results before `frontend_issue_free` can pass. A single desktop smoke result is no longer enough to support the "frontend issue-free" completion claim.
+
+## 2026-07-14 n8n Manual Execution Evidence Gate
+
+`n8n_workflow_preflight.py` now separates "blockers are cleared" from "safe to activate unattended automation":
+
+| Status | Meaning |
+|---|---|
+| `blocked_for_activation` | Credential, workflow, dependency, or safety blockers remain |
+| `ready_for_manual_execution` | Preflight blockers are clear, but no successful controlled manual execution is recorded yet |
+| `ready_for_activation` | Preflight blockers are clear and at least one successful manual execution exists in n8n execution metadata |
+
+The new `manual_execution_plan` reads only `execution_entity` metadata from the local n8n SQLite database: workflow id, finished state, mode, status, and timestamps. It does not read `execution_data`, node payloads, API keys, generated text, media, or secret material.
+
+Current activation interpretation:
+
+| Gate | Result |
+|---|---|
+| provider credentials | still require real Gemini/OpenAI credential binding on each machine |
+| manual execution evidence | required after credentials are bound and before unattended activation |
+| goal audit | remains incomplete until `n8n_activation_ready` sees preflight `ready_for_activation` |

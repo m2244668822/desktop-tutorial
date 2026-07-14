@@ -404,6 +404,7 @@ def check_n8n_workflow_preflight() -> Check:
     status = str(payload.get("status") or ("ready" if proc.returncode == 0 else "failed"))
     ok = proc.returncode == 0 and status in {
         "ready_for_activation",
+        "ready_for_manual_execution",
         "blocked_for_activation",
     }
     return Check("n8n_workflow_preflight", ok, status, detail)
@@ -910,6 +911,25 @@ def build_next_actions(checks: list[Check]) -> list[dict[str, Any]]:
                         evidence={"status": preflight.status},
                     )
                 )
+        elif preflight.status == "ready_for_manual_execution":
+            manual_plan = report.get("manual_execution_plan") or {}
+            actions.append(
+                _action(
+                    "n8n_workflow_preflight",
+                    "P1",
+                    "Run one controlled manual n8n execution before enabling unattended automation.",
+                    windows=list(manual_plan.get("ui_steps") or []),
+                    macos=list(manual_plan.get("ui_steps") or []),
+                    verify=str(
+                        manual_plan.get("verify")
+                        or "Rerun tools/n8n_workflow_preflight.py and confirm ready_for_activation."
+                    ),
+                    evidence={
+                        "status": preflight.status,
+                        "manual_execution_plan": manual_plan,
+                    },
+                )
+            )
         elif not preflight.ok:
             actions.append(
                 _action(
