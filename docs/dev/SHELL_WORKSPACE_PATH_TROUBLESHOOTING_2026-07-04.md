@@ -2,7 +2,7 @@
 
 ## Why Shell Commands Sometimes Cannot Run
 
-The shell can fail before the command itself starts when its working directory does not exist. In this workspace the most common cause is a stale path from another machine or drive.
+The shell can fail before the command itself starts when its working directory does not exist. In this workspace the most common cause is a stale path from another machine, drive, mounted volume, or editor session.
 
 Current Windows reality:
 
@@ -11,13 +11,9 @@ exists:  E:\智能體\城城城程式
 missing: F:\城城城程式
 ```
 
-If the tool starts PowerShell with `F:\城城城程式` as cwd, even simple commands like `git status` or `Get-Location` can fail with:
+If a tool starts PowerShell with `F:\城城城程式` as `cwd`, even simple commands like `git status` or `Get-Location` can fail before Git or Python runs. Typical symptoms are "The directory name is invalid", "path not found", or a localized Windows error.
 
-```text
-目錄名稱無效。
-```
-
-That error is not a Git failure and not a Python failure. It means the process could not enter the requested directory.
+That is not a Git failure and not a Python failure. It means the process could not enter the requested directory.
 
 ## Quick Windows Probe
 

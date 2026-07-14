@@ -677,6 +677,24 @@ def build_next_actions(checks: list[Check]) -> list[dict[str, Any]]:
                 evidence=workspace.detail,
             )
         )
+    elif workspace and workspace.status == "ready_external_cwd":
+        actions.append(
+            _action(
+                "workspace_context",
+                "P2",
+                "Run handoff and automation commands from the repo root to avoid stale shell paths.",
+                windows=[
+                    f"Set-Location '{ROOT}'",
+                    "git status -sb",
+                ],
+                macos=[
+                    "cd /Volumes/<volume>/<repo>",
+                    "git status -sb",
+                ],
+                verify="workspace_context should report ready.",
+                evidence=workspace.detail,
+            )
+        )
 
     runtime_dependencies = by_name.get("runtime_dependencies")
     if runtime_dependencies and not runtime_dependencies.ok:

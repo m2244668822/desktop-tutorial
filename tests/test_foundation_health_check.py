@@ -132,6 +132,29 @@ class FoundationHealthCheckTests(unittest.TestCase):
             self.assertEqual(payload["action_summary"]["highest_priority"], "P1")
             self.assertEqual(payload["action_summary"]["by_priority"]["P1"], 1)
 
+    def test_next_actions_include_external_cwd_workspace_warning(self):
+        checks = [
+            foundation_health_check.Check(
+                "workspace_context",
+                True,
+                "ready_external_cwd",
+                {
+                    "root": "E:\\智能體\\城城城程式",
+                    "cwd": "C:\\Users\\pc",
+                    "cwd_inside_root": False,
+                    "git_root": "E:\\智能體\\城城城程式",
+                },
+            )
+        ]
+
+        actions = foundation_health_check.build_next_actions(checks)
+
+        self.assertEqual(len(actions), 1)
+        self.assertEqual(actions[0]["source"], "workspace_context")
+        self.assertEqual(actions[0]["priority"], "P2")
+        self.assertIn("repo root", actions[0]["summary"])
+        self.assertIn("git status -sb", actions[0]["windows"])
+
     def test_next_actions_include_n8n_remediation_plan(self):
         checks = [
             foundation_health_check.Check(
