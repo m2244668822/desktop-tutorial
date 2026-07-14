@@ -49,6 +49,7 @@ In a second terminal:
 ```bash
 export BROWSER_PATH="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 python tools/chat_shell_browser_smoke.py --base-url http://127.0.0.1:5001 --width 390 --height 844
+python tools/chat_shell_browser_smoke.py --base-url http://127.0.0.1:5001 --width 768 --height 1024
 python tools/chat_shell_browser_smoke.py --base-url http://127.0.0.1:5001 --width 1440 --height 1000
 ```
 
@@ -105,7 +106,7 @@ PY
 | goal completion audit | `foundation_goal_audit.py` maps the health report back to the full foundation objective |
 | repo secret hygiene | `repo_secret_hygiene.py` blocks obvious API keys in tracked files and verifies secret/runtime ignore patterns |
 | frontend static contract | canonical chat shell tokens plus mobile layout contract |
-| browser smoke | headless Chrome/Edge checks DOM, console, runtime exceptions, and layout |
+| browser smoke | headless Chrome/Edge checks DOM, console, runtime exceptions, and mobile/tablet/desktop layout |
 | n8n workflow | preflight blocks activation and emits structured remediation plus credential setup plans |
 | OpenClaw | `openclaw_runtime` verifies CLI, local gateway listener, and `/healthz` |
 

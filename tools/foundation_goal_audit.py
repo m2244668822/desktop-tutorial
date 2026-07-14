@@ -143,15 +143,50 @@ def evaluate_architecture(health: dict[str, Any], checks: dict[str, dict[str, An
 
 
 def evaluate_frontend(health: dict[str, Any], checks: dict[str, dict[str, Any]]) -> Requirement:
-    return _requirement_from_checks(
-        health,
+    required = ["frontend_static_contract", "browser_smoke"]
+    status, missing, failing = _status_for_missing_or_failing(
         checks,
-        req_id="frontend_issue_free",
-        title="Frontend Issue-Free Gate",
-        required=["frontend_static_contract", "browser_smoke"],
-        summary_ok="Static chat shell contract and real browser smoke evidence are both ready.",
-        summary_bad="Frontend cannot be called issue-free without both static contract and real browser smoke readiness.",
+        required,
         accepted_status={"browser_smoke": {"ready"}, "frontend_static_contract": {"ready"}},
+    )
+    browser = checks.get("browser_smoke") or {}
+    viewports = ((browser.get("detail") or {}).get("viewports") or [])
+    ready_viewports = [
+        item
+        for item in viewports
+        if isinstance(item, dict) and item.get("ok") and item.get("status") == "ready"
+    ]
+    matrix_ok = len(ready_viewports) >= 3
+    if status == "passed" and not matrix_ok:
+        status = "incomplete"
+        failing = sorted(set([*failing, "browser_smoke_matrix"]))
+    return Requirement(
+        "frontend_issue_free",
+        "Frontend Issue-Free Gate",
+        status,
+        (
+            "Static chat shell contract and mobile/tablet/desktop browser smoke evidence are all ready."
+            if status == "passed"
+            else "Frontend cannot be called issue-free without static contract plus mobile/tablet/desktop browser smoke readiness."
+        ),
+        {
+            "required_checks": required,
+            "missing": missing,
+            "failing": failing,
+            "checks": {name: compact_check(checks.get(name)) for name in required},
+            "browser_smoke_viewports": [
+                {
+                    "name": item.get("name"),
+                    "width": item.get("width"),
+                    "height": item.get("height"),
+                    "ok": item.get("ok"),
+                    "status": item.get("status"),
+                }
+                for item in viewports
+                if isinstance(item, dict)
+            ],
+        },
+        actions_for(health, set(required)),
     )
 
 

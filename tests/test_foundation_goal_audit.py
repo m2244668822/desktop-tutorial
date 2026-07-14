@@ -88,7 +88,20 @@ def base_health(preflight=None, include_browser=True, git_status=None):
         check("py_compile"),
     ]
     if include_browser:
-        checks.append(check("browser_smoke"))
+        checks.append(
+            check(
+                "browser_smoke",
+                True,
+                "ready",
+                {
+                    "viewports": [
+                        {"name": "mobile", "width": 390, "height": 844, "ok": True, "status": "ready"},
+                        {"name": "tablet", "width": 768, "height": 1024, "ok": True, "status": "ready"},
+                        {"name": "desktop", "width": 1440, "height": 1000, "ok": True, "status": "ready"},
+                    ]
+                },
+            )
+        )
     return {"checks": checks, "next_actions": []}
 
 
@@ -131,6 +144,22 @@ class FoundationGoalAuditTests(unittest.TestCase):
         by_id = {item["id"]: item for item in audit["requirements"]}
         self.assertEqual(by_id["frontend_issue_free"]["status"], "missing_evidence")
         self.assertIn("browser_smoke", by_id["frontend_issue_free"]["evidence"]["missing"])
+
+    def test_goal_audit_requires_browser_smoke_viewport_matrix(self):
+        health = base_health()
+        for item in health["checks"]:
+            if item["name"] == "browser_smoke":
+                item["detail"] = {
+                    "viewports": [
+                        {"name": "desktop", "width": 1440, "height": 1000, "ok": True, "status": "ready"}
+                    ]
+                }
+
+        audit = foundation_goal_audit.build_audit(health, Path("health.json"))
+
+        by_id = {item["id"]: item for item in audit["requirements"]}
+        self.assertEqual(by_id["frontend_issue_free"]["status"], "incomplete")
+        self.assertIn("browser_smoke_matrix", by_id["frontend_issue_free"]["evidence"]["failing"])
 
     def test_goal_audit_requires_repo_secret_hygiene(self):
         health = base_health()

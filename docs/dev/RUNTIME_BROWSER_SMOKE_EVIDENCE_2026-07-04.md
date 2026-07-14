@@ -214,3 +214,15 @@ Expected status before real n8n credentials are added:
 | n8n activation ready | blocked until real provider credentials are created and bound |
 
 During source edits, the optimization flow requirement may also report incomplete because Git has uncommitted source changes. After committing source changes, only generated report files should remain dirty.
+
+## 2026-07-14 Browser Smoke Matrix Gate
+
+`foundation_health_check.py --browser-smoke required` now runs the chat shell browser smoke as a viewport matrix instead of a single desktop-sized run:
+
+| Viewport | Size |
+|---|---|
+| mobile | `390x844` |
+| tablet | `768x1024` |
+| desktop | `1440x1000` |
+
+`foundation_goal_audit.py` also requires all three viewport results before `frontend_issue_free` can pass. A single desktop smoke result is no longer enough to support the "frontend issue-free" completion claim.

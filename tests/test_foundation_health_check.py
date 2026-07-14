@@ -571,24 +571,30 @@ class FoundationHealthCheckTests(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
-                reports = root / "reports"
-                reports.mkdir()
-                (reports / "chat_shell_browser_smoke_latest.json").write_text(
-                    json.dumps({"ok": False, "status": "browser_not_found"}),
-                    encoding="utf-8",
-                )
                 foundation_health_check.ROOT = root
-                foundation_health_check.run = lambda *args, **kwargs: CompletedProcess(
-                    args=args[0],
-                    returncode=1,
-                    stdout="[FAIL] browser_not_found",
-                    stderr="",
-                )
+
+                def fake_run(*args, **kwargs):
+                    cmd = args[0]
+                    report_path = Path(cmd[cmd.index("--json-out") + 1])
+                    report_path.parent.mkdir(parents=True, exist_ok=True)
+                    report_path.write_text(
+                        json.dumps({"ok": False, "status": "browser_not_found"}),
+                        encoding="utf-8",
+                    )
+                    return CompletedProcess(
+                        args=cmd,
+                        returncode=1,
+                        stdout="[FAIL] browser_not_found",
+                        stderr="",
+                    )
+
+                foundation_health_check.run = fake_run
 
                 check = foundation_health_check.check_browser_smoke("auto")
 
                 self.assertTrue(check.ok)
                 self.assertEqual(check.status, "skipped_browser_not_found")
+                self.assertEqual(len(check.detail["viewports"]), 1)
         finally:
             foundation_health_check.ROOT = old_root
             foundation_health_check.run = old_run
@@ -599,24 +605,78 @@ class FoundationHealthCheckTests(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
-                reports = root / "reports"
-                reports.mkdir()
-                (reports / "chat_shell_browser_smoke_latest.json").write_text(
-                    json.dumps({"ok": False, "status": "browser_not_found"}),
-                    encoding="utf-8",
-                )
                 foundation_health_check.ROOT = root
-                foundation_health_check.run = lambda *args, **kwargs: CompletedProcess(
-                    args=args[0],
-                    returncode=1,
-                    stdout="[FAIL] browser_not_found",
-                    stderr="",
-                )
+
+                def fake_run(*args, **kwargs):
+                    cmd = args[0]
+                    report_path = Path(cmd[cmd.index("--json-out") + 1])
+                    report_path.parent.mkdir(parents=True, exist_ok=True)
+                    report_path.write_text(
+                        json.dumps({"ok": False, "status": "browser_not_found"}),
+                        encoding="utf-8",
+                    )
+                    return CompletedProcess(
+                        args=cmd,
+                        returncode=1,
+                        stdout="[FAIL] browser_not_found",
+                        stderr="",
+                    )
+
+                foundation_health_check.run = fake_run
 
                 check = foundation_health_check.check_browser_smoke("required")
 
                 self.assertFalse(check.ok)
                 self.assertEqual(check.status, "browser_not_found")
+        finally:
+            foundation_health_check.ROOT = old_root
+            foundation_health_check.run = old_run
+
+    def test_browser_smoke_runs_mobile_tablet_desktop_matrix(self):
+        old_root = foundation_health_check.ROOT
+        old_run = foundation_health_check.run
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                foundation_health_check.ROOT = root
+                commands = []
+
+                def fake_run(*args, **kwargs):
+                    cmd = args[0]
+                    commands.append(cmd)
+                    report_path = Path(cmd[cmd.index("--json-out") + 1])
+                    width = int(cmd[cmd.index("--width") + 1])
+                    height = int(cmd[cmd.index("--height") + 1])
+                    report_path.parent.mkdir(parents=True, exist_ok=True)
+                    report_path.write_text(
+                        json.dumps(
+                            {
+                                "ok": True,
+                                "status": "ready",
+                                "dom": {"viewport": {"width": width, "height": height}},
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                    return CompletedProcess(
+                        args=cmd,
+                        returncode=0,
+                        stdout="[OK] browser smoke passed",
+                        stderr="",
+                    )
+
+                foundation_health_check.run = fake_run
+
+                check = foundation_health_check.check_browser_smoke("required")
+
+                self.assertTrue(check.ok)
+                self.assertEqual(check.status, "ready")
+                self.assertEqual(len(check.detail["viewports"]), 3)
+                self.assertEqual(
+                    [(item["width"], item["height"]) for item in check.detail["viewports"]],
+                    [(390, 844), (768, 1024), (1440, 1000)],
+                )
+                self.assertEqual(len(commands), 3)
         finally:
             foundation_health_check.ROOT = old_root
             foundation_health_check.run = old_run

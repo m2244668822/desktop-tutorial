@@ -74,7 +74,7 @@ Expected checks:
 | `n8n_workflow_preflight` | workflow activation state is visible |
 | `knowledge_hub` | data manifest and indexes are usable |
 | `frontend_static_contract` | canonical chat shell tokens and visible text integrity have not drifted |
-| `browser_smoke` | real browser load has no visible/runtime/console/text-integrity breakage |
+| `browser_smoke` | real browser load has no visible/runtime/console/text-integrity breakage across mobile, tablet, and desktop viewports |
 
 The JSON report also includes `next_actions`. These are sorted repair steps with:
 
@@ -209,7 +209,7 @@ The audit reads the health report and evaluates the active objective as separate
 | Requirement | Evidence |
 |---|---|
 | foundation architecture ready | workspace, dependencies, controller, ports, gateway, n8n, data, and compile checks |
-| frontend issue-free gate | static contract plus real browser smoke |
+| frontend issue-free gate | static contract plus mobile/tablet/desktop real browser smoke |
 | backend multi-angle detection | dependencies, controller, ports, APIs, OpenClaw, n8n preflight, data, and compile checks |
 | optimization flow without sprawl | runbook/handoff docs plus controlled Git scope |
 | repo secret hygiene | no obvious API keys in tracked files and runtime/secret ignore patterns are present |

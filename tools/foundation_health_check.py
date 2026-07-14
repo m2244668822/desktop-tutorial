@@ -37,6 +37,13 @@ class Check:
     detail: dict[str, Any]
 
 
+BROWSER_SMOKE_VIEWPORTS = [
+    {"name": "mobile", "width": 390, "height": 844},
+    {"name": "tablet", "width": 768, "height": 1024},
+    {"name": "desktop", "width": 1440, "height": 1000},
+]
+
+
 def _action(
     source: str,
     priority: str,
@@ -560,42 +567,69 @@ def check_py_compile() -> Check:
 
 
 def check_browser_smoke(mode: str = "auto") -> Check:
-    report_path = ROOT / "reports" / "chat_shell_browser_smoke_latest.json"
-    screenshot_path = ROOT / "reports" / "chat_shell_browser_smoke_latest.png"
-    cmd = [
-        sys.executable,
-        "tools/chat_shell_browser_smoke.py",
-        "--base-url",
-        "http://127.0.0.1:5001",
-        "--json-out",
-        str(report_path),
-        "--screenshot-out",
-        str(screenshot_path),
-        "--timeout",
-        "20",
-    ]
-    proc = run(cmd, timeout=60)
+    viewport_results: list[dict[str, Any]] = []
+    for viewport in BROWSER_SMOKE_VIEWPORTS:
+        name = str(viewport["name"])
+        report_path = ROOT / "reports" / f"chat_shell_browser_smoke_{name}_latest.json"
+        screenshot_path = ROOT / "reports" / f"chat_shell_browser_smoke_{name}_latest.png"
+        cmd = [
+            sys.executable,
+            "tools/chat_shell_browser_smoke.py",
+            "--base-url",
+            "http://127.0.0.1:5001",
+            "--json-out",
+            str(report_path),
+            "--screenshot-out",
+            str(screenshot_path),
+            "--timeout",
+            "20",
+            "--width",
+            str(viewport["width"]),
+            "--height",
+            str(viewport["height"]),
+        ]
+        proc = run(cmd, timeout=90)
+        payload: dict[str, Any] = {}
+        report_error = ""
+        if report_path.exists():
+            try:
+                payload = json.loads(report_path.read_text(encoding="utf-8"))
+            except Exception as exc:  # noqa: BLE001
+                report_error = str(exc)
+        status = str(payload.get("status") or ("ready" if proc.returncode == 0 else "failed"))
+        viewport_ok = proc.returncode == 0 and bool(payload.get("ok", proc.returncode == 0))
+        viewport_results.append(
+            {
+                "name": name,
+                "width": viewport["width"],
+                "height": viewport["height"],
+                "ok": viewport_ok,
+                "status": status,
+                "returncode": proc.returncode,
+                "stdout": proc.stdout[-1200:],
+                "stderr": proc.stderr[-1200:],
+                "report_path": str(report_path),
+                "screenshot_path": str(screenshot_path),
+                "report": payload,
+                "report_error": report_error,
+            }
+        )
+        if status == "browser_not_found":
+            break
+
     detail: dict[str, Any] = {
         "mode": mode,
-        "returncode": proc.returncode,
-        "stdout": proc.stdout[-2000:],
-        "stderr": proc.stderr[-2000:],
-        "report_path": str(report_path),
-        "screenshot_path": str(screenshot_path),
+        "matrix": BROWSER_SMOKE_VIEWPORTS,
+        "viewports": viewport_results,
     }
-    payload: dict[str, Any] = {}
-    if report_path.exists():
-        try:
-            payload = json.loads(report_path.read_text(encoding="utf-8"))
-            detail["report"] = payload
-        except Exception as exc:  # noqa: BLE001
-            detail["report_error"] = str(exc)
-
-    status = str(payload.get("status") or ("ready" if proc.returncode == 0 else "failed"))
-    if status == "browser_not_found" and mode == "auto":
+    statuses = [str(item.get("status")) for item in viewport_results]
+    if "browser_not_found" in statuses and mode == "auto":
         return Check("browser_smoke", True, "skipped_browser_not_found", detail)
-    ok = proc.returncode == 0 and bool(payload.get("ok", proc.returncode == 0))
-    return Check("browser_smoke", ok, "ready" if ok else status, detail)
+    ok = len(viewport_results) == len(BROWSER_SMOKE_VIEWPORTS) and all(
+        bool(item.get("ok")) for item in viewport_results
+    )
+    status = "ready" if ok else (statuses[0] if statuses else "failed")
+    return Check("browser_smoke", ok, status, detail)
 
 
 def collect_checks(browser_smoke: str = "auto") -> list[Check]:
