@@ -264,3 +264,17 @@ Current activation interpretation:
 | `repo_hygiene` | keep secret hygiene and dirty worktree scope separate |
 
 `foundation_goal_audit.py` includes backend-related matrix rows in the `backend_multi_angle_detection` evidence. This prevents a single green/bad label from hiding which layer actually owns the next repair.
+
+## 2026-07-14 n8n Node Type Compatibility Gate
+
+`n8n_workflow_preflight.py` now inspects installed n8n node packages without reading credentials or execution payloads. It records `node_type_inventory` and blocks activation when the workflow references a node type that is not installed on the current machine. When the workflow already exists in the local n8n DB, `node_type_inventory.node_source` is `n8n_database_workflow`; otherwise it falls back to `workflow_spec`.
+
+Current Windows package evidence:
+
+| Package | Version / Finding |
+|---|---|
+| `n8n` | `2.21.4` |
+| `n8n-nodes-base` | `2.21.2`; includes `n8n-nodes-base.openAi` |
+| `@n8n/n8n-nodes-langchain` | includes Gemini nodes such as `@n8n/n8n-nodes-langchain.googleGemini` and `@n8n/n8n-nodes-langchain.lmChatGoogleGemini` |
+
+The existing Xiaobian source spec still references `n8n-nodes-base.googleGemini`, which is not present in the current installed package set. That must be resolved before provider credentials and manual execution can prove activation readiness.

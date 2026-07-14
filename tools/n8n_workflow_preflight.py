@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import sqlite3
+import subprocess
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -47,6 +48,24 @@ CREDENTIAL_REQUIREMENTS: dict[str, dict[str, Any]] = {
         "required_fields": ["apiKey"],
         "optional_fields": [],
     },
+    "@n8n/n8n-nodes-langchain.googleGemini": {
+        "provider": "Google Gemini",
+        "display_name": "Google Gemini",
+        "credential_type": "googlePalmApi",
+        "credential_type_candidates": [],
+        "credential_type_source": "installed_n8n_nodes_langchain",
+        "required_fields": ["apiKey"],
+        "optional_fields": ["host"],
+    },
+    "@n8n/n8n-nodes-langchain.lmChatGoogleGemini": {
+        "provider": "Google Gemini",
+        "display_name": "Google Gemini",
+        "credential_type": "googlePalmApi",
+        "credential_type_candidates": [],
+        "credential_type_source": "installed_n8n_nodes_langchain",
+        "required_fields": ["apiKey"],
+        "optional_fields": ["host"],
+    },
     "n8n-nodes-base.openAi": {
         "provider": "OpenAI",
         "display_name": "OpenAI",
@@ -56,6 +75,13 @@ CREDENTIAL_REQUIREMENTS: dict[str, dict[str, Any]] = {
         "required_fields": ["apiKey"],
         "optional_fields": ["organizationId", "url", "customHeaders"],
     },
+}
+
+NODE_TYPE_ALTERNATIVES = {
+    "n8n-nodes-base.googleGemini": [
+        "@n8n/n8n-nodes-langchain.googleGemini",
+        "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+    ],
 }
 
 
@@ -84,6 +110,144 @@ def _credential_count(db: dict[str, Any]) -> int:
         return int((db.get("counts") or {}).get("credentials_entity", 0) or 0)
     except Exception:
         return 0
+
+
+def _npm_root_global() -> str:
+    npm = shutil.which("npm.cmd") or shutil.which("npm")
+    if not npm:
+        return ""
+    cmd = ["cmd", "/c", "npm", "root", "-g"] if os.name == "nt" else [npm, "root", "-g"]
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=15,
+            check=False,
+        )
+    except Exception:
+        return ""
+    return proc.stdout.strip() if proc.returncode == 0 else ""
+
+
+def n8n_package_roots() -> list[Path]:
+    roots: list[Path] = []
+    env_roots = os.environ.get("N8N_NODE_PACKAGE_ROOTS", "")
+    for item in env_roots.split(os.pathsep):
+        if item.strip():
+            roots.append(Path(item.strip()).expanduser())
+    npm_root = _npm_root_global()
+    if npm_root:
+        root = Path(npm_root)
+        roots.extend(
+            [
+                root / "n8n" / "node_modules" / "n8n-nodes-base",
+                root / "n8n" / "node_modules" / "@n8n" / "n8n-nodes-langchain",
+            ]
+        )
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for root in roots:
+        key = str(root)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(root)
+    return unique
+
+
+def _package_name(package_root: Path) -> str:
+    package_json = package_root / "package.json"
+    try:
+        payload = json.loads(package_json.read_text(encoding="utf-8"))
+        if isinstance(payload, dict) and payload.get("name"):
+            return str(payload["name"])
+    except Exception:
+        pass
+    return package_root.name
+
+
+def _node_types_from_package(package_root: Path) -> tuple[set[str], dict[str, Any]]:
+    package_name = _package_name(package_root)
+    node_types: set[str] = set()
+    metadata = {
+        "path": str(package_root),
+        "package": package_name,
+        "exists": package_root.exists(),
+        "node_count": 0,
+        "source": "",
+    }
+    known_nodes = package_root / "dist" / "known" / "nodes.json"
+    if known_nodes.exists():
+        try:
+            payload = json.loads(known_nodes.read_text(encoding="utf-8"))
+            if isinstance(payload, dict):
+                node_types.update(f"{package_name}.{key}" for key in payload)
+                metadata["source"] = str(known_nodes)
+        except Exception as exc:  # noqa: BLE001
+            metadata["error"] = str(exc)
+    nodes_root = package_root / "dist" / "nodes"
+    if nodes_root.exists():
+        for path in nodes_root.rglob("*.node.json"):
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if isinstance(payload, dict) and payload.get("node"):
+                node_types.add(str(payload["node"]))
+        if not metadata["source"]:
+            metadata["source"] = str(nodes_root)
+    metadata["node_count"] = len(node_types)
+    return node_types, metadata
+
+
+def installed_node_type_inventory(
+    nodes: list[dict[str, Any]] | Any,
+    node_source: str = "workflow_spec",
+) -> dict[str, Any]:
+    required_types = sorted(
+        {
+            str(node.get("type") or "")
+            for node in nodes
+            if isinstance(node, dict) and str(node.get("type") or "")
+        }
+    )
+    inventory: dict[str, Any] = {
+        "checked": False,
+        "node_source": node_source,
+        "checked_node_count": len(nodes) if isinstance(nodes, list) else 0,
+        "packages": [],
+        "installed_count": 0,
+        "required": {},
+        "missing": [],
+        "error": "",
+    }
+    installed: set[str] = set()
+    packages = []
+    for package_root in n8n_package_roots():
+        node_types, metadata = _node_types_from_package(package_root)
+        packages.append(metadata)
+        installed.update(node_types)
+    inventory["packages"] = packages
+    inventory["installed_count"] = len(installed)
+    inventory["checked"] = bool(packages and installed)
+    if not inventory["checked"]:
+        inventory["error"] = "n8n_node_package_inventory_unavailable"
+    for node_type in required_types:
+        alternatives = [
+            candidate
+            for candidate in NODE_TYPE_ALTERNATIVES.get(node_type, [])
+            if candidate in installed
+        ]
+        inventory["required"][node_type] = {
+            "available": node_type in installed,
+            "alternatives": alternatives,
+        }
+        if node_type not in installed:
+            inventory["missing"].append(node_type)
+    return inventory
 
 
 def compact_workflow_nodes(nodes: list[dict[str, Any]] | Any) -> list[dict[str, Any]]:
@@ -474,6 +638,28 @@ def remediation_for_issue(issue: Issue) -> dict[str, Any]:
                 f"Open workflow node {node or '<node>'} and bind an existing provider credential.",
             ],
             "verify": "Rerun preflight and confirm credential_reference_missing is gone.",
+        },
+        "n8n_node_type_missing": {
+            "owner": "developer",
+            "manual": False,
+            "summary": f"Replace unsupported n8n node type {evidence.get('type') or '<node type>'} before activation.",
+            "windows": [
+                "Open the workflow in n8n and confirm whether the node exists in the current node picker.",
+                "Update docs\\superpowers\\specs\\n8n-workflow-xiaobian-video.json to a supported node type, then re-import it.",
+            ],
+            "macos": [
+                "Open the workflow in n8n and confirm whether the node exists in the current node picker.",
+                "Update docs/superpowers/specs/n8n-workflow-xiaobian-video.json to a supported node type, then re-import it.",
+            ],
+            "verify": "Rerun preflight and confirm n8n_node_type_missing is gone.",
+        },
+        "n8n_node_type_inventory_unavailable": {
+            "owner": "developer",
+            "manual": False,
+            "summary": "Make the installed n8n node package inventory inspectable.",
+            "windows": ["cmd /c npm root -g", "cmd /c npm list -g n8n --depth=1"],
+            "macos": ["npm root -g", "npm list -g n8n --depth=1"],
+            "verify": "Rerun preflight and confirm node_type_inventory.checked is true.",
         },
         "ffmpeg_not_found": {
             "owner": "operator",
@@ -870,6 +1056,46 @@ def audit_credentials(nodes: list[dict[str, Any]], db: dict[str, Any]) -> list[I
     return issues
 
 
+def audit_node_types(
+    nodes: list[dict[str, Any]],
+    inventory: dict[str, Any],
+) -> list[Issue]:
+    issues: list[Issue] = []
+    if not inventory.get("checked"):
+        issues.append(
+            Issue(
+                "warning",
+                "n8n_node_type_inventory_unavailable",
+                "Installed n8n node type inventory could not be inspected.",
+                {"inventory": inventory},
+            )
+        )
+        return issues
+    required = inventory.get("required") or {}
+    for node in nodes:
+        node_type = str(node.get("type") or "")
+        if not node_type:
+            continue
+        record = required.get(node_type) or {}
+        if record.get("available", True):
+            continue
+        issues.append(
+            Issue(
+                "blocker",
+                "n8n_node_type_missing",
+                f"{_node_name(node)} uses node type {node_type}, which is not installed in the current n8n packages.",
+                {
+                    "node": _node_name(node),
+                    "type": node_type,
+                    "node_source": inventory.get("node_source", ""),
+                    "alternatives": list(record.get("alternatives") or []),
+                    "packages": inventory.get("packages", []),
+                },
+            )
+        )
+    return issues
+
+
 def resolve_ffmpeg(ffmpeg_path: str | None = None) -> dict[str, Any]:
     return dict(locate_ffmpeg(ffmpeg_path, which=shutil.which))
 
@@ -1095,6 +1321,11 @@ def run_preflight(
         str(workflow.get("name") or ""),
     )
     credential_nodes, credential_binding_source = credential_audit_nodes(nodes, db)
+    node_type_inventory = installed_node_type_inventory(
+        credential_nodes,
+        credential_binding_source,
+    )
+    issues.extend(audit_node_types(credential_nodes, node_type_inventory))
     issues.extend(audit_credentials(nodes, db))
     issues.extend(audit_execute_commands(nodes, ffmpeg))
     issues.extend(audit_webhooks(nodes))
@@ -1123,6 +1354,7 @@ def run_preflight(
         "status": status,
         "spec_path": str(spec_path),
         "ffmpeg": ffmpeg,
+        "node_type_inventory": node_type_inventory,
         "workflow": {
             "id": workflow.get("id", ""),
             "name": workflow.get("name", ""),

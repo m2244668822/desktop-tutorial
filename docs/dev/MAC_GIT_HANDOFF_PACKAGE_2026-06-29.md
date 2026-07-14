@@ -72,7 +72,7 @@ To print the current goal blockers after running `foundation_goal_audit.py`:
 python - <<'PY'
 import json
 from pathlib import Path
-audit = json.loads(Path("reports/foundation_goal_audit_latest.json").read_text())
+audit = json.loads(Path("reports/foundation_goal_audit_latest.json").read_text(encoding="utf-8"))
 for item in audit.get("completion_blockers", []):
     print(f"{item['id']}: {item['category']} operator={item['operator_required']} external={item['external_dependency']}")
 PY
@@ -84,7 +84,7 @@ The foundation report now has a top-level `next_actions` list. To print it:
 python - <<'PY'
 import json
 from pathlib import Path
-report = json.loads(Path("reports/foundation_health_latest.json").read_text())
+report = json.loads(Path("reports/foundation_health_latest.json").read_text(encoding="utf-8"))
 for item in report.get("next_actions", []):
     print(f"[{item['priority']}] {item['source']}: {item['summary']}")
 PY
@@ -96,7 +96,7 @@ To see which layer owns the problem first, print `diagnostic_matrix`:
 python - <<'PY'
 import json
 from pathlib import Path
-report = json.loads(Path("reports/foundation_health_latest.json").read_text())
+report = json.loads(Path("reports/foundation_health_latest.json").read_text(encoding="utf-8"))
 for item in report.get("diagnostic_matrix", []):
     print(f"{item['id']}: {item['status']} highest={item.get('highest_priority') or '-'}")
 PY
@@ -110,9 +110,11 @@ If n8n preflight is still blocked or waiting for a manual run, open the JSON rep
 python - <<'PY'
 import json
 from pathlib import Path
-report = json.loads(Path("reports/n8n_workflow_preflight_latest.json").read_text())
+report = json.loads(Path("reports/n8n_workflow_preflight_latest.json").read_text(encoding="utf-8"))
+inventory = report.get("node_type_inventory", {})
 plan = report.get("credential_setup_plan", {})
 manual = report.get("manual_execution_plan", {})
+print(f"node_type_inventory: {inventory.get('node_source')} missing={inventory.get('missing')}")
 print(f"credential_setup_plan: {plan.get('status')}")
 print(f"manual_execution_plan: {manual.get('status')}")
 for item in plan.get("required_credentials", []):
@@ -123,6 +125,8 @@ for item in report.get("remediation_plan", []):
     print(f"- remediation {item['code']}: {item['summary']}")
 PY
 ```
+
+On Windows PowerShell, read these UTF-8 JSON reports with `Get-Content -Encoding UTF8` before piping to `ConvertFrom-Json`; otherwise Chinese paths can display as mojibake and produce misleading parse errors. macOS Terminal can use the Python snippets above or `jq`.
 
 ## Windows Validation Already Added
 
@@ -141,10 +145,11 @@ PY
 
 ## n8n Status
 
-The Xiaobian workflow source spec has been hardened with timeout, cost controls, error policy, webhook header auth, controlled FFmpeg output, and `FFMPEG_PATH` / `XIAOBIAN_FFMPEG_PATH` override support. The preflight now emits `credential_setup_plan` and `manual_execution_plan` so the remaining manual n8n work is grouped by provider and by activation evidence. Activation is still blocked or pending until:
+The Xiaobian workflow source spec has been hardened with timeout, cost controls, error policy, webhook header auth, controlled FFmpeg output, and `FFMPEG_PATH` / `XIAOBIAN_FFMPEG_PATH` override support. The preflight now emits `node_type_inventory`, `credential_setup_plan`, and `manual_execution_plan` so the remaining manual n8n work is grouped by installed-node compatibility, provider, and activation evidence. Activation is still blocked or pending until:
 
 | Blocker | Action |
 |---|---|
+| n8n node type compatibility | Confirm `node_type_inventory.node_source` and missing node types; current n8n 2.x exposes Gemini through `@n8n/n8n-nodes-langchain.googleGemini` / `lmChatGoogleGemini`, not stale `n8n-nodes-base.googleGemini` |
 | Gemini/OpenAI credentials | Create real provider credentials in n8n, then bind Gemini Parser, DALL-E 3 Generator, and OpenAI TTS |
 | n8n credential DB | Ensure `credentials_entity` is non-empty after creating real credentials |
 | repo secret hygiene | Keep API keys inside n8n or local env only; run `python tools/repo_secret_hygiene.py` before staging |

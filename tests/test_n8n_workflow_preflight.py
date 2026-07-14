@@ -252,6 +252,141 @@ class N8nWorkflowPreflightTests(unittest.TestCase):
             "http://127.0.0.1:5678/workflow/xiaobianVideo001",
         )
 
+    def test_langchain_gemini_credential_requirement_is_explicit(self):
+        requirement = n8n_workflow_preflight.credential_requirement_for_node(
+            "@n8n/n8n-nodes-langchain.googleGemini"
+        )
+
+        self.assertIsNotNone(requirement)
+        self.assertEqual(requirement["credential_type"], "googlePalmApi")
+        self.assertEqual(requirement["credential_type_source"], "installed_n8n_nodes_langchain")
+
+    def test_node_type_inventory_flags_missing_legacy_gemini_node(self):
+        inventory = {
+            "checked": True,
+            "node_source": "workflow_spec",
+            "packages": [{"package": "@n8n/n8n-nodes-langchain", "node_count": 2}],
+            "required": {
+                "n8n-nodes-base.googleGemini": {
+                    "available": False,
+                    "alternatives": ["@n8n/n8n-nodes-langchain.googleGemini"],
+                }
+            },
+        }
+        nodes = [
+            {
+                "name": "Gemini Parser",
+                "type": "n8n-nodes-base.googleGemini",
+                "parameters": {},
+            }
+        ]
+
+        issues = n8n_workflow_preflight.audit_node_types(nodes, inventory)
+
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0].code, "n8n_node_type_missing")
+        self.assertEqual(
+            issues[0].evidence["alternatives"],
+            ["@n8n/n8n-nodes-langchain.googleGemini"],
+        )
+
+    def test_preflight_node_type_inventory_uses_db_workflow_when_imported(self):
+        old_inventory = n8n_workflow_preflight.installed_node_type_inventory
+        old_locate = n8n_workflow_preflight.locate_ffmpeg
+        captured = {}
+
+        def fake_inventory(nodes, node_source="workflow_spec"):
+            captured["node_source"] = node_source
+            captured["types"] = [node.get("type") for node in nodes]
+            return {
+                "checked": True,
+                "node_source": node_source,
+                "checked_node_count": len(nodes),
+                "packages": [{"package": "test", "node_count": 1}],
+                "installed_count": 1,
+                "required": {
+                    node.get("type"): {
+                        "available": node.get("type") != "n8n-nodes-base.googleGemini",
+                        "alternatives": [],
+                    }
+                    for node in nodes
+                },
+                "missing": ["n8n-nodes-base.googleGemini"],
+                "error": "",
+            }
+
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                spec = root / "workflow.json"
+                db = root / "database.sqlite"
+                spec.write_text(
+                    json.dumps(
+                        {
+                            "id": "xiaobianVideo001",
+                            "name": "Xiaobian Short Video Automation",
+                            "active": False,
+                            "nodes": [
+                                {
+                                    "name": "OpenAI TTS",
+                                    "type": "n8n-nodes-base.openAi",
+                                    "parameters": {"text": "hello"},
+                                }
+                            ],
+                            "settings": {"executionTimeout": 900},
+                            "meta": {"cost_controls": {"max": 1}, "error_policy": {"default": "fail_closed"}},
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                con = sqlite3.connect(db)
+                con.execute(
+                    "create table workflow_entity (id text, name text, active integer, nodes text, settings text, meta text)"
+                )
+                con.execute("create table credentials_entity (id text, name text, data text, type text)")
+                con.execute("create table execution_entity (id text)")
+                con.execute(
+                    "insert into workflow_entity (id, name, active, nodes, settings, meta) values (?, ?, ?, ?, ?, ?)",
+                    (
+                        "xiaobianVideo001",
+                        "Xiaobian Short Video Automation",
+                        0,
+                        json.dumps(
+                            [
+                                {
+                                    "name": "Gemini Parser",
+                                    "type": "n8n-nodes-base.googleGemini",
+                                    "parameters": {"prompt": "parse"},
+                                }
+                            ]
+                        ),
+                        json.dumps({"executionTimeout": 900}),
+                        json.dumps({"cost_controls": {"max": 1}, "error_policy": {"default": "fail_closed"}}),
+                    ),
+                )
+                con.commit()
+                con.close()
+                n8n_workflow_preflight.installed_node_type_inventory = fake_inventory
+                n8n_workflow_preflight.locate_ffmpeg = lambda *_args, **_kwargs: {
+                    "found": True,
+                    "source": "test",
+                    "path": "ffmpeg",
+                    "configured_path": "",
+                    "path_lookup": "ffmpeg",
+                    "candidate_paths": [],
+                }
+
+                payload = n8n_workflow_preflight.run_preflight(spec, db)
+
+                codes = {issue["code"] for issue in payload["issues"]}
+                self.assertEqual(captured["node_source"], "n8n_database_workflow")
+                self.assertEqual(captured["types"], ["n8n-nodes-base.googleGemini"])
+                self.assertEqual(payload["node_type_inventory"]["node_source"], "n8n_database_workflow")
+                self.assertIn("n8n_node_type_missing", codes)
+        finally:
+            n8n_workflow_preflight.installed_node_type_inventory = old_inventory
+            n8n_workflow_preflight.locate_ffmpeg = old_locate
+
     def test_db_workflow_credentials_satisfy_source_spec_missing_bindings(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

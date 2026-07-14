@@ -173,6 +173,33 @@ class FoundationGoalAuditTests(unittest.TestCase):
         self.assertTrue(audit["completion_blockers"][0]["operator_required"])
         self.assertFalse(audit["completion_blockers"][0]["external_dependency"])
 
+    def test_goal_audit_prioritizes_n8n_node_type_compatibility_blocker(self):
+        preflight = check(
+            "n8n_workflow_preflight",
+            True,
+            "blocked_for_activation",
+            {
+                "report": {
+                    "status": "blocked_for_activation",
+                    "ok_for_activation": False,
+                    "blocker_count": 2,
+                    "credential_setup_plan": {"status": "needs_credentials"},
+                    "issues": [
+                        {"code": "missing_node_credentials"},
+                        {"code": "n8n_node_type_missing"},
+                    ],
+                }
+            },
+        )
+        health = base_health(preflight=preflight)
+
+        audit = foundation_goal_audit.build_audit(health, Path("health.json"))
+
+        by_id = {item["id"]: item for item in audit["requirements"]}
+        self.assertIn("node types", by_id["n8n_activation_ready"]["summary"])
+        self.assertEqual(audit["completion_blockers"][0]["category"], "workflow_compatibility_required")
+        self.assertFalse(audit["completion_blockers"][0]["external_dependency"])
+
     def test_goal_audit_requires_real_browser_smoke_evidence(self):
         health = base_health(include_browser=False)
 

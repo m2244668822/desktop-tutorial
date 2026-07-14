@@ -181,6 +181,7 @@ The preflight JSON report includes:
 | Field | Use |
 |---|---|
 | `issues` | Raw blockers and warnings with evidence |
+| `node_type_inventory` | Installed n8n node package inventory for workflow node types, including `node_source` (`n8n_database_workflow` when imported, otherwise `workflow_spec`); detects stale/renamed node types before credential work |
 | `credential_setup_plan` | Provider-grouped manual credential checklist with n8n URLs, required fields, node bindings, binding source, and no secret values |
 | `manual_execution_plan` | Manual-run evidence gate based on execution metadata only; activation stays pending until one successful manual execution is recorded |
 | `remediation_plan` | Deduplicated Windows/macOS repair steps for each recurring blocker |
@@ -193,6 +194,7 @@ Known activation blockers:
 
 | Blocker | Required Action |
 |---|---|
+| unsupported n8n node type | Replace stale workflow node types with node types installed in the current n8n package, then re-import |
 | provider credentials | Follow `credential_setup_plan` to create real Gemini/OpenAI credentials and bind every provider node |
 | n8n DB credentials | Ensure `credentials_entity` is non-empty after creating real credentials |
 | missing/stale credential references | Rebind the node in n8n UI if a workflow node references a credential that is not present in the local DB |
@@ -239,7 +241,7 @@ The goal audit also writes top-level `completion_blockers` and `completion_block
 
 | Field | Use |
 |---|---|
-| `completion_blockers[].category` | Machine-readable blocker class such as `external_credentials_required`, `manual_execution_required`, or `missing_evidence` |
+| `completion_blockers[].category` | Machine-readable blocker class such as `workflow_compatibility_required`, `external_credentials_required`, `manual_execution_required`, or `missing_evidence` |
 | `completion_blockers[].operator_required` | Whether a human/operator action is required before Codex can prove completion |
 | `completion_blockers[].external_dependency` | Whether the blocker depends on external/local secret material that must not be committed |
 | `completion_blockers[].next_actions` | The first concrete repair actions inherited from the health report |

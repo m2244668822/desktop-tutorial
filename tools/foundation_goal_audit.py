@@ -335,6 +335,11 @@ def evaluate_n8n_activation(checks: dict[str, dict[str, Any]], health: dict[str,
     report = ((check or {}).get("detail") or {}).get("report") or {}
     credential_plan = report.get("credential_setup_plan") or {}
     manual_plan = report.get("manual_execution_plan") or {}
+    issue_codes = {
+        str(item.get("code"))
+        for item in report.get("issues") or []
+        if isinstance(item, dict)
+    }
     ready = (
         bool(check and check.get("ok"))
         and str(report.get("status")) == "ready_for_activation"
@@ -350,7 +355,10 @@ def evaluate_n8n_activation(checks: dict[str, dict[str, Any]], health: dict[str,
         summary = "n8n activation readiness has no preflight evidence."
     elif str(report.get("status")) == "blocked_for_activation":
         status = "blocked"
-        summary = "n8n activation is blocked by preflight, currently by real provider credential work."
+        if "n8n_node_type_missing" in issue_codes:
+            summary = "n8n activation is blocked by workflow node types that are not installed in the current n8n packages."
+        else:
+            summary = "n8n activation is blocked by preflight, currently by real provider credential work."
     elif str(report.get("status")) == "ready_for_manual_execution":
         status = "incomplete"
         summary = "n8n credentials are ready enough to run a controlled manual execution, but activation is not proven yet."
@@ -391,7 +399,9 @@ def classify_completion_blocker(requirement: Requirement) -> dict[str, Any]:
             for item in evidence.get("issues") or []
             if isinstance(item, dict)
         }
-        if (
+        if "n8n_node_type_missing" in issue_codes:
+            category = "workflow_compatibility_required"
+        elif (
             str(credential_plan.get("status")) == "needs_credentials"
             or "missing_node_credentials" in issue_codes
             or "n8n_database_has_no_credentials" in issue_codes
