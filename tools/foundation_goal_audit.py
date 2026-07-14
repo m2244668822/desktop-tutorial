@@ -375,6 +375,68 @@ def evaluate_n8n_activation(checks: dict[str, dict[str, Any]], health: dict[str,
     )
 
 
+def classify_completion_blocker(requirement: Requirement) -> dict[str, Any]:
+    category = "internal_followup_required"
+    operator_required = False
+    external_dependency = False
+    evidence = requirement.evidence or {}
+
+    if requirement.status == "missing_evidence":
+        category = "missing_evidence"
+    elif requirement.id == "n8n_activation_ready":
+        credential_plan = evidence.get("credential_setup_plan") or {}
+        manual_plan = evidence.get("manual_execution_plan") or {}
+        issue_codes = {
+            str(item.get("code"))
+            for item in evidence.get("issues") or []
+            if isinstance(item, dict)
+        }
+        if (
+            str(credential_plan.get("status")) == "needs_credentials"
+            or "missing_node_credentials" in issue_codes
+            or "n8n_database_has_no_credentials" in issue_codes
+        ):
+            category = "external_credentials_required"
+            operator_required = True
+            external_dependency = True
+        elif (
+            str(evidence.get("preflight_status")) == "ready_for_manual_execution"
+            or str(manual_plan.get("status")) == "needs_manual_execution"
+        ):
+            category = "manual_execution_required"
+            operator_required = True
+        else:
+            category = "n8n_preflight_blocked"
+            operator_required = requirement.status == "blocked"
+    elif requirement.status == "blocked":
+        category = "blocked"
+
+    return {
+        "id": requirement.id,
+        "title": requirement.title,
+        "status": requirement.status,
+        "category": category,
+        "operator_required": operator_required,
+        "external_dependency": external_dependency,
+        "summary": requirement.summary,
+        "next_action_count": len(requirement.next_actions),
+        "next_actions": requirement.next_actions[:5],
+    }
+
+
+def summarize_completion_blockers(blockers: list[dict[str, Any]]) -> dict[str, Any]:
+    by_category: dict[str, int] = {}
+    for blocker in blockers:
+        category = str(blocker.get("category") or "unknown")
+        by_category[category] = by_category.get(category, 0) + 1
+    return {
+        "count": len(blockers),
+        "by_category": by_category,
+        "operator_required": any(bool(item.get("operator_required")) for item in blockers),
+        "external_dependency": any(bool(item.get("external_dependency")) for item in blockers),
+    }
+
+
 def build_audit(health: dict[str, Any], health_report_path: Path) -> dict[str, Any]:
     checks = checks_by_name(health)
     requirements = [
@@ -387,6 +449,7 @@ def build_audit(health: dict[str, Any], health_report_path: Path) -> dict[str, A
         evaluate_n8n_activation(checks, health),
     ]
     incomplete = [item for item in requirements if item.status != "passed"]
+    completion_blockers = [classify_completion_blocker(item) for item in incomplete]
     return {
         "generated_at": datetime.now().isoformat(),
         "workspace": str(ROOT),
@@ -394,6 +457,8 @@ def build_audit(health: dict[str, Any], health_report_path: Path) -> dict[str, A
         "ok": not incomplete,
         "status": "complete" if not incomplete else "incomplete",
         "completion_claim_allowed": not incomplete,
+        "completion_blockers": completion_blockers,
+        "completion_blocker_summary": summarize_completion_blockers(completion_blockers),
         "requirement_count": len(requirements),
         "passed_count": len(requirements) - len(incomplete),
         "incomplete_count": len(incomplete),

@@ -66,6 +66,18 @@ python tools/n8n_workflow_preflight.py --allow-blockers
 python -m pytest tests/test_foundation_health_check.py tests/test_runtime_dependency_doctor.py tests/test_runtime_service_controller.py tests/test_frontend_sync_contract.py tests/test_openclaw_bridge.py tests/test_n8n_workflow_preflight.py --tb=short
 ```
 
+To print the current goal blockers after running `foundation_goal_audit.py`:
+
+```bash
+python - <<'PY'
+import json
+from pathlib import Path
+audit = json.loads(Path("reports/foundation_goal_audit_latest.json").read_text())
+for item in audit.get("completion_blockers", []):
+    print(f"{item['id']}: {item['category']} operator={item['operator_required']} external={item['external_dependency']}")
+PY
+```
+
 The foundation report now has a top-level `next_actions` list. To print it:
 
 ```bash

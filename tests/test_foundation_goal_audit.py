@@ -135,6 +135,10 @@ class FoundationGoalAuditTests(unittest.TestCase):
         self.assertEqual(by_id["optimization_flow_no_sprawl"]["status"], "passed")
         self.assertEqual(by_id["repo_secret_hygiene_ready"]["status"], "passed")
         self.assertFalse(audit["completion_claim_allowed"])
+        self.assertEqual(audit["completion_blocker_summary"]["by_category"]["external_credentials_required"], 1)
+        self.assertTrue(audit["completion_blocker_summary"]["operator_required"])
+        self.assertTrue(audit["completion_blocker_summary"]["external_dependency"])
+        self.assertEqual(audit["completion_blockers"][0]["category"], "external_credentials_required")
 
     def test_goal_audit_marks_n8n_manual_execution_incomplete(self):
         preflight = check(
@@ -165,6 +169,9 @@ class FoundationGoalAuditTests(unittest.TestCase):
             "needs_manual_execution",
         )
         self.assertFalse(audit["completion_claim_allowed"])
+        self.assertEqual(audit["completion_blockers"][0]["category"], "manual_execution_required")
+        self.assertTrue(audit["completion_blockers"][0]["operator_required"])
+        self.assertFalse(audit["completion_blockers"][0]["external_dependency"])
 
     def test_goal_audit_requires_real_browser_smoke_evidence(self):
         health = base_health(include_browser=False)
@@ -226,6 +233,8 @@ class FoundationGoalAuditTests(unittest.TestCase):
         self.assertEqual(audit["status"], "complete")
         self.assertEqual(audit["passed_count"], audit["requirement_count"])
         self.assertTrue(audit["completion_claim_allowed"])
+        self.assertEqual(audit["completion_blocker_summary"]["count"], 0)
+        self.assertEqual(audit["completion_blockers"], [])
 
 
 if __name__ == "__main__":

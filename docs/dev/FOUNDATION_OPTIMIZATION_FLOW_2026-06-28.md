@@ -235,6 +235,15 @@ The audit reads the health report and evaluates the active objective as separate
 
 If it reports `incomplete`, keep the goal active. At the current stage, n8n can still be operationally visible while the full objective remains incomplete until real provider credentials are created, bound, and proven by one successful controlled manual execution.
 
+The goal audit also writes top-level `completion_blockers` and `completion_blocker_summary`:
+
+| Field | Use |
+|---|---|
+| `completion_blockers[].category` | Machine-readable blocker class such as `external_credentials_required`, `manual_execution_required`, or `missing_evidence` |
+| `completion_blockers[].operator_required` | Whether a human/operator action is required before Codex can prove completion |
+| `completion_blockers[].external_dependency` | Whether the blocker depends on external/local secret material that must not be committed |
+| `completion_blockers[].next_actions` | The first concrete repair actions inherited from the health report |
+
 ## Commit Gate
 
 Recommended focused gate:
