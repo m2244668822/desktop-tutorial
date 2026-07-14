@@ -89,6 +89,20 @@ The JSON report also includes `next_actions`. These are sorted repair steps with
 
 The terminal prints the first actions directly, and the full set stays in the JSON report.
 
+The report also includes `diagnostic_matrix`, a grouped view of the same checks. Use it to identify which layer owns a problem before changing code:
+
+| Matrix Group | Meaning |
+|---|---|
+| `workspace_shell` | cwd, Git root, and shell path coherence |
+| `runtime_dependencies` | Python, Node, n8n, FFmpeg, Ollama, OpenClaw dependency visibility plus compile gate |
+| `service_control` | controlled service state and listening ports |
+| `gateway_backend` | web gateway and backend API behavior |
+| `openclaw_governance` | OpenClaw local execution and governance evidence |
+| `automation_n8n` | n8n editor/broker visibility and workflow activation readiness |
+| `data_memory` | Knowledge Hub and memory manifest state |
+| `frontend_runtime` | static frontend contract and real browser smoke |
+| `repo_hygiene` | secret hygiene and dirty Git scope |
+
 The report separates execution health from remaining work:
 
 | Field | Meaning |
@@ -128,6 +142,8 @@ Backend status is not a single signal. Inspect it from several directions:
 | Data state | Knowledge Hub manifest, n8n SQLite counts |
 | Governance state | OpenClaw local execution, gateway health, and `decision_state` |
 | Task continuity | task board retry and unresolved-task views |
+
+In the JSON report, start from `diagnostic_matrix` and only then drill into the raw `checks` row. This keeps failures separated by ownership layer instead of turning every backend symptom into one undifferentiated bug.
 
 Minimum backend gate:
 

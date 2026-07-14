@@ -78,6 +78,18 @@ for item in report.get("next_actions", []):
 PY
 ```
 
+To see which layer owns the problem first, print `diagnostic_matrix`:
+
+```bash
+python - <<'PY'
+import json
+from pathlib import Path
+report = json.loads(Path("reports/foundation_health_latest.json").read_text())
+for item in report.get("diagnostic_matrix", []):
+    print(f"{item['id']}: {item['status']} highest={item.get('highest_priority') or '-'}")
+PY
+```
+
 Read `ok` and `attention_required` together. `ok=true` means the configured checks passed; `attention_required=true` means there are still follow-up actions such as n8n activation blockers.
 
 If n8n preflight is still blocked or waiting for a manual run, open the JSON report and follow `credential_setup_plan`, `manual_execution_plan`, plus `remediation_plan`:
@@ -111,6 +123,7 @@ PY
 | repo secret hygiene | `repo_secret_hygiene.py` blocks obvious API keys in tracked files and verifies secret/runtime ignore patterns |
 | frontend static contract | canonical chat shell tokens plus mobile layout contract |
 | browser smoke | headless Chrome/Edge checks DOM, console, runtime exceptions, and mobile/tablet/desktop layout |
+| diagnostic matrix | `foundation_health_check.py` groups checks by ownership layer before drilling into raw check details |
 | n8n workflow | preflight blocks activation and emits structured remediation, credential setup, and manual execution plans |
 | OpenClaw | `openclaw_runtime` verifies CLI, local gateway listener, and `/healthz` |
 

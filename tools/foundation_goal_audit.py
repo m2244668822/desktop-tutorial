@@ -202,7 +202,7 @@ def evaluate_backend_detection(health: dict[str, Any], checks: dict[str, dict[st
         "knowledge_hub",
         "py_compile",
     ]
-    return _requirement_from_checks(
+    requirement = _requirement_from_checks(
         health,
         checks,
         req_id="backend_multi_angle_detection",
@@ -218,6 +218,20 @@ def evaluate_backend_detection(health: dict[str, Any], checks: dict[str, dict[st
             },
         },
     )
+    backend_group_ids = {
+        "runtime_dependencies",
+        "service_control",
+        "gateway_backend",
+        "openclaw_governance",
+        "automation_n8n",
+        "data_memory",
+    }
+    requirement.evidence["diagnostic_matrix"] = [
+        row
+        for row in health.get("diagnostic_matrix") or []
+        if isinstance(row, dict) and row.get("id") in backend_group_ids
+    ]
+    return requirement
 
 
 def _dirty_only_reports(git_check: dict[str, Any] | None) -> bool:

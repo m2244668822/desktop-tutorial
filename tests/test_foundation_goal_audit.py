@@ -191,6 +191,20 @@ class FoundationGoalAuditTests(unittest.TestCase):
         self.assertEqual(by_id["frontend_issue_free"]["status"], "incomplete")
         self.assertIn("browser_smoke_matrix", by_id["frontend_issue_free"]["evidence"]["failing"])
 
+    def test_goal_audit_includes_backend_diagnostic_matrix_evidence(self):
+        health = base_health()
+        health["diagnostic_matrix"] = [
+            {"id": "gateway_backend", "status": "ready"},
+            {"id": "automation_n8n", "status": "attention_required"},
+            {"id": "frontend_runtime", "status": "ready"},
+        ]
+
+        audit = foundation_goal_audit.build_audit(health, Path("health.json"))
+
+        by_id = {item["id"]: item for item in audit["requirements"]}
+        matrix = by_id["backend_multi_angle_detection"]["evidence"]["diagnostic_matrix"]
+        self.assertEqual([item["id"] for item in matrix], ["gateway_backend", "automation_n8n"])
+
     def test_goal_audit_requires_repo_secret_hygiene(self):
         health = base_health()
         health["checks"] = [

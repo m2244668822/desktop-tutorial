@@ -108,6 +108,7 @@ class FoundationHealthCheckTests(unittest.TestCase):
             self.assertIn("next_actions", payload)
             self.assertFalse(payload["attention_required"])
             self.assertEqual(payload["action_summary"]["count"], 0)
+            self.assertIn("diagnostic_matrix", payload)
 
     def test_write_report_marks_attention_required_for_next_actions(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -131,6 +132,41 @@ class FoundationHealthCheckTests(unittest.TestCase):
             self.assertTrue(payload["action_summary"]["blocking_attention"])
             self.assertEqual(payload["action_summary"]["highest_priority"], "P1")
             self.assertEqual(payload["action_summary"]["by_priority"]["P1"], 1)
+
+    def test_diagnostic_matrix_decomposes_backend_attention(self):
+        checks = [
+            foundation_health_check.Check("runtime_service_controller", True, "ready", {}),
+            foundation_health_check.Check(
+                "ports",
+                False,
+                "degraded",
+                {"5001": {"role": "main_web_gateway", "listening": False}},
+            ),
+            foundation_health_check.Check("n8n", True, "ready", {}),
+            foundation_health_check.Check(
+                "n8n_workflow_preflight",
+                True,
+                "ready_for_manual_execution",
+                {
+                    "report": {
+                        "manual_execution_plan": {
+                            "status": "needs_manual_execution",
+                            "ui_steps": ["Run one controlled manual execution."],
+                        }
+                    }
+                },
+            ),
+        ]
+        actions = foundation_health_check.build_next_actions(checks)
+
+        matrix = foundation_health_check.build_diagnostic_matrix(checks, actions)
+
+        by_id = {item["id"]: item for item in matrix}
+        self.assertEqual(by_id["service_control"]["status"], "failing")
+        self.assertFalse(by_id["service_control"]["ok"])
+        self.assertEqual(by_id["automation_n8n"]["status"], "attention_required")
+        self.assertTrue(by_id["automation_n8n"]["ok"])
+        self.assertEqual(by_id["automation_n8n"]["highest_priority"], "P1")
 
     def test_next_actions_include_external_cwd_workspace_warning(self):
         checks = [

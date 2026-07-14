@@ -246,3 +246,21 @@ Current activation interpretation:
 | provider credentials | still require real Gemini/OpenAI credential binding on each machine |
 | manual execution evidence | required after credentials are bound and before unattended activation |
 | goal audit | remains incomplete until `n8n_activation_ready` sees preflight `ready_for_activation` |
+
+## 2026-07-14 Backend Diagnostic Matrix Gate
+
+`foundation_health_check.py` now writes a top-level `diagnostic_matrix` alongside raw `checks` and `next_actions`. The matrix groups existing checks by ownership layer so backend issues can be decomposed before code changes begin:
+
+| Group | Current Use |
+|---|---|
+| `workspace_shell` | separate stale cwd, Git root, and shell path problems from app bugs |
+| `runtime_dependencies` | show dependency/PATH/compile failures together |
+| `service_control` | separate controller and port readiness from API failures |
+| `gateway_backend` | isolate web gateway/API behavior |
+| `openclaw_governance` | keep local execution support and governed mutation visible |
+| `automation_n8n` | keep n8n service health separate from activation blockers |
+| `data_memory` | isolate Knowledge Hub/data manifest state |
+| `frontend_runtime` | keep browser/static frontend gates grouped |
+| `repo_hygiene` | keep secret hygiene and dirty worktree scope separate |
+
+`foundation_goal_audit.py` includes backend-related matrix rows in the `backend_multi_angle_detection` evidence. This prevents a single green/bad label from hiding which layer actually owns the next repair.

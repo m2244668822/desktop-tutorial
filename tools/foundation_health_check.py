@@ -43,6 +43,54 @@ BROWSER_SMOKE_VIEWPORTS = [
     {"name": "desktop", "width": 1440, "height": 1000},
 ]
 
+DIAGNOSTIC_GROUPS = [
+    {
+        "id": "workspace_shell",
+        "label": "Workspace And Shell",
+        "checks": ["workspace_context"],
+    },
+    {
+        "id": "runtime_dependencies",
+        "label": "Runtime Dependencies",
+        "checks": ["runtime_dependencies", "py_compile"],
+    },
+    {
+        "id": "service_control",
+        "label": "Service Control And Ports",
+        "checks": ["runtime_service_controller", "ports"],
+    },
+    {
+        "id": "gateway_backend",
+        "label": "Gateway And Backend APIs",
+        "checks": ["gateway"],
+    },
+    {
+        "id": "openclaw_governance",
+        "label": "OpenClaw Governance",
+        "checks": ["openclaw_runtime"],
+    },
+    {
+        "id": "automation_n8n",
+        "label": "n8n Automation",
+        "checks": ["n8n", "n8n_workflow_preflight"],
+    },
+    {
+        "id": "data_memory",
+        "label": "Data And Memory",
+        "checks": ["knowledge_hub"],
+    },
+    {
+        "id": "frontend_runtime",
+        "label": "Frontend Runtime",
+        "checks": ["frontend_static_contract", "browser_smoke"],
+    },
+    {
+        "id": "repo_hygiene",
+        "label": "Repo Hygiene",
+        "checks": ["repo_secret_hygiene", "git"],
+    },
+]
+
 
 def _action(
     source: str,
@@ -1068,6 +1116,63 @@ def summarize_next_actions(actions: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _compact_matrix_check(check: Check | None) -> dict[str, Any]:
+    if check is None:
+        return {"present": False}
+    return {
+        "present": True,
+        "ok": bool(check.ok),
+        "status": check.status,
+    }
+
+
+def build_diagnostic_matrix(
+    checks: list[Check],
+    next_actions: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    by_name = {check.name: check for check in checks}
+    matrix = []
+    for group in DIAGNOSTIC_GROUPS:
+        group_checks = [str(name) for name in group["checks"]]
+        group_sources = set(group_checks)
+        missing = [name for name in group_checks if name not in by_name]
+        failing = [name for name in group_checks if name in by_name and not by_name[name].ok]
+        group_actions = [
+            action
+            for action in next_actions
+            if str(action.get("source")) in group_sources
+        ]
+        action_summary = summarize_next_actions(group_actions)
+        if missing:
+            status = "missing_evidence"
+        elif failing:
+            status = "failing"
+        elif action_summary["blocking_attention"]:
+            status = "attention_required"
+        elif group_actions:
+            status = "review"
+        else:
+            status = "ready"
+        matrix.append(
+            {
+                "id": group["id"],
+                "label": group["label"],
+                "status": status,
+                "ok": not missing and not failing,
+                "checks": {
+                    name: _compact_matrix_check(by_name.get(name))
+                    for name in group_checks
+                },
+                "missing": missing,
+                "failing": failing,
+                "action_summary": action_summary,
+                "action_sources": sorted({str(action.get("source")) for action in group_actions}),
+                "highest_priority": action_summary["highest_priority"],
+            }
+        )
+    return matrix
+
+
 def write_report(checks: list[Check], path: Path) -> None:
     next_actions = build_next_actions(checks)
     action_summary = summarize_next_actions(next_actions)
@@ -1077,6 +1182,7 @@ def write_report(checks: list[Check], path: Path) -> None:
         "ok": all(check.ok for check in checks),
         "attention_required": action_summary["attention_required"],
         "action_summary": action_summary,
+        "diagnostic_matrix": build_diagnostic_matrix(checks, next_actions),
         "checks": [asdict(check) for check in checks],
         "next_actions": next_actions,
     }
