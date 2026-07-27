@@ -101,6 +101,49 @@ Response
 - 影片剪輯工作流
 - Seedance 作為目前主產品方向
 
+## 2026-07-27 進度追蹤機制
+
+### CONFIRMED — 建立 AI 里程碑門檻
+
+之後不只記「做了什麼」，而是把每個重要能力標到以下成熟度：
+
+```text
+M0 IDEA        想法／方向
+M1 WIRED       程式已接線，可以被呼叫
+M2 WORKING     實際操作可完成主要任務
+M3 STABLE      多輪使用不容易失去狀態或循環
+M4 VERIFIED    有測試、log、引用或可重現驗證
+M5 PRODUCT     可由一般使用者在前端穩定使用
+```
+
+### 目前暫定成熟度（以可確認資訊為限）
+
+| 模組 | 暫定級別 | 狀態 | 說明 |
+|---|---:|---|---|
+| 前端 AI 對話 | M2 | CONFIRMED | 已可實際互動，但存在多輪 ask-back loop。 |
+| Agent / Model Router | M2 | CONFIRMED | 舊 GitHub 已有路由與 Agent 規格；最新版仍待本機程式驗證。 |
+| Conversation State | M0-M1 | BLOCKER | 已確認需要，但目前無法從 GitHub 證明已完整接入。 |
+| NotebookLM / Research Integration | M1? | IN_PROGRESS | 使用者確認為目前主線，但實際完成程度必須等本機最新版上傳後判定。 |
+| Memory / DB / Bridge | M2 | CONFIRMED | 舊版已有 SQLite/PostgreSQL、ChatGPT Bridge / ingest / sync 基礎。 |
+| Agent Governance / Permission / Verifier | M0 | HYPOTHESIS | 有長期價值，但目前優先級低於 Conversation State 與 NotebookLM 主線。 |
+| Video / Seedance | — | RETIRED | 不再計入現行 AI 產品進度。 |
+
+> `M1?` 表示方向已由使用者確認正在實作，但目前 GitHub 沒有足夠新版程式證據，因此不得當成完成事實。
+
+### 下一個有效里程碑
+
+**Milestone A：本機最新版進入 Git / GitHub 後，完成一次「真實架構盤點」。**
+
+盤點至少要回答：
+
+1. NotebookLM 已接到哪一層：UI、後端、Agent、資料同步、引用回傳。
+2. Conversation State 是否已存在持久化或 session-level state。
+3. `1 / 2 / 3 / 4` 等回答是否會優先續接 pending workflow。
+4. 哪些 legacy video / Seedance 程式已真正移除。
+5. 前端實際資料流是否為：`User → State → Router → Research/NotebookLM → Memory → Response`。
+
+完成後，才更新各模組 M0～M5 等級。
+
 ## 之後新增進度時的標記規則
 
 每一筆新資訊至少標示一種：
