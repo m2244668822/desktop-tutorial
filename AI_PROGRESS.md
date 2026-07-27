@@ -143,12 +143,91 @@ Final Answer
 - M4：有 benchmark / trace 證明融合後平均優於單一 Agent baseline。
 - M5：前端可穩定選擇「單 Agent / 多 Agent 協作」模式並對一般使用者透明運作。
 
+## 2026-07-27 開源 Agent 架構基準
+
+### HYPOTHESIS / ARCHITECTURE BASELINE
+
+此區不是宣告目前程式已完成，而是作為之後校正本機最新版的開源工程基準。
+
+建議參考棧：
+
+1. **AutoGen / Graph-style orchestration**
+   - 用途：校正多智能體的分工、流程、條件分支、平行執行、停止條件與 group chat / workflow orchestration。
+   - 對本專案的主要價值：避免 Agent 無限互問、重複分流與無終止條件的循環。
+
+2. **A2A-style Agent Interface**
+   - 用途：校正 Agent 之間的能力描述、輸入輸出契約、任務交換與 handoff。
+   - 每個固定 Agent 未來應逐步具備：`identity`、`capabilities`、`input_schema`、`output_schema`、`tools`、`permissions`、`handoff_rules`。
+
+3. **MCP-style Tool / Knowledge Interface**
+   - 用途：把工具、資料源、研究資料與外部能力從 Agent 本身解耦，避免每個 Agent 各自硬接 API。
+   - 對本專案的主要價值：NotebookLM／研究資料、資料庫與其他工具可以成為一致的可呼叫資源層。
+
+4. **Handoff + Termination**
+   - 用途：Agent 不適合繼續處理時，明確交棒；流程達成條件後必須可停止。
+   - 核心原則：handoff 是續接原 workflow，不是把使用者輸入重新送回全域 Router。
+
+5. **Guardrails / Boundary Keeper**
+   - 用途：把「守門員」從人格提示升級成輸入、輸出、工具與權限層的程式機制。
+   - 建議能力：`input_validation`、`tool_permission`、`output_validation`、`evidence_check`、`stop_or_reject`。
+
+6. **Tracing / Evaluation**
+   - 用途：每次 Agent、tool、handoff、fusion、verifier 都留下可追蹤事件。
+   - 建議至少保留：`trace_id`、`session_id`、`source_agent`、`target_agent`、`reason`、`tool`、`result`、`confidence`、`error`。
+
+7. **Compare-and-Fuse**
+   - 與現有 P4 整合：Candidate → Critic → Evidence Check → Fusion → Verifier。
+   - 評估時應盲化候選來源，避免因 Agent 名稱產生角色偏誤。
+   - 必須用 benchmark 驗證融合結果是否平均優於單一 Agent baseline。
+
+### 建議新的工程優先序
+
+```text
+P0 Conversation State
+↓
+P1 Workflow Ownership
+↓
+P2 Deterministic Routing
+↓
+P3 NotebookLM / Knowledge Integration
+↓
+P4 Handoff + Termination
+↓
+P5 Compare-and-Fuse
+↓
+P6 Guardrails / Permission
+↓
+P7 Tracing / Evaluation / Benchmark
+```
+
+### 固定 Agent 的校正原則
+
+目前已有的固定角色不需要因採用開源框架而推翻。開源框架只負責校正「如何協作」，角色本身仍保留本專案的定位。
+
+例如：
+
+```text
+Researcher → 研究判斷
+Reader → 證據與資料支持檢查
+Questioner → 漏洞／反例／假設檢查
+Engineer → 技術與可實作性
+Proclaimer / Coordinator → 協調、收束與 workflow ownership
+Scribe → 記錄、trace、知識沉澱
+Boundary Keeper → guardrail / permission / stop
+Editor / Xiaobian → 表達、產品化與介面輸出
+```
+
+核心原則：
+
+> 單一 Agent 可以可靠完成的任務，不強制啟動多 Agent；多 Agent 的存在必須帶來可驗證的品質提升，而不是只增加流程與 token。
+
 ## 待驗證
 
 - NotebookLM 整合目前實際完成到哪個層級：資料匯入、查詢、前端 UI、Agent 調用、引用回傳、同步等，需以尚未上傳的本機最新版程式為準。
 - 本機最新版是否已完全移除所有影片相關 route / config / dependencies，需等本機版本 commit / push 後重新掃描。
 - 對話循環問題的真正觸發函式與狀態遺失位置，需分析本機最新版程式才能定位。
 - Compare-and-Fuse 是否已存在任何本機實作、評分器、review agent、融合器或 verifier，需等本機最新版上傳後確認。
+- 本機最新版是否已有 MCP / A2A / handoff / guardrail / tracing 類似實作，需在上傳後逐項比對，而不是只看命名。
 
 ## 已退役
 
@@ -181,6 +260,7 @@ M5 PRODUCT     可由一般使用者在前端穩定使用
 | Multi-Agent Compare-and-Fuse | M0 | IN_PROGRESS / HYPOTHESIS | 已明確定義為核心能力；尚未從 GitHub 證明有可運作實作。 |
 | Memory / DB / Bridge | M2 | CONFIRMED | 舊版已有 SQLite/PostgreSQL、ChatGPT Bridge / ingest / sync 基礎。 |
 | Agent Governance / Permission / Verifier | M0 | HYPOTHESIS | 有長期價值，但目前優先級低於 Conversation State 與 NotebookLM 主線。 |
+| Open-source Architecture Alignment | M0 | HYPOTHESIS | 已建立 AutoGen/A2A/MCP/Handoff/Guardrail/Tracing 對照基準，待本機新版上傳後逐項驗證。 |
 | Video / Seedance | — | RETIRED | 不再計入現行 AI 產品進度。 |
 
 > `M1?` 表示方向已由使用者確認正在實作，但目前 GitHub 沒有足夠新版程式證據，因此不得當成完成事實。
@@ -195,8 +275,11 @@ M5 PRODUCT     可由一般使用者在前端穩定使用
 2. Conversation State 是否已存在持久化或 session-level state。
 3. `1 / 2 / 3 / 4` 等回答是否會優先續接 pending workflow。
 4. Compare-and-Fuse 是否已有 candidate / review / fusion / verifier 任一實作。
-5. 哪些 legacy video / Seedance 程式已真正移除。
-6. 前端實際資料流是否為：`User → State → Router → Research/NotebookLM → Memory → Response`。
+5. 是否已有 handoff / termination 機制，且不會重新觸發全域 Router。
+6. 是否已有 MCP/A2A 類似的工具與 Agent 介面層。
+7. 是否已有 guardrail / permission / tracing / evaluation。
+8. 哪些 legacy video / Seedance 程式已真正移除。
+9. 前端實際資料流是否為：`User → State → Router → Research/NotebookLM → Memory → Response`。
 
 完成後，才更新各模組 M0～M5 等級。
 
