@@ -8,6 +8,7 @@ LOG_DIR="$ROOT/logs/launchagents"
 LAUNCH_LOG_DIR="$HOME/Library/Logs/Perob"
 BACKEND_LABEL="com.user.perob-backend"
 HTTPS_LABEL="com.user.perob-https"
+SERVICE_PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 mkdir -p "$LAUNCH_DIR" "$LOG_DIR" "$LAUNCH_LOG_DIR"
 ARCHIVE_DIR="$LAUNCH_DIR/archive/perob-$(date +%Y%m%d-%H%M%S)"
@@ -16,6 +17,10 @@ PYTHON_BIN=""
 for candidate in \
   "$ROOT/.venv312/bin/python3" \
   "$ROOT/.venv312/bin/python" \
+  "$ROOT/.venv311/bin/python3" \
+  "$ROOT/.venv311/bin/python" \
+  "$(command -v python3.12 || true)" \
+  "$(command -v python3.11 || true)" \
   "$ROOT/.venv/bin/python3" \
   "$ROOT/.venv/bin/python" \
   "$(command -v python3 || true)"
@@ -31,6 +36,19 @@ if [[ -z "$PYTHON_BIN" ]]; then
   exit 1
 fi
 
+PY_VERSION="$("$PYTHON_BIN" - <<'PY' 2>/dev/null || true
+import sys
+print(f"{sys.version_info.major}.{sys.version_info.minor}")
+PY
+)"
+if [[ -n "$PY_VERSION" ]]; then
+  case "$PY_VERSION" in
+    3.14|3.15|3.16|3.17|3.18|3.19)
+      echo "[warn] Python ${PY_VERSION} may trigger Pydantic v1 compatibility warnings; prefer .venv312 or .venv311" >&2
+      ;;
+  esac
+fi
+
 cat > "$LAUNCH_DIR/${BACKEND_LABEL}.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -40,15 +58,15 @@ cat > "$LAUNCH_DIR/${BACKEND_LABEL}.plist" <<EOF
   <key>ProgramArguments</key>
   <array>
     <string>${PYTHON_BIN}</string>
-    <string>${ROOT}/system_main.py</string>
+    <string>${ROOT}/desktop_chat_app.py</string>
     <string>web</string>
     <string>--host</string><string>127.0.0.1</string>
     <string>--port</string><string>5001</string>
     <string>--energy-lite</string>
-    <string>--skip-health</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
+    <key>PATH</key><string>${SERVICE_PATH}</string>
     <key>PYTHONUNBUFFERED</key><string>1</string>
     <key>PYTHONUTF8</key><string>1</string>
     <key>OPENCLAW_ENABLED</key><string>true</string>
@@ -80,6 +98,12 @@ cat > "$LAUNCH_DIR/${HTTPS_LABEL}.plist" <<EOF
     <string>--keyfile</string><string>${ROOT}/certs/local-https.key</string>
     <string>--external-https-base</string><string>https://perob.com:5443</string>
   </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>${SERVICE_PATH}</string>
+    <key>PYTHONUNBUFFERED</key><string>1</string>
+    <key>PYTHONUTF8</key><string>1</string>
+  </dict>
   <key>WorkingDirectory</key><string>${HOME}</string>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>

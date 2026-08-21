@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import errno
 import socket
 import threading
 import time
@@ -21,9 +22,12 @@ from urllib import error as urllib_error
 from urllib import request as urllib_request
 from urllib.parse import urlencode, parse_qs, urlparse
 
+from core.agent_collaboration_audit import record_agent_collaboration_event
+from core.capability_registry import build_capability_registry
 from core.data_paths import ProjectPaths
 from core.openclaw_adapter import OpenClawAdapter
 from core.task_board import task_items_payload, task_summary_payload
+from core.traffic_governor import decide_route
 
 # Shim for pywebview API in web mode
 WEB_BRIDGE_SHIM = r"""
@@ -105,6 +109,27 @@ class WebServerMode:
             "whitehat": "帽子",
             "hat": "帽子",
         }
+        self._openclaw_execution_tokens = {
+            "修",
+            "修復",
+            "修正",
+            "bug",
+            "debug",
+            "偵錯",
+            "檢查",
+            "驗證",
+            "git",
+            "push",
+            "pull",
+            "commit",
+            "workflow",
+            "server",
+            "伺服器",
+            "重啟",
+            "啟動",
+            "OpenClaw",
+            "Lobster",
+        }
 
     def _normalize_route_path(self, path: str) -> str:
         """?舀 reverse-proxy 頝臬?憒?/Perob"""
@@ -139,8 +164,30 @@ class WebServerMode:
             degraded_reasons.append("tls_proxy_not_ready")
         if not openclaw.get("ok"):
             degraded_reasons.append("openclaw_not_ready")
+        elif not openclaw.get("task_forwarding_configured"):
+            degraded_reasons.append("openclaw_forwarding_degraded")
         if not aeg_training.get("ok"):
             degraded_reasons.append("aeg_training_not_ready")
+        n8n_up = self._tcp_up("127.0.0.1", 5678)
+        optional_services = {
+            "n8n": {
+                "up": n8n_up,
+                "port": 5678,
+                "required": False,
+                "degrades_core_chat": False,
+            }
+        }
+        try:
+            provider_payload = (self.bridge.get_api_onboarding_info() or {}).get("providers", {})
+        except Exception:
+            provider_payload = {}
+        capability_registry = build_capability_registry(
+            self.workspace_path,
+            readiness={"optional_services": optional_services},
+            openclaw_status=openclaw,
+            knowledge_status=knowledge_hub,
+            provider_status=provider_payload if isinstance(provider_payload, dict) else {},
+        )
         return {
             "ok": required_ready,
             "status": "ready" if required_ready and not degraded_reasons else "degraded",
@@ -152,12 +199,20 @@ class WebServerMode:
             "aeg_training": aeg_training,
             "tls_proxy": {"up": tls_up, "port": 5443},
             "openclaw": openclaw,
+            "optional_services": optional_services,
+            "capability_registry": capability_registry,
             "degraded_reasons": degraded_reasons,
             "workspace": str(self.workspace_path),
         }
 
     def topology_payload(self) -> dict:
         readiness = self.readiness_payload()
+        traffic_governor = decide_route(
+            "一般對話健康檢查",
+            mode="discussion",
+            memory_signal={"confidence": "low", "exact_match": False, "source_count": 0},
+            capability_registry=readiness.get("capability_registry", {}),
+        )
         return {
             "ok": True,
             "entry": "https://perob.com:5443",
@@ -166,7 +221,12 @@ class WebServerMode:
                 "perob": {"port": 5001, "required": True, "up": True},
                 "tls_proxy": {"port": 5443, "required": True, **readiness["tls_proxy"]},
                 "openclaw": {"port": 18789, "required": False, **readiness["openclaw"]},
-                "n8n": {"port": 5678, "required": False, "up": self._tcp_up("127.0.0.1", 5678)},
+                "n8n": {
+                    "port": 5678,
+                    "required": False,
+                    "up": self._tcp_up("127.0.0.1", 5678),
+                    "degrades_core_chat": False,
+                },
                 "ollama": {"port": 11434, "required": False, "up": self._tcp_up("127.0.0.1", 11434)},
             },
             "routing": [
@@ -176,12 +236,153 @@ class WebServerMode:
                 "perob:5001 -> DesktopBridge (emergency fallback)",
             ],
             "readiness": readiness,
+            "capability_registry": readiness.get("capability_registry", {}),
+            "traffic_governor": traffic_governor,
+        }
+
+    def _should_try_openclaw_task(self, message: str, mode: str = "auto") -> bool:
+        status = self.openclaw.status()
+        if not status.get("ok") or not status.get("task_forwarding_configured"):
+            return False
+        takeover_mode = str(status.get("takeover_mode") or "execution_only").lower()
+        if takeover_mode in {"off", "disabled", "false", "0"}:
+            return False
+        registry = build_capability_registry(
+            self.workspace_path,
+            readiness={"optional_services": {"n8n": {"up": self._tcp_up("127.0.0.1", 5678)}}},
+            openclaw_status=status,
+            knowledge_status={},
+            provider_status={},
+        )
+        decision = decide_route(
+            message,
+            mode=("execution" if takeover_mode in {"all", "always"} else mode),
+            memory_signal={"confidence": "low", "exact_match": False, "source_count": 0},
+            capability_registry=registry,
+        )
+        return bool(decision.get("openclaw_allowed"))
+
+    @staticmethod
+    def _extract_openclaw_reply(result: dict) -> str:
+        response = result.get("response", {}) if isinstance(result, dict) else {}
+        if isinstance(response, dict):
+            for key in ("content", "reply", "message", "text", "result"):
+                value = response.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+            payload = response.get("payload")
+            if isinstance(payload, dict):
+                for key in ("content", "reply", "message", "text", "result"):
+                    value = payload.get(key)
+                    if isinstance(value, str) and value.strip():
+                        return value.strip()
+        if isinstance(response, str) and response.strip():
+            return response.strip()
+        return ""
+
+    def _forward_openclaw_or_fallback(
+        self,
+        payload: dict,
+        role_value: str,
+        *,
+        allow_fallback: bool,
+    ) -> dict:
+        message = str(payload.get("message", "") or "")
+        openclaw_payload = {
+            "message": message,
+            "role": role_value,
+            "mode": payload.get("interaction_mode", payload.get("mode", "execution")),
+            "task_type": payload.get("task_type", "execution"),
+            "require_approval": bool(payload.get("require_approval", False)),
+        }
+        openclaw_result = self.openclaw.forward_task(openclaw_payload)
+        route = str(openclaw_result.get("route", "openclaw"))
+        reply = self._extract_openclaw_reply(openclaw_result)
+        if openclaw_result.get("ok") and reply:
+            audit = record_agent_collaboration_event(
+                self.workspace_path,
+                task_goal=message,
+                agent=role_value,
+                route=route,
+                decision="OpenClaw 接管任務",
+                outcome="success",
+                remedy="無需回退",
+                score_delta=5,
+                details={"openclaw": openclaw_result},
+            )
+            return {
+                "ok": True,
+                "reply": reply,
+                "role": role_value,
+                "route": route,
+                "status": "openclaw_completed",
+                "response": openclaw_result.get("response", {}),
+                "fallback_used": False,
+                "audit_id": audit["id"],
+                "openclaw": openclaw_result,
+            }
+
+        audit = record_agent_collaboration_event(
+            self.workspace_path,
+            task_goal=message,
+            agent=role_value,
+            route=route,
+            decision="OpenClaw 優先轉送",
+            outcome="failed",
+            remedy="回退 DesktopBridge" if allow_fallback else "未允許回退",
+            score_delta=-3,
+            details={"openclaw": openclaw_result},
+        )
+        if not allow_fallback:
+            return {
+                "ok": False,
+                "route": route,
+                "status": "openclaw_failed",
+                "response": openclaw_result,
+                "fallback_used": False,
+                "audit_id": audit["id"],
+            }
+
+        bridge_result = self.bridge.send_message(
+            message,
+            role_value,
+            payload.get("session_id", ""),
+            payload.get("model", "auto"),
+            payload.get("interaction_mode", "auto"),
+        )
+        if isinstance(bridge_result, dict):
+            bridge_result["fallback_used"] = True
+            bridge_result["openclaw"] = openclaw_result
+            bridge_result["audit_id"] = audit["id"]
+            bridge_result["route"] = "DesktopBridge"
+            bridge_result["status"] = "fallback_completed"
+            return bridge_result
+        return {
+            "ok": True,
+            "reply": str(bridge_result),
+            "role": role_value,
+            "route": "DesktopBridge",
+            "status": "fallback_completed",
+            "fallback_used": True,
+            "audit_id": audit["id"],
+            "openclaw": openclaw_result,
         }
 
     def get_handler(self, template_map, redirect_map):
         server_instance = self
         
         class Handler(BaseHTTPRequestHandler):
+            def _is_client_disconnect(self, exc: BaseException) -> bool:
+                if isinstance(exc, (BrokenPipeError, ConnectionResetError)):
+                    return True
+                if isinstance(exc, OSError):
+                    return getattr(exc, "errno", None) in {
+                        errno.EPIPE,
+                        errno.ECONNRESET,
+                        errno.ENOTCONN,
+                    }
+                return False
+
             def _send_cors_headers(self):
                 """?潮?CORS 璅隞交??file:// ?楊靘?隢?"""
                 origin = self.headers.get("Origin") or "*"
@@ -196,30 +397,42 @@ class WebServerMode:
 
             def _send_json(self, payload: dict, status: int = HTTPStatus.OK):
                 body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-                self.send_response(status)
-                self._send_cors_headers()
-                self.send_header("Content-Type", "application/json; charset=utf-8")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                if self.command != "HEAD":
-                    self.wfile.write(body)
+                try:
+                    self.send_response(status)
+                    self._send_cors_headers()
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    if self.command != "HEAD":
+                        self.wfile.write(body)
+                except OSError as exc:
+                    if not self._is_client_disconnect(exc):
+                        raise
 
             def _send_text(self, text: str, content_type: str = "text/html; charset=utf-8", status: int = HTTPStatus.OK):
                 data = text.encode("utf-8")
-                self.send_response(status)
-                self._send_cors_headers()
-                self.send_header("Content-Type", content_type)
-                self.send_header("Content-Length", str(len(data)))
-                self.end_headers()
-                if self.command != "HEAD":
-                    self.wfile.write(data)
+                try:
+                    self.send_response(status)
+                    self._send_cors_headers()
+                    self.send_header("Content-Type", content_type)
+                    self.send_header("Content-Length", str(len(data)))
+                    self.end_headers()
+                    if self.command != "HEAD":
+                        self.wfile.write(data)
+                except OSError as exc:
+                    if not self._is_client_disconnect(exc):
+                        raise
 
             def _send_redirect(self, location: str, status: int = HTTPStatus.FOUND):
-                self.send_response(status)
-                self._send_cors_headers()
-                self.send_header("Location", location)
-                self.send_header("Content-Length", "0")
-                self.end_headers()
+                try:
+                    self.send_response(status)
+                    self._send_cors_headers()
+                    self.send_header("Location", location)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                except OSError as exc:
+                    if not self._is_client_disconnect(exc):
+                        raise
 
             def do_OPTIONS(self):
                 """?? CORS ?炎隢?"""
@@ -250,7 +463,14 @@ class WebServerMode:
                     return
 
                 if route_path == "/api/openclaw/status":
-                    self._send_json(server_instance.openclaw.status())
+                    status = server_instance.openclaw.status()
+                    self._send_json(
+                        {
+                            "ok": status.get("ok", False),
+                            "forwarding_mode": status.get("forwarding_mode", ""),
+                            **status,
+                        }
+                    )
                     return
 
                 if route_path in {"/api/gateway/policy", "/gateway/policy"}:
@@ -370,12 +590,21 @@ class WebServerMode:
                             "gemini_key_configured": False,
                             "groq_key_configured": False,
                         }
+                    readiness_payload = server_instance.readiness_payload()
+                    traffic_governor = decide_route(
+                        "前端快照省流量政策",
+                        mode="discussion",
+                        memory_signal={"confidence": "low", "exact_match": False, "source_count": 0},
+                        capability_registry=readiness_payload.get("capability_registry", {}),
+                    )
                     self._send_json(
                         {
                             "ok": True,
                             "generated_at": datetime.now().isoformat(),
                             "workspace": str(server_instance.workspace_path),
                             "providers": provider_payload,
+                            "capability_registry": readiness_payload.get("capability_registry", {}),
+                            "traffic_governor": traffic_governor,
                             "learning": {
                                 "ok": True,
                                 "pending_goals": 0,
@@ -556,6 +785,21 @@ class WebServerMode:
                             str(payload.get("agent", "")).strip().lower(),
                             role_value,
                         )
+                    if server_instance._should_try_openclaw_task(
+                        str(payload.get("message", "") or ""),
+                        str(payload.get("interaction_mode", payload.get("mode", "auto"))),
+                    ):
+                        try:
+                            self._send_json(
+                                server_instance._forward_openclaw_or_fallback(
+                                    payload,
+                                    role_value,
+                                    allow_fallback=True,
+                                )
+                            )
+                            return
+                        except Exception:
+                            pass
                     try:
                         res = server_instance.bridge.send_message(
                             payload.get("message", ""),
@@ -576,6 +820,17 @@ class WebServerMode:
                         )
                         return
                     self._send_json(res)
+                    return
+
+                if route_path == "/api/openclaw/task":
+                    role_value = str(payload.get("role", "工程師") or "工程師")
+                    self._send_json(
+                        server_instance._forward_openclaw_or_fallback(
+                            payload,
+                            role_value,
+                            allow_fallback=True,
+                        )
+                    )
                     return
 
                 if route_path == "/api/upload_file":

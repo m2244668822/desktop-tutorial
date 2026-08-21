@@ -15,7 +15,17 @@ if lsof -nP -iTCP:5001 -sTCP:LISTEN >/dev/null 2>&1; then
 fi
 
 PY=""
-for cand in "$ROOT/.venv312/bin/python3" "$ROOT/.venv312/bin/python" "$ROOT/.venv/bin/python3" "$ROOT/.venv/bin/python" "$(command -v python3 || true)"; do
+for cand in \
+  "$ROOT/.venv312/bin/python3" \
+  "$ROOT/.venv312/bin/python" \
+  "$ROOT/.venv311/bin/python3" \
+  "$ROOT/.venv311/bin/python" \
+  "$(command -v python3.12 || true)" \
+  "$(command -v python3.11 || true)" \
+  "$ROOT/.venv/bin/python3" \
+  "$ROOT/.venv/bin/python" \
+  "$(command -v python3 || true)"
+do
   if [[ -n "$cand" && -x "$cand" ]]; then
     PY="$cand"
     break

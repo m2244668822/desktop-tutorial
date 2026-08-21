@@ -269,7 +269,7 @@
   <div class="tb-sep"></div>
   <div style="display:flex;flex-direction:column;gap:1px">
     <div class="tb-title">AI 智能體中心</div>
-    <div class="tb-sub">Desktop Command Center</div>
+    <div class="tb-sub">桌面指揮中心</div>
   </div>
   <div class="tb-right">
     <button class="low-restrict-btn" id="lowRestrictBtn" onclick="toggleLowRestrict()" title="最低權限模式：可繞過一般限制並允許外部代理程式直通">
@@ -306,7 +306,7 @@
       <div class="nav-item" id="nav-engineer" onclick="selectAgent('engineer','⚙️','工程師')"><span>⚙️</span> 工程師<span class="nav-dot"></span><span class="nav-cnt" id="cnt-engineer"></span></div>
       <div class="nav-item" id="nav-xiaobian" onclick="selectAgent('xiaobian','✍️','小編')"><span>✍️</span> 小編<span class="nav-dot"></span><span class="nav-cnt" id="cnt-xiaobian"></span></div>
       <div class="nav-item" id="nav-proclaimer" onclick="selectAgent('proclaimer','✝️','申言者')"><span>✝️</span> 申言者<span class="nav-dot"></span><span class="nav-cnt" id="cnt-proclaimer"></span></div>
-      <div class="nav-item" id="nav-whitehat" onclick="selectAgent('whitehat','🕵️','帽子')"><span>🕵️</span> 帽子<span class="nav-dot"></span><span class="nav-cnt" id="cnt-whitehat"></span></div>
+      <div class="nav-item" id="nav-whitehat" onclick="selectAgent('whitehat','🕵️','白帽駭客')"><span>🕵️</span> 白帽駭客<span class="nav-dot"></span><span class="nav-cnt" id="cnt-whitehat"></span></div>
       <div class="nav-item" id="nav-general" onclick="selectAgent('general','🤖','通用')"><span>🤖</span> 通用<span class="nav-dot"></span><span class="nav-cnt" id="cnt-general"></span></div>
     </div>
 
@@ -336,7 +336,7 @@
           <span class="badge b-local">本地主力</span>
         </div>
         <div class="mc" id="mc-sidecar" onclick="startChat('sidecar','本地模型（跟隨 .env）')">
-          <div class="mc-top"><div class="mc-icon" style="background:rgba(20,83,45,.35)">🛠️</div><div><div class="mc-name">Local Sidecar</div><div class="mc-sub">跟隨 .env 設定</div></div></div>
+          <div class="mc-top"><div class="mc-icon" style="background:rgba(20,83,45,.35)">🛠️</div><div><div class="mc-name">本地旁路模型</div><div class="mc-sub">跟隨 .env 設定</div></div></div>
           <div class="mc-desc">使用 OPEN_SOURCE_CHAT_MODEL / OLLAMA_MODEL</div>
           <span class="badge b-local">本地路由</span>
         </div>
@@ -355,17 +355,17 @@
         <div class="mc" id="mc-openai" onclick="startChat('openai','OpenAI')">
           <div class="mc-top"><div class="mc-icon" style="background:rgba(5,46,22,.35)">🤖</div><div><div class="mc-name">OpenAI GPT</div><div class="mc-sub" id="msub-openai">gpt-4o</div></div></div>
           <div class="mc-desc">GPT-4o 頂尖模型</div>
-          <span class="badge b-key" id="mbadge-openai">需 API Key</span>
+          <span class="badge b-key" id="mbadge-openai">需 API 金鑰</span>
         </div>
         <div class="mc" id="mc-gemini" onclick="startChat('gemini','Gemini')">
           <div class="mc-top"><div class="mc-icon" style="background:rgba(30,64,175,.35)">✨</div><div><div class="mc-name">Gemini</div><div class="mc-sub" id="msub-gemini">gemini-2.5-flash</div></div></div>
           <div class="mc-desc">Google 雲端模型</div>
-          <span class="badge b-key" id="mbadge-gemini">需 API Key</span>
+          <span class="badge b-key" id="mbadge-gemini">需 API 金鑰</span>
         </div>
         <div class="mc" id="mc-groq" onclick="startChat('groq','Groq')">
           <div class="mc-top"><div class="mc-icon" style="background:rgba(124,45,18,.35)">⚡</div><div><div class="mc-name">Groq</div><div class="mc-sub" id="msub-groq">gpt-oss-20b</div></div></div>
           <div class="mc-desc">低延遲快速回覆</div>
-          <span class="badge b-key" id="mbadge-groq">需 API Key</span>
+          <span class="badge b-key" id="mbadge-groq">需 API 金鑰</span>
         </div>
         <div class="mc" onclick="openExternal('https://claude.ai')">
           <div class="mc-top"><div class="mc-icon" style="background:rgba(120,53,15,.35)">🌊</div><div><div class="mc-name">Claude</div><div class="mc-sub">claude.ai</div></div></div>
@@ -460,7 +460,7 @@
         <div class="mon-row"><span class="mon-label">Brave 搜尋</span><span class="mon-val" id="mon-brave">—</span></div>
         <div class="mon-row"><span class="mon-label">執行輪次</span><span class="mon-val" id="mon-cycles">—</span></div>
         <div class="mon-row"><span class="mon-label">待整合目標</span><span class="mon-val" id="mon-pending">—</span></div>
-        <div class="mon-row"><span class="mon-label">Harmony 健康</span><span class="mon-val" id="mon-harmony">—</span></div>
+        <div class="mon-row"><span class="mon-label">協調健康</span><span class="mon-val" id="mon-harmony">—</span></div>
         <div class="mon-row"><span class="mon-label">失敗檢查</span><span class="mon-val" id="mon-harmony-failed">—</span></div>
         <div class="mon-note" id="mon-harmony-note">尚未載入協調健康報告</div>
       </div>
@@ -531,7 +531,7 @@ function renderApiBaseBadge() {
   const base = window.__API_BASE__ || window.location.origin || "";
   const safe = (base || "—").replace(/^https?:\/\//i, "");
   el.textContent = `API: ${safe}`;
-  el.title = `前端目前 API 基底：${base || "(same-origin)"}`;
+  el.title = `前端目前 API 基底：${base || "（同源）"}`;
 }
 
 /* ════════════════════════════════════════
@@ -655,6 +655,33 @@ const AGENT_META = {
     prompts: ["幫我腦力激盪幾個創業點子", "解釋這個概念給我聽", "幫我規劃今天的工作清單"]
   },
 };
+
+const UI_LABELS = {
+  interactionMode: {
+    auto: "自動",
+    discussion: "討論",
+    analysis: "分析",
+    coding: "程式",
+    creative: "創意",
+    image_generation: "圖像生成",
+    qa: "問答",
+  },
+  taskStatus: {
+    pending: "待執行",
+    running: "執行中",
+    completed: "已完成",
+    failed: "失敗",
+    unknown: "未知",
+  },
+};
+
+function labelInteractionMode(mode) {
+  return UI_LABELS.interactionMode[String(mode || "").trim()] || mode || "自動";
+}
+
+function labelTaskStatus(status) {
+  return UI_LABELS.taskStatus[String(status || "").trim()] || status || "未知";
+}
 
 function normalizeAgentKey(key) {
   const normalized = String(key || "").trim().toLowerCase();
@@ -870,7 +897,7 @@ function startChat(modelKey, modelLabel) {
   if (card && card.classList.contains("mc-offline")) {
     const badge = card.querySelector("[id^='mbadge-']");
     const orig = badge ? badge.textContent : "";
-    if (badge) { badge.textContent = "請先設定 API Key"; badge.className = "badge b-disabled"; }
+    if (badge) { badge.textContent = "請先設定 API 金鑰"; badge.className = "badge b-disabled"; }
     setTimeout(() => { if (badge) { badge.textContent = orig || "未設定"; badge.className = "badge b-disabled"; } }, 2000);
     return;
   }
@@ -961,11 +988,11 @@ function appendGeneratedImages(container, images) {
     card.className = "generated-image-card";
     const img = document.createElement("img");
     img.src = item.src;
-    img.alt = item.revised_prompt || item.prompt || `generated image ${index + 1}`;
+    img.alt = item.revised_prompt || item.prompt || `生成圖片 ${index + 1}`;
     img.onclick = () => openLightbox(item.src);
     const meta = document.createElement("div");
     meta.className = "generated-image-meta";
-    meta.textContent = `${item.provider || "image"} · ${item.model || "generated"}`;
+    meta.textContent = `${item.provider || "圖像"} · ${item.model || "已生成"}`;
     card.appendChild(img);
     card.appendChild(meta);
     grid.appendChild(card);
@@ -1653,7 +1680,7 @@ function renderBackendPending(mode) {
   const bridge = document.getElementById("bridgeInfo");
   const badge = document.getElementById("bridgeState");
   if (sync) {
-    sync.textContent = `後台處理中 · ${state.agentLabel} · ${label} · ${mode || "auto"}`;
+    sync.textContent = `後台處理中 · ${state.agentLabel} · ${label} · ${labelInteractionMode(mode || "auto")}`;
     sync.className = "backend-sync pending";
   }
   if (bridge) bridge.textContent = "後台處理中";
@@ -1712,7 +1739,7 @@ function buildBackendStatusLine(data = {}, fallbackMode = "auto") {
     ? `主題: ${data.semantic_analysis.primary_topic}`
     : "";
   const safety = data.safety_guard && data.safety_guard.triggered ? "安全改寫" : "";
-  return ["後台同步", agent, model, `模式: ${mode}`, time, topic, safety]
+  return ["後台同步", agent, model, `模式：${labelInteractionMode(mode)}`, time, topic, safety]
     .filter(Boolean)
     .join(" · ");
 }
@@ -1851,13 +1878,15 @@ function renderTasksPanel(sum, items) {
     const title = (t.title || "").slice(0, 42) || `#${t.task_id}`;
     const time  = (t.updated_at || "").slice(5, 16).replace("T", " ");
     const meta  = AGENT_META[agent] || {};
-    return `<div class="task-row" onclick="selectAgent('${agent}','${meta.icon||'🤖'}','${meta.label||agent}')">
+    const agentLabel = meta.label || agent;
+    const stLabel = labelTaskStatus(st);
+    return `<div class="task-row" onclick="selectAgent('${agent}','${meta.icon||'🤖'}','${agentLabel}')">
       <div class="task-row-top">
         <span class="task-dot ${st}"></span>
         <span class="task-row-title">${title}</span>
-        <span class="task-row-agent">${agent}</span>
+        <span class="task-row-agent">${agentLabel}</span>
       </div>
-      <div class="task-row-meta">${st} · ${time}</div>
+      <div class="task-row-meta">${stLabel} · ${time}</div>
     </div>`;
   }).join("");
 }
@@ -1872,19 +1901,34 @@ function filterTasks(status) {
 ════════════════════════════════════════ */
 function _buildRouteCandidates(url) {
   if (typeof url !== "string" || !url.startsWith("/")) return [url];
-  const candidates = [url];
+  const candidates = [];
+  const push = (value) => {
+    if (value && !candidates.includes(value)) candidates.push(value);
+  };
   const base = String(window.__API_BASE__ || "");
   const hasPerobBase = /\/perob\/?$/i.test(base);
+  const withPerob = (path) =>
+    path.toLowerCase().startsWith("/perob/") ? path : `/Perob${path}`;
+  const withoutPerob = (path) =>
+    path.toLowerCase().startsWith("/perob/") ? path.slice(6) : path;
+
+  push(url);
   if (hasPerobBase) {
-    // API base 已含 /Perob，保留純路徑呼叫，避免再次重複前綴。
-    if (url.toLowerCase().startsWith("/perob/")) {
-      candidates.push(url.slice(6));
-    }
+    // API base 已含 /Perob，補一條「去前綴」備援，避免 proxy 規則不一致時直接失敗。
+    push(withoutPerob(url));
   } else {
-    // API base 不含 /Perob 時，補一個前綴候選，支援反向代理場景。
-    candidates.push(url.startsWith("/Perob/") ? url.slice(6) : `/Perob${url}`);
+    // API base 不含 /Perob 時，補一條「含前綴」備援，支援反向代理場景。
+    push(withPerob(url));
   }
-  return [...new Set(candidates)];
+
+  // 舊版/精簡版後端可能只支援 /api/send_message，這裡做路由備援。
+  if (/^\/chat\/agent\/?$/i.test(url)) {
+    const alt = url.replace(/^\/chat\/agent\/?$/i, "/api/send_message");
+    push(alt);
+    if (hasPerobBase) push(withoutPerob(alt));
+    else push(withPerob(alt));
+  }
+  return candidates;
 }
 
 async function _fetchWithRetry(url, options, maxRetries = 1, delayMs = 1500) {

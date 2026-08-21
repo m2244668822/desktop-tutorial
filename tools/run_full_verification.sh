@@ -4,19 +4,40 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-PYTHON_BIN="${PYTHON_BIN:-python3}"
+if [[ -z "${PYTHON_BIN:-}" ]]; then
+  PYTHON_BIN=""
+  for candidate in \
+    "$ROOT/.venv312/bin/python3" \
+    "$ROOT/.venv312/bin/python" \
+    "$ROOT/.venv311/bin/python3" \
+    "$ROOT/.venv311/bin/python" \
+    "$(command -v python3.12 || true)" \
+    "$(command -v python3.11 || true)" \
+    "$ROOT/.venv/bin/python3" \
+    "$ROOT/.venv/bin/python" \
+    "$(command -v python3 || true)"
+  do
+    if [[ -n "$candidate" && -x "$candidate" ]]; then
+      PYTHON_BIN="$candidate"
+      break
+    fi
+  done
+fi
+[[ -n "$PYTHON_BIN" ]] || { echo "[verify] Python runtime not found" >&2; exit 1; }
 STRICT="${STRICT:-0}"
 
 echo "[verify] Python syntax"
 "$PYTHON_BIN" -m py_compile \
   core/web_server.py \
   core/openclaw_adapter.py \
+  core/agent_collaboration_audit.py \
   core/knowledge_hub.py \
   desktop_chat_app.py \
   chatgpt_server.py \
   SYSTEM_DIAGNOSTIC.py \
   tools/agent_git_autopilot.py \
-  tools/generate_system_framework_master_report.py
+  tools/generate_system_framework_master_report.py \
+  tools/generate_agent_collaboration_review.py
 
 echo "[verify] Shell syntax"
 bash -n \
@@ -34,6 +55,10 @@ echo "[verify] Unit contracts"
   tests.test_prophet_dialog_first \
   tests.test_prophet_engineer_bridge \
   tests.test_perob_mainline_health_contract \
+  tests.test_openclaw_forwarding_contract \
+  tests.test_agent_collaboration_training_contract \
+  tests.test_agent_collaboration_conflict_regression \
+  tests.test_prophet_contextual_miss \
   -v
 
 echo "[verify] Git whitespace"

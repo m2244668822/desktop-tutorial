@@ -8,6 +8,7 @@ Planner -> Router -> Executor -> Verifier -> MemoryWriter
 from __future__ import annotations
 
 import json
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -359,6 +360,67 @@ def _score_memory_match(item: dict[str, Any]) -> float:
     return max(scores) if scores else 0.0
 
 
+def _topic_tokens(text: str) -> set[str]:
+    """Extract lightweight topic hints without requiring a tokenizer service."""
+    raw = str(text or "").lower()
+    tokens = set(re.findall(r"[a-z0-9_./:-]{2,}", raw))
+    domain_terms = (
+        "git",
+        "openclaw",
+        "lobster",
+        "desktopbridge",
+        "n8n",
+        "faiss",
+        "rag",
+        "aeg",
+        "langgraph",
+        "5001",
+        "5443",
+        "perob",
+        "proxy",
+        "api",
+        "路由",
+        "回退",
+        "前端",
+        "後端",
+        "伺服器",
+        "智能體",
+        "總管",
+        "申言者",
+        "工程師",
+        "帽子",
+        "研究員",
+        "巡查",
+        "快照",
+        "受限",
+        "衝突",
+        "協作",
+        "鬼打牆",
+        "前後文",
+        "記憶",
+        "檢索",
+        "模型",
+    )
+    for term in domain_terms:
+        if term.lower() in raw:
+            tokens.add(term.lower())
+    return tokens
+
+
+def _memory_has_topic_overlap(item: dict[str, Any], user_input: str) -> bool:
+    """Semantic scores alone are not enough; require at least a topic bridge."""
+    try:
+        lexical_score = float(item.get("lexical_score", 0) or 0)
+        exact_match = float(item.get("exact_match", 0) or 0)
+    except (TypeError, ValueError):
+        lexical_score = 0.0
+        exact_match = 0.0
+    if lexical_score >= 0.08 or exact_match > 0:
+        return True
+    summary = str(item.get("summary") or item.get("content") or "")
+    return bool(_topic_tokens(user_input) & _topic_tokens(summary))
+
+
 def _memory_summary_line(item: dict[str, Any], idx: int) -> str:
     source = str(item.get("source", "unknown") or "unknown")
     timestamp = str(item.get("timestamp", "") or "")[:19]
@@ -419,7 +481,14 @@ def _format_prophet_result(tool_outputs: dict[str, Any], user_input: str = "") -
         item for item in memories.get("matches", []) if isinstance(item, dict)
     ]
     direct_memory_hits = [
-        item for item in memory_matches if _score_memory_match(item) >= 0.35
+        item
+        for item in memory_matches
+        if _score_memory_match(item) >= 0.35 and _memory_has_topic_overlap(item, user_input)
+    ]
+    weak_memory_matches = [
+        item
+        for item in memory_matches
+        if _memory_has_topic_overlap(item, user_input) or _score_memory_match(item) < 0.35
     ]
     lines = [
         "申言者工具結果：",
@@ -439,7 +508,7 @@ def _format_prophet_result(tool_outputs: dict[str, Any], user_input: str = "") -
         for idx, item in enumerate(direct_memory_hits[:3], start=1):
             lines.append(_memory_summary_line(item, idx))
     if not workspace_hits and not catalog.get("matches") and not direct_memory_hits:
-        lines.extend(_format_contextual_miss_guidance(user_input, memory_matches))
+        lines.extend(_format_contextual_miss_guidance(user_input, weak_memory_matches))
     return "\n".join(lines)
 
 

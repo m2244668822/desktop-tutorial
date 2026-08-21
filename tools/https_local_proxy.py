@@ -21,6 +21,7 @@ HOP_BY_HOP_HEADERS = {
 }
 # The proxy recalculates Content-Length after reading the upstream body.
 UPSTREAM_METADATA_HEADERS = {"server", "date", "content-length"}
+RECOVERABLE_CLIENT_ERRORS = (BrokenPipeError, ConnectionResetError, ssl.SSLError)
 
 
 class ProxyHandler(BaseHTTPRequestHandler):
@@ -29,6 +30,34 @@ class ProxyHandler(BaseHTTPRequestHandler):
     external_https_base: str = "https://127.0.0.1:5443"
 
     protocol_version = "HTTP/1.1"
+
+    def _safe_write(self, data: bytes) -> bool:
+        try:
+            self.wfile.write(data)
+            return True
+        except RECOVERABLE_CLIENT_ERRORS:
+            return False
+        except OSError:
+            return False
+
+    def _safe_send_response(
+        self,
+        status: int,
+        reason: str | None,
+        headers: list[tuple[str, str]],
+        body_length: int,
+    ) -> bool:
+        try:
+            self.send_response(status, reason)
+            for key, value in headers:
+                self.send_header(key, value)
+            self.send_header("Content-Length", str(body_length))
+            self.end_headers()
+            return True
+        except RECOVERABLE_CLIENT_ERRORS:
+            return False
+        except OSError:
+            return False
 
     @classmethod
     def _rewrite_location(cls, value: str) -> str:
@@ -87,25 +116,31 @@ class ProxyHandler(BaseHTTPRequestHandler):
             resp = conn.getresponse()
             data = resp.read()
 
-            self.send_response(resp.status, resp.reason)
+            response_headers: list[tuple[str, str]] = []
             for k, v in resp.getheaders():
                 lk = k.lower()
                 if lk in HOP_BY_HOP_HEADERS or lk in UPSTREAM_METADATA_HEADERS:
                     continue
                 if lk == "location":
                     v = self._rewrite_location(v)
-                self.send_header(k, v)
-            self.send_header("Content-Length", str(len(data)))
-            self.end_headers()
+                response_headers.append((k, v))
+            if not self._safe_send_response(
+                resp.status, resp.reason, response_headers, len(data)
+            ):
+                return
             if data:
-                self.wfile.write(data)
+                self._safe_write(data)
+        except RECOVERABLE_CLIENT_ERRORS:
+            return
         except Exception as exc:
             payload = f"HTTPS proxy error: {exc}\n".encode("utf-8", errors="ignore")
-            self.send_response(502, "Bad Gateway")
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.send_header("Content-Length", str(len(payload)))
-            self.end_headers()
-            self.wfile.write(payload)
+            if self._safe_send_response(
+                502,
+                "Bad Gateway",
+                [("Content-Type", "text/plain; charset=utf-8")],
+                len(payload),
+            ):
+                self._safe_write(payload)
         finally:
             conn.close()
 

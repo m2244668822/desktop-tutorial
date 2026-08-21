@@ -9,6 +9,7 @@ PID_DIR="$ROOT/logs/pids"
 
 BACKEND_LABEL="com.user.perob-backend"
 HTTPS_LABEL="com.user.perob-https"
+SERVICE_PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 BACKEND_PLIST="$HOME/Library/LaunchAgents/${BACKEND_LABEL}.plist"
 HTTPS_PLIST="$HOME/Library/LaunchAgents/${HTTPS_LABEL}.plist"
@@ -21,6 +22,10 @@ PYTHON_BIN=""
 for candidate in \
   "$ROOT/.venv312/bin/python3" \
   "$ROOT/.venv312/bin/python" \
+  "$ROOT/.venv311/bin/python3" \
+  "$ROOT/.venv311/bin/python" \
+  "$(command -v python3.12 || true)" \
+  "$(command -v python3.11 || true)" \
   "$ROOT/.venv/bin/python3" \
   "$ROOT/.venv/bin/python" \
   "$(command -v python3 || true)"
@@ -32,6 +37,17 @@ do
 done
 
 [[ -n "$PYTHON_BIN" ]] || { echo "[error] no runnable Python found" >&2; exit 1; }
+
+PY_VERSION="$("$PYTHON_BIN" - <<'PY' 2>/dev/null || true
+import sys
+print(f"{sys.version_info.major}.{sys.version_info.minor}")
+PY
+)"
+case "$PY_VERSION" in
+  3.14|3.15|3.16|3.17|3.18|3.19)
+    echo "[warn] Python ${PY_VERSION} may trigger Pydantic v1 compatibility warnings; prefer .venv312 or .venv311"
+    ;;
+esac
 
 load_agent() {
   local label="$1"
@@ -69,32 +85,38 @@ stop_port() {
 }
 
 start_manual_backend() {
-  echo "[fallback] launchd cannot access the external-volume workspace; starting backend with nohup"
-  (
-    cd "$ROOT"
-    nohup env OPENCLAW_ENABLED=true PYTHONUNBUFFERED=1 PYTHONUTF8=1 \
-      "$PYTHON_BIN" -u "$ROOT/system_main.py" web \
-      --host 127.0.0.1 --port 5001 --energy-lite --skip-health \
-      >"$LOG_DIR/perob-backend.out" 2>"$LOG_DIR/perob-backend.err" &
-    echo "$!" >"$BACKEND_PIDFILE"
-  )
+  echo "[fallback] launchd cannot access the external-volume workspace; starting backend detached"
+  "$PYTHON_BIN" "$ROOT/tools/launch_detached.py" \
+    --cwd "$ROOT" \
+    --pidfile "$BACKEND_PIDFILE" \
+    --stdout "$LOG_DIR/perob-backend.out" \
+    --stderr "$LOG_DIR/perob-backend.err" \
+    --env OPENCLAW_ENABLED=true \
+    --env PYTHONUNBUFFERED=1 \
+    --env PYTHONUTF8=1 \
+    --env "PATH=$SERVICE_PATH" \
+    -- "$PYTHON_BIN" -u "$ROOT/desktop_chat_app.py" web \
+      --host 127.0.0.1 --port 5001 --energy-lite >/dev/null
 }
 
 start_manual_https() {
-  echo "[fallback] starting HTTPS proxy with nohup"
-  (
-    cd "$ROOT"
-    nohup "$PYTHON_BIN" -u "$ROOT/tools/https_local_proxy.py" \
+  echo "[fallback] starting HTTPS proxy detached"
+  "$PYTHON_BIN" "$ROOT/tools/launch_detached.py" \
+    --cwd "$ROOT" \
+    --pidfile "$HTTPS_PIDFILE" \
+    --stdout "$LOG_DIR/perob-https.out" \
+    --stderr "$LOG_DIR/perob-https.err" \
+    --env PYTHONUNBUFFERED=1 \
+    --env PYTHONUTF8=1 \
+    --env "PATH=$SERVICE_PATH" \
+    -- "$PYTHON_BIN" -u "$ROOT/tools/https_local_proxy.py" \
       --listen-host 0.0.0.0 \
       --listen-port 5443 \
       --upstream-host 127.0.0.1 \
       --upstream-port 5001 \
       --certfile "$ROOT/certs/local-https.crt" \
       --keyfile "$ROOT/certs/local-https.key" \
-      --external-https-base https://perob.com:5443 \
-      >"$LOG_DIR/perob-https.out" 2>"$LOG_DIR/perob-https.err" &
-    echo "$!" >"$HTTPS_PIDFILE"
-  )
+      --external-https-base https://perob.com:5443 >/dev/null
 }
 
 print_agent() {
@@ -128,6 +150,20 @@ wait_http() {
   return 1
 }
 
+wait_perob_https() {
+  local attempts="${1:-30}"
+  for _ in $(seq 1 "$attempts"); do
+    if curl -kfsS -m 5 --resolve perob.com:5443:127.0.0.1 \
+      https://perob.com:5443/status >/dev/null 2>&1; then
+      echo "[ok] https proxy: https://perob.com:5443/status"
+      return 0
+    fi
+    sleep 1
+  done
+  echo "[warn] https not ready: https://perob.com:5443/status"
+  return 1
+}
+
 start_all() {
   [[ -f "$BACKEND_PLIST" ]] || { echo "[error] missing: $BACKEND_PLIST"; exit 1; }
   [[ -f "$HTTPS_PLIST" ]] || { echo "[error] missing: $HTTPS_PLIST"; exit 1; }
@@ -148,9 +184,10 @@ start_all() {
 
   if [[ "$ROOT" == /Volumes/* && "${PEROB_USE_LAUNCHAGENT:-0}" != "1" ]]; then
     start_manual_https
+    wait_perob_https 12 || true
   else
     load_agent "$HTTPS_LABEL" "$HTTPS_PLIST"
-    if ! wait_http "https://127.0.0.1:5443/status" "https proxy" 6; then
+    if ! wait_perob_https 6; then
       unload_agent "$HTTPS_LABEL"
       stop_port 5443
       start_manual_https
@@ -158,7 +195,8 @@ start_all() {
   fi
 
   wait_http "http://127.0.0.1:5001/health/ready" "backend + frontend" || true
-  curl -kfsS -m 5 https://127.0.0.1:5443/status >/dev/null 2>&1 \
+  curl -kfsS -m 5 --resolve perob.com:5443:127.0.0.1 \
+    https://perob.com:5443/status >/dev/null 2>&1 \
     && echo "[ok] https: https://perob.com:5443" \
     || echo "[warn] https not ready: https://perob.com:5443"
 }

@@ -34,7 +34,7 @@
     .tb-logo-wrap{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:flex;align-items:center;justify-content:center;z-index:201}
     .tb-logo{height:42px;filter:drop-shadow(0 0 10px rgba(0,0,0,0.9)) drop-shadow(0 2px 4px rgba(0,0,0,0.5));transition:transform .2s;cursor:pointer}
     .tb-logo:hover{transform:scale(1.05)}
-    /* 低限度模式按鈕 */
+    /* 最低權限模式按鈕 */
     .low-restrict-btn{font-size:12px;padding:3px 10px;border-radius:999px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.15);color:rgba(255,255,255,.4);cursor:pointer;font-family:inherit;transition:all .15s;display:flex;align-items:center;gap:5px;white-space:nowrap;user-select:none}
     .low-restrict-btn:hover{background:rgba(245,158,11,.1);border-color:rgba(245,158,11,.3);color:#fcd34d}
     .low-restrict-btn.on{background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.5);color:#fcd34d;box-shadow:0 0 8px rgba(245,158,11,.2)}
@@ -267,12 +267,12 @@
   <div class="tb-sep"></div>
   <div style="display:flex;flex-direction:column;gap:1px">
     <div class="tb-title">AI 智能體中心</div>
-    <div class="tb-sub">Desktop Command Center</div>
+    <div class="tb-sub">桌面指揮中心</div>
   </div>
   <div class="tb-right">
-    <button class="low-restrict-btn" id="lowRestrictBtn" onclick="toggleLowRestrict()" title="低限度模式：繞過倫理閘道與速率限制，讓智能體可自由增強能力">
+    <button class="low-restrict-btn" id="lowRestrictBtn" onclick="toggleLowRestrict()" title="最低權限模式：可繞過一般限制並允許外部代理程式直通">
       <span class="low-restrict-dot"></span>
-      <span id="lowRestrictLabel">低限度</span>
+      <span id="lowRestrictLabel">最低權限</span>
     </button>
     <span class="tb-badge" id="bridgeState">連線中...</span>
     <div class="tb-icon" id="reconnectBtn" title="重新聯網確認" onclick="reconnectAll()" style="cursor:pointer">🔄</div>
@@ -303,7 +303,7 @@
       <div class="nav-item" id="nav-engineer" onclick="selectAgent('engineer','⚙️','工程師')"><span>⚙️</span> 工程師<span class="nav-dot"></span><span class="nav-cnt" id="cnt-engineer"></span></div>
       <div class="nav-item" id="nav-xiaobian" onclick="selectAgent('xiaobian','✍️','小編')"><span>✍️</span> 小編<span class="nav-dot"></span><span class="nav-cnt" id="cnt-xiaobian"></span></div>
       <div class="nav-item" id="nav-proclaimer" onclick="selectAgent('proclaimer','✝️','申言者')"><span>✝️</span> 申言者<span class="nav-dot"></span><span class="nav-cnt" id="cnt-proclaimer"></span></div>
-      <div class="nav-item" id="nav-whitehat" onclick="selectAgent('whitehat','🕵️','帽子')"><span>🕵️</span> 帽子<span class="nav-dot"></span><span class="nav-cnt" id="cnt-whitehat"></span></div>
+      <div class="nav-item" id="nav-whitehat" onclick="selectAgent('whitehat','🕵️','白帽駭客')"><span>🕵️</span> 白帽駭客<span class="nav-dot"></span><span class="nav-cnt" id="cnt-whitehat"></span></div>
       <div class="nav-item" id="nav-general" onclick="selectAgent('general','🤖','通用')"><span>🤖</span> 通用<span class="nav-dot"></span><span class="nav-cnt" id="cnt-general"></span></div>
     </div>
 
@@ -333,7 +333,7 @@
           <span class="badge b-local">本地主力</span>
         </div>
         <div class="mc" id="mc-sidecar" onclick="startChat('sidecar','本地模型（跟隨 .env）')">
-          <div class="mc-top"><div class="mc-icon" style="background:rgba(20,83,45,.35)">🛠️</div><div><div class="mc-name">Local Sidecar</div><div class="mc-sub">跟隨 .env 設定</div></div></div>
+          <div class="mc-top"><div class="mc-icon" style="background:rgba(20,83,45,.35)">🛠️</div><div><div class="mc-name">本地旁路模型</div><div class="mc-sub">跟隨 .env 設定</div></div></div>
           <div class="mc-desc">使用 OPEN_SOURCE_CHAT_MODEL / OLLAMA_MODEL</div>
           <span class="badge b-local">本地路由</span>
         </div>
@@ -352,17 +352,17 @@
         <div class="mc" id="mc-openai" onclick="startChat('openai','OpenAI')">
           <div class="mc-top"><div class="mc-icon" style="background:rgba(5,46,22,.35)">🤖</div><div><div class="mc-name">OpenAI GPT</div><div class="mc-sub" id="msub-openai">gpt-4o</div></div></div>
           <div class="mc-desc">GPT-4o 頂尖模型</div>
-          <span class="badge b-key" id="mbadge-openai">需 API Key</span>
+          <span class="badge b-key" id="mbadge-openai">需 API 金鑰</span>
         </div>
         <div class="mc" id="mc-gemini" onclick="startChat('gemini','Gemini')">
           <div class="mc-top"><div class="mc-icon" style="background:rgba(30,64,175,.35)">✨</div><div><div class="mc-name">Gemini</div><div class="mc-sub" id="msub-gemini">gemini-2.5-flash</div></div></div>
           <div class="mc-desc">Google 雲端模型</div>
-          <span class="badge b-key" id="mbadge-gemini">需 API Key</span>
+          <span class="badge b-key" id="mbadge-gemini">需 API 金鑰</span>
         </div>
         <div class="mc" id="mc-groq" onclick="startChat('groq','Groq')">
           <div class="mc-top"><div class="mc-icon" style="background:rgba(124,45,18,.35)">⚡</div><div><div class="mc-name">Groq</div><div class="mc-sub" id="msub-groq">gpt-oss-20b</div></div></div>
           <div class="mc-desc">低延遲快速回覆</div>
-          <span class="badge b-key" id="mbadge-groq">需 API Key</span>
+          <span class="badge b-key" id="mbadge-groq">需 API 金鑰</span>
         </div>
         <div class="mc" onclick="openExternal('https://claude.ai')">
           <div class="mc-top"><div class="mc-icon" style="background:rgba(120,53,15,.35)">🌊</div><div><div class="mc-name">Claude</div><div class="mc-sub">claude.ai</div></div></div>
@@ -520,7 +520,7 @@ let state = {
   sessionId: newId(),
   composing: false,
   attachments: [],
-  lowRestrict: false,  // 低限度模式：繞過倫理閘道 + 速率限制
+  lowRestrict: false,  // 最低權限模式：繞過倫理閘道 + 速率限制
   pendingSend: null,
   pendingSendTimer: null,
   pendingForcedSource: "",
@@ -554,7 +554,7 @@ function __agentLog(hypothesisId, location, message, data = {}) {
 const agentChats = {};
 
 /* ════════════════════════════════════════
-   低限度模式（Low-Restriction Mode）
+   最低權限模式（最低權限模式）
 ════════════════════════════════════════ */
 function toggleLowRestrict() {
   state.lowRestrict = !state.lowRestrict;
@@ -562,10 +562,10 @@ function toggleLowRestrict() {
   const lbl = document.getElementById("lowRestrictLabel");
   if (state.lowRestrict) {
     btn.classList.add("on");
-    lbl.textContent = "低限度 ON";
+    lbl.textContent = "最低權限 ON";
   } else {
     btn.classList.remove("on");
-    lbl.textContent = "低限度";
+    lbl.textContent = "最低權限";
   }
 }
 
@@ -619,6 +619,33 @@ const AGENT_META = {
     prompts: ["幫我腦力激盪幾個創業點子", "解釋這個概念給我聽", "幫我規劃今天的工作清單"]
   },
 };
+
+const UI_LABELS = {
+  interactionMode: {
+    auto: "自動",
+    discussion: "討論",
+    analysis: "分析",
+    coding: "程式",
+    creative: "創意",
+    image_generation: "圖像生成",
+    qa: "問答",
+  },
+  taskStatus: {
+    pending: "待執行",
+    running: "執行中",
+    completed: "已完成",
+    failed: "失敗",
+    unknown: "未知",
+  },
+};
+
+function labelInteractionMode(mode) {
+  return UI_LABELS.interactionMode[String(mode || "").trim()] || mode || "自動";
+}
+
+function labelTaskStatus(status) {
+  return UI_LABELS.taskStatus[String(status || "").trim()] || status || "未知";
+}
 
 function normalizeAgentKey(key) {
   const normalized = String(key || "").trim().toLowerCase();
@@ -834,7 +861,7 @@ function startChat(modelKey, modelLabel) {
   if (card && card.classList.contains("mc-offline")) {
     const badge = card.querySelector("[id^='mbadge-']");
     const orig = badge ? badge.textContent : "";
-    if (badge) { badge.textContent = "請先設定 API Key"; badge.className = "badge b-disabled"; }
+    if (badge) { badge.textContent = "請先設定 API 金鑰"; badge.className = "badge b-disabled"; }
     setTimeout(() => { if (badge) { badge.textContent = orig || "未設定"; badge.className = "badge b-disabled"; } }, 2000);
     return;
   }
@@ -925,11 +952,11 @@ function appendGeneratedImages(container, images) {
     card.className = "generated-image-card";
     const img = document.createElement("img");
     img.src = item.src;
-    img.alt = item.revised_prompt || item.prompt || `generated image ${index + 1}`;
+    img.alt = item.revised_prompt || item.prompt || `生成圖片 ${index + 1}`;
     img.onclick = () => openLightbox(item.src);
     const meta = document.createElement("div");
     meta.className = "generated-image-meta";
-    meta.textContent = `${item.provider || "image"} · ${item.model || "generated"}`;
+    meta.textContent = `${item.provider || "圖像"} · ${item.model || "已生成"}`;
     card.appendChild(img);
     card.appendChild(meta);
     grid.appendChild(card);
@@ -1178,7 +1205,7 @@ async function sendMessage(options = {}) {
         error_code: d.error_code || "",
       });
       const errId = d.error_id ? ` [err:${d.error_id}]` : "";
-      bubble.innerHTML = `<span style="color:#fca5a5">??{state.agentLabel}??{diag.userMessage}嚗?{diag.code}${errId}嚗?</span>`;
+      bubble.innerHTML = `<span style="color:#fca5a5">【${state.agentLabel}】${diag.userMessage}（${diag.code}${errId}）</span>`;
       bubble.style.cssText += ";border-color:rgba(239,68,68,.4);";
       renderBackendSync({ error: `${diag.userMessage}（${diag.code}）` }, "err");
       return;
@@ -1221,7 +1248,7 @@ async function sendMessage(options = {}) {
     });
     // #endregion
         const diag = normalizeBackendError(err || {});
-    bubble.innerHTML = `<span style="color:#fca5a5">??{state.agentLabel}??{diag.userMessage}嚗?{diag.code}嚗?</span>`;
+    bubble.innerHTML = `<span style="color:#fca5a5">【${state.agentLabel}】${diag.userMessage}（${diag.code}）</span>`;
     bubble.style.cssText += ";border-color:rgba(239,68,68,.4);";
     renderBackendSync({ error: `${diag.userMessage}（${diag.code}）` }, "err");
   } finally {
@@ -1554,7 +1581,7 @@ function renderBackendPending(mode) {
   const bridge = document.getElementById("bridgeInfo");
   const badge = document.getElementById("bridgeState");
   if (sync) {
-    sync.textContent = `後台處理中 · ${state.agentLabel} · ${label} · ${mode || "auto"}`;
+    sync.textContent = `後台處理中 · ${state.agentLabel} · ${label} · ${labelInteractionMode(mode || "auto")}`;
     sync.className = "backend-sync pending";
   }
   if (bridge) bridge.textContent = "後台處理中";
@@ -1613,7 +1640,7 @@ function buildBackendStatusLine(data = {}, fallbackMode = "auto") {
     ? `主題: ${data.semantic_analysis.primary_topic}`
     : "";
   const safety = data.safety_guard && data.safety_guard.triggered ? "安全改寫" : "";
-  return ["後台同步", agent, model, `模式: ${mode}`, time, topic, safety]
+  return ["後台同步", agent, model, `模式：${labelInteractionMode(mode)}`, time, topic, safety]
     .filter(Boolean)
     .join(" · ");
 }
@@ -1752,13 +1779,15 @@ function renderTasksPanel(sum, items) {
     const title = (t.title || "").slice(0, 42) || `#${t.task_id}`;
     const time  = (t.updated_at || "").slice(5, 16).replace("T", " ");
     const meta  = AGENT_META[agent] || {};
-    return `<div class="task-row" onclick="selectAgent('${agent}','${meta.icon||'🤖'}','${meta.label||agent}')">
+    const agentLabel = meta.label || agent;
+    const stLabel = labelTaskStatus(st);
+    return `<div class="task-row" onclick="selectAgent('${agent}','${meta.icon||'🤖'}','${agentLabel}')">
       <div class="task-row-top">
         <span class="task-dot ${st}"></span>
         <span class="task-row-title">${title}</span>
-        <span class="task-row-agent">${agent}</span>
+        <span class="task-row-agent">${agentLabel}</span>
       </div>
-      <div class="task-row-meta">${st} · ${time}</div>
+      <div class="task-row-meta">${stLabel} · ${time}</div>
     </div>`;
   }).join("");
 }

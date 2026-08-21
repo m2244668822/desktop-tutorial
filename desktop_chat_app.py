@@ -2380,10 +2380,44 @@ class DesktopBridge:
         env = self._load_merged_env_data()
         if purpose == "execution":
             return "nvidia"
+        if purpose == "discussion":
+            return "open_source"
         pref = str(env.get("CHAT_PREFERRED_PROVIDER", "")).strip().lower()
         if pref in {"nvidia", "openai", "groq", "gemini"}:
             return pref
         return "open_source"
+
+    def _allow_cloud_fallback_for_requested_backend(
+        self,
+        purpose: str,
+        model_key: str,
+        interaction_mode: str = "auto",
+    ) -> bool:
+        """Decide whether auto local-model failure may spend cloud quota.
+
+        Automatic discussion should remain local-first. If the user explicitly
+        selects a cloud model, or the task is execution/research-like, cloud
+        fallback is allowed because the user intent implies higher capability.
+        """
+        requested = str(model_key or "auto").strip().lower()
+        if requested not in {"", "auto"}:
+            return requested in {"nvidia", "openai", "groq", "gemini"}
+
+        purpose_norm = str(purpose or "discussion").strip().lower()
+        mode_norm = str(interaction_mode or "auto").strip().lower()
+        if purpose_norm == "discussion" and mode_norm in {"auto", "discussion", "general", "chat"}:
+            return False
+        return purpose_norm in {"execution", "research", "analysis", "coding"} or mode_norm in {
+            "execution",
+            "analysis",
+            "code",
+        }
+
+    def _should_attempt_live_llm_backend(self, requested_backend: str) -> bool:
+        backend = str(requested_backend or "").strip().lower()
+        if backend == "open_source" and not bool(getattr(self, "oss_is_healthy", False)):
+            return False
+        return True
 
     def _is_cloud_available(self, backend: str) -> bool:
         env = self._load_merged_env_data()
@@ -2530,12 +2564,19 @@ class DesktopBridge:
         purpose = infer_backend_purpose(message) if infer_backend_purpose else "discussion"
         requested_backend = model_key if model_key != "auto" else self._requested_backend_for_purpose(purpose)
 
-        # 雲端優先邏輯
-        if requested_backend == "open_source" and not self.oss_is_healthy:
+        # 自動討論保持最低流量；只有明確雲端或任務型需求才可雲端 fallback。
+        if (
+            requested_backend == "open_source"
+            and not self.oss_is_healthy
+            and self._allow_cloud_fallback_for_requested_backend(purpose, model_key, interaction_mode)
+        ):
             if self._is_cloud_available("nvidia"): requested_backend = "nvidia"
             elif self._is_cloud_available("groq"): requested_backend = "groq"
 
         self._requested_backend = requested_backend
+        skip_live_llm_reason = ""
+        if not self._should_attempt_live_llm_backend(requested_backend):
+            skip_live_llm_reason = "open_source_unhealthy_local_first"
 
         reply = ""
         workflow_payload: dict = {}
@@ -2670,14 +2711,23 @@ class DesktopBridge:
             }
             workflow_payload["llm_live"] = dict(live_llm_meta)
         elif (not should_run_workflow) and (not reply.strip()):
-            live_reply, live_llm_meta = self._generate_live_llm_reply(
-                message=message,
-                role=role,
-                requested_backend=requested_backend,
-                retrieval_brief=retrieval_brief,
-            )
-            if live_reply.strip():
-                reply = live_reply.strip()
+            if skip_live_llm_reason:
+                live_llm_meta = {
+                    "ok": False,
+                    "attempted": False,
+                    "fallback_used": True,
+                    "provider": requested_backend,
+                    "fallback_reason": skip_live_llm_reason,
+                }
+            else:
+                live_reply, live_llm_meta = self._generate_live_llm_reply(
+                    message=message,
+                    role=role,
+                    requested_backend=requested_backend,
+                    retrieval_brief=retrieval_brief,
+                )
+                if live_reply.strip():
+                    reply = live_reply.strip()
             workflow_payload["llm_live"] = dict(live_llm_meta)
 
         # 後備回覆：一般對談避免暴露巡檢細節；任務失敗才給簡短狀態。
@@ -2877,7 +2927,37 @@ class DesktopBridge:
         }
 
     def _git_status_filtered(self, short: bool = True) -> str:
-        return "Git 功能受限 (Mock)"
+        args = ["git", "status", "--short"] if short else ["git", "status", "--branch", "--short"]
+        try:
+            proc = subprocess.run(
+                args,
+                cwd=str(self.workspace),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=5,
+                check=False,
+            )
+        except FileNotFoundError:
+            return "Git 狀態不可用（未找到 git 指令）"
+        except subprocess.TimeoutExpired:
+            return "Git 狀態查詢逾時（不代表 Git 功能受限）"
+        except Exception as exc:
+            return f"Git 狀態查詢失敗（{type(exc).__name__}，不代表 Git 功能受限）"
+
+        out = (proc.stdout or "").strip()
+        err = (proc.stderr or "").strip()
+        if proc.returncode == 0:
+            if not out:
+                return "乾淨"
+            lines = [line for line in out.splitlines() if line.strip()]
+            return "\n".join(lines[:8])
+
+        merged = " ".join(part for part in (out, err) if part).strip()
+        if "not a git repository" in merged.lower():
+            return "Git 狀態不可用（目前工作區不是 Git repository）"
+        return f"Git 狀態查詢失敗 rc={proc.returncode}: {(merged or '無錯誤輸出')[:160]}"
 
     def _vscode_status(self) -> dict:
         return {"integration_state": "未偵測", "process_running": False}
@@ -2964,7 +3044,7 @@ def main():
         return 1
 
     bridge.window = webview.create_window(
-        "智能體控制中心",
+        "AI 智能體中心",
         url=str(CHAT_SHELL_HTML),
         js_api=bridge,
         width=1200, height=800
