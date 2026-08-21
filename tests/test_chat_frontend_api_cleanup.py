@@ -15,17 +15,14 @@ class ChatFrontendApiCleanupTests(unittest.TestCase):
 
     def test_agent_aliases_cover_old_backend_keys(self):
         for token in [
-            'dispatcher: "proclaimer"',
-            'manager: "proclaimer"',
-            'learner: "researcher"',
-            'prophet: "proclaimer"',
-            'hat: "whitehat"',
+            'dispatcher: "trevor"',
+            'manager: "trevor"',
+            'learner: "trevor"',
+            'prophet: "trevor"',
+            'hat: "trevor"',
         ]:
             self.assertIn(token, self.html)
-        self.assertNotIn('general: "dispatcher"', self.html)
-        self.assertNotIn('manager: "dispatcher"', self.html)
-        self.assertNotIn('proclaimer: "prophet"', self.html)
-        self.assertNotIn('whitehat: "hat"', self.html)
+        self.assertIn('return normalized === "trevor" ? "trevor"', self.html)
 
     def test_polling_bootstrap_is_grouped(self):
         self.assertIn('function bootstrapPolling()', self.html)

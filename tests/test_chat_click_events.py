@@ -30,20 +30,15 @@ class ChatClickEventsTests(unittest.TestCase):
         ]:
             self.assertIn(f'function {fn}', self.html)
 
-    def test_agent_aliases_route_legacy_manager_to_proclaimer(self):
-        self.assertIn('dispatcher: "proclaimer"', self.html)
-        self.assertIn('manager: "proclaimer"', self.html)
-        self.assertNotIn('general: "dispatcher"', self.html)
-        self.assertNotIn('manager: "dispatcher"', self.html)
-        self.assertIn("selectAgent('general','🤖','通用')", self.html)
+    def test_agent_aliases_route_legacy_roles_to_trevor(self):
+        self.assertIn('dispatcher: "trevor"', self.html)
+        self.assertIn('manager: "trevor"', self.html)
+        self.assertIn('general: "trevor"', self.html)
+        self.assertIn("selectAgent('trevor','🧭','崔佛')", self.html)
 
     def test_backend_frontend_agent_keys_match_sidebar_entries(self):
-        for token in [
-            '"總管": "proclaimer"',
-            '"申言者": "proclaimer"',
-            '"帽子": "whitehat"',
-        ]:
-            self.assertIn(token, self.server)
+        self.assertIn('return "trevor"', self.server)
+        self.assertIn('id="nav-trevor"', self.html)
 
 
 if __name__ == '__main__':

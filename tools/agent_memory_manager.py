@@ -33,6 +33,11 @@ from collections import defaultdict
 import threading
 import hashlib
 
+from core.data_paths import resolve_data_root
+from core.encrypted_store import AESGCMJsonStore, DeviceEncryptionKey, EncryptedStoreError
+from core.memory_conflicts import MemoryConflictResolver
+from core.trevor_identity import TREVOR_DISPLAY_NAME, normalize_trevor_identity
+
 
 def _configure_utf8_stdio() -> None:
     """Keep Windows terminals from crashing on UTF-8 status text."""
@@ -48,22 +53,18 @@ _configure_utf8_stdio()
 
 
 def _resolve_data_root(base_dir: Path) -> Path:
-    primary = base_dir / "data"
-    fallback = base_dir / "data_hdd_storage"
-    if primary.is_dir():
-        return primary
-    if fallback.is_dir():
-        return fallback
-    if primary.exists() and not primary.is_dir():
-        return fallback
-    return primary
+    return resolve_data_root(base_dir)
 
 
 class AgentMemoryManager:
     """智能體統一記憶管理系統"""
 
     def __init__(
-        self, base_dir: str = None, auto_save: bool = True
+        self,
+        base_dir: str = None,
+        auto_save: bool = True,
+        json_store: AESGCMJsonStore | None = None,
+        encrypt_at_rest: bool | None = None,
     ):
         """
         初始化智能體記憶管理系統
@@ -75,6 +76,10 @@ class AgentMemoryManager:
         self.base_dir = Path(base_dir) if base_dir else Path(__file__).resolve().parents[1]
         self.auto_save = auto_save
         self._lock = threading.Lock()
+        self._conflict_resolver = MemoryConflictResolver()
+        self._json_store = json_store
+        if self._json_store is None and self._should_encrypt_at_rest(encrypt_at_rest):
+            self._json_store = AESGCMJsonStore(DeviceEncryptionKey().get_or_create)
 
         # 記憶存儲路徑
         data_root = _resolve_data_root(self.base_dir)
@@ -115,6 +120,10 @@ class AgentMemoryManager:
         # 初始化
         self._load_all()
         self._auto_recover_conversations()
+        normalized = self._normalize_trevor_memory_state()
+        if normalized:
+            self._dirty = True
+        self._encrypt_legacy_private_files()
 
         # 啟動定時保存線程
         if self.auto_save:
@@ -123,6 +132,37 @@ class AgentMemoryManager:
         print(f"✅ 智能體統一記憶管理系統已初始化")
         print(f"   記憶目錄: {self.memory_dir}")
         print(f"   自動保存: {'啟用' if self.auto_save else '停用'}")
+
+    def _should_encrypt_at_rest(self, configured: bool | None) -> bool:
+        if configured is not None:
+            return bool(configured)
+        env_value = str(os.getenv("TREVOR_MEMORY_ENCRYPTION", "") or "").strip().lower()
+        if env_value:
+            return env_value in {"1", "true", "yes", "on", "required"}
+        return self.base_dir.expanduser().resolve() == Path(__file__).resolve().parents[1]
+
+    def _read_json(self, path: Path, default: Any) -> Any:
+        if self._json_store is not None:
+            return self._json_store.read_json(path, default)
+        with open(path, "r", encoding="utf-8") as file_handle:
+            return json.load(file_handle)
+
+    def _encrypt_legacy_private_files(self) -> None:
+        if self._json_store is None:
+            return
+        private_state = (
+            (self.agent_memory_file, self._agent_memories),
+            (self.conversation_file, self._conversations),
+            (self.ide_context_file, self._ide_context),
+            (self.session_file, self._sessions),
+        )
+        migrated = 0
+        for path, payload in private_state:
+            if path.exists() and not self._json_store.is_encrypted(path):
+                self._json_store.write_json(path, payload)
+                migrated += 1
+        if migrated:
+            print(f"   🔐 已加密 {migrated} 個舊版私密記憶檔")
 
     def _auto_recover_conversations(self):
         """若主 conversations 過少，自動從可用備份來源補回（不覆蓋現有）。"""
@@ -192,6 +232,127 @@ class AgentMemoryManager:
         except Exception as e:
             print(f"   ⚠️ 自動恢復對話記錄失敗: {e}")
 
+    @staticmethod
+    def _canonical_identity(agent_name: str) -> tuple[str, str, str]:
+        source_role = str(agent_name or TREVOR_DISPLAY_NAME).strip() or TREVOR_DISPLAY_NAME
+        identity = normalize_trevor_identity(role=source_role)
+        return TREVOR_DISPLAY_NAME, source_role, identity.capability_mode
+
+    @staticmethod
+    def _turn_hash(user_message: str, assistant_message: str) -> str:
+        normalized = "\n".join(
+            " ".join(str(value or "").split()).strip().lower()
+            for value in (user_message, assistant_message)
+        )
+        return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+    def _normalize_trevor_memory_state(self) -> bool:
+        changed = False
+        if self._agent_memories:
+            combined = {
+                "created_at": "",
+                "last_updated": "",
+                "memories": [],
+                "preferences": {},
+                "preference_metadata": {},
+                "conflicts": [],
+            }
+            preference_winners: dict[str, dict[str, Any]] = {}
+            for owner, payload in self._agent_memories.items():
+                if not isinstance(payload, dict):
+                    continue
+                created_at = str(payload.get("created_at", "") or "")
+                updated_at = str(payload.get("last_updated", "") or "")
+                if created_at and (
+                    not combined["created_at"] or created_at < combined["created_at"]
+                ):
+                    combined["created_at"] = created_at
+                if updated_at > combined["last_updated"]:
+                    combined["last_updated"] = updated_at
+                for memory in payload.get("memories", []) or []:
+                    if not isinstance(memory, dict):
+                        continue
+                    item = dict(memory)
+                    item.setdefault("source_role", owner)
+                    item.setdefault(
+                        "capability_mode",
+                        normalize_trevor_identity(role=owner).capability_mode,
+                    )
+                    combined["memories"].append(item)
+                preference_metadata = payload.get("preference_metadata", {}) or {}
+                for key, value in (payload.get("preferences", {}) or {}).items():
+                    metadata = preference_metadata.get(key, {})
+                    incoming = {
+                        "key": key,
+                        "value": value,
+                        "source": metadata.get("source", "legacy"),
+                        "priority": metadata.get("priority", 0),
+                        "confidence": metadata.get("confidence", 0.5),
+                        "updated_at": metadata.get("updated_at", updated_at),
+                        "source_role": metadata.get("source_role", owner),
+                    }
+                    decision = self._conflict_resolver.resolve(
+                        preference_winners.get(key), incoming
+                    )
+                    preference_winners[key] = decision.winner
+                    if decision.conflict:
+                        combined["conflicts"].append(
+                            {
+                                "key": key,
+                                "reason": decision.reason,
+                                "winner_source": decision.winner.get("source", ""),
+                                "resolved_at": datetime.now().isoformat(),
+                            }
+                        )
+            for key, winner in preference_winners.items():
+                combined["preferences"][key] = winner.get("value")
+                combined["preference_metadata"][key] = {
+                    field: winner.get(field)
+                    for field in (
+                        "source",
+                        "priority",
+                        "confidence",
+                        "updated_at",
+                        "source_role",
+                    )
+                }
+            if not combined["created_at"]:
+                combined["created_at"] = datetime.now().isoformat()
+            if not combined["last_updated"]:
+                combined["last_updated"] = datetime.now().isoformat()
+            changed = set(self._agent_memories) != {TREVOR_DISPLAY_NAME}
+            self._agent_memories = {TREVOR_DISPLAY_NAME: combined}
+
+        seen_turns: set[str] = set()
+        for conversation in self._conversations.values():
+            if not isinstance(conversation, dict):
+                continue
+            owner = str(conversation.get("agent_name", TREVOR_DISPLAY_NAME) or TREVOR_DISPLAY_NAME)
+            canonical, source_role, capability_mode = self._canonical_identity(owner)
+            if owner != canonical:
+                changed = True
+            conversation["agent_name"] = canonical
+            unique_messages = []
+            for message in conversation.get("messages", []) or []:
+                if not isinstance(message, dict):
+                    continue
+                item = dict(message)
+                metadata = dict(item.get("metadata") or {})
+                metadata.setdefault("source_role", source_role)
+                metadata.setdefault("capability_mode", capability_mode)
+                content_hash = str(metadata.get("content_hash", "") or "") or self._turn_hash(
+                    item.get("user", ""), item.get("assistant", "")
+                )
+                metadata["content_hash"] = content_hash
+                if content_hash in seen_turns:
+                    changed = True
+                    continue
+                seen_turns.add(content_hash)
+                item["metadata"] = metadata
+                unique_messages.append(item)
+            conversation["messages"] = unique_messages
+        return changed
+
     def _load_all(self):
         """加載所有記憶數據"""
         self._load_agent_memories()
@@ -203,9 +364,10 @@ class AgentMemoryManager:
         """加載智能體記憶"""
         if self.agent_memory_file.exists():
             try:
-                with open(self.agent_memory_file, "r", encoding="utf-8") as f:
-                    self._agent_memories = json.load(f)
+                self._agent_memories = self._read_json(self.agent_memory_file, {})
                 print(f"   📦 已加載 {len(self._agent_memories)} 個智能體記憶")
+            except EncryptedStoreError:
+                raise
             except Exception as e:
                 print(f"   ⚠️ 加載智能體記憶失敗: {e}")
                 self._agent_memories = {}
@@ -214,8 +376,7 @@ class AgentMemoryManager:
         """加載對話歷史"""
         if self.conversation_file.exists():
             try:
-                with open(self.conversation_file, "r", encoding="utf-8") as f:
-                    self._conversations = json.load(f)
+                self._conversations = self._read_json(self.conversation_file, {})
                 total_messages = sum(
                     len(conv.get("messages", []))
                     for conv in self._conversations.values()
@@ -223,6 +384,8 @@ class AgentMemoryManager:
                 print(
                     f"   💬 已加載 {len(self._conversations)} 個對話記錄 ({total_messages} 條訊息)"
                 )
+            except EncryptedStoreError:
+                raise
             except Exception as e:
                 print(f"   ⚠️ 加載對話歷史失敗: {e}")
                 self._conversations = {}
@@ -231,9 +394,10 @@ class AgentMemoryManager:
         """加載IDE上下文"""
         if self.ide_context_file.exists():
             try:
-                with open(self.ide_context_file, "r", encoding="utf-8") as f:
-                    self._ide_context = json.load(f)
+                self._ide_context = self._read_json(self.ide_context_file, {})
                 print(f"   🖥️ 已加載IDE上下文")
+            except EncryptedStoreError:
+                raise
             except Exception as e:
                 print(f"   ⚠️ 加載IDE上下文失敗: {e}")
                 self._ide_context = {}
@@ -242,9 +406,10 @@ class AgentMemoryManager:
         """加載會話記錄"""
         if self.session_file.exists():
             try:
-                with open(self.session_file, "r", encoding="utf-8") as f:
-                    self._sessions = json.load(f)
+                self._sessions = self._read_json(self.session_file, {})
                 print(f"   📋 已加載 {len(self._sessions)} 個會話記錄")
+            except EncryptedStoreError:
+                raise
             except Exception as e:
                 print(f"   ⚠️ 加載會話記錄失敗: {e}")
                 self._sessions = {}
@@ -352,8 +517,7 @@ class AgentMemoryManager:
                 backup_file = (
                     self._backup_dir / f"agent_memories_backup_{timestamp}.json"
                 )
-                with open(backup_file, "w", encoding="utf-8") as f:
-                    json.dump(self._agent_memories, f, ensure_ascii=False, indent=2)
+                self._atomic_write_json(backup_file, self._agent_memories)
                 print(f"   📦 已創建記憶備份: {backup_file.name}")
 
             # 備份對話
@@ -361,8 +525,7 @@ class AgentMemoryManager:
                 backup_file = (
                     self._backup_dir / f"conversations_backup_{timestamp}.json"
                 )
-                with open(backup_file, "w", encoding="utf-8") as f:
-                    json.dump(self._conversations, f, ensure_ascii=False, indent=2)
+                self._atomic_write_json(backup_file, self._conversations)
                 print(f"   📦 已創建對話備份: {backup_file.name}")
 
             # 清理舊備份（保留最近10個）
@@ -430,6 +593,9 @@ class AgentMemoryManager:
 
     def _atomic_write_json(self, path: Path, data: Any) -> None:
         """Write JSON through a temp file so readers never see half-written data."""
+        if self._json_store is not None:
+            self._json_store.write_json(path, data)
+            return
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = path.with_name(
             f"{path.name}.tmp-{os.getpid()}-{threading.get_ident()}"
@@ -439,6 +605,7 @@ class AgentMemoryManager:
             f.write("\n")
             f.flush()
             os.fsync(f.fileno())
+        os.chmod(tmp_path, 0o600)
         os.replace(tmp_path, path)
 
     def _save_agent_memories(self):
@@ -470,28 +637,34 @@ class AgentMemoryManager:
             memory_data: 記憶數據
             force_save: 是否立即保存
         """
+        canonical, source_role, capability_mode = self._canonical_identity(agent_name)
         with self._lock:
-            if agent_name not in self._agent_memories:
-                self._agent_memories[agent_name] = {
+            if canonical not in self._agent_memories:
+                self._agent_memories[canonical] = {
                     "created_at": datetime.now().isoformat(),
                     "last_updated": datetime.now().isoformat(),
                     "memories": [],
+                    "preferences": {},
+                    "preference_metadata": {},
+                    "conflicts": [],
                 }
 
             memory_entry = {
                 "timestamp": datetime.now().isoformat(),
                 "data": memory_data,
+                "source_role": source_role,
+                "capability_mode": capability_mode,
             }
 
-            self._agent_memories[agent_name]["memories"].append(memory_entry)
-            self._agent_memories[agent_name]["last_updated"] = (
+            self._agent_memories[canonical]["memories"].append(memory_entry)
+            self._agent_memories[canonical]["last_updated"] = (
                 datetime.now().isoformat()
             )
 
             # 只保留最近100條記憶
-            if len(self._agent_memories[agent_name]["memories"]) > 100:
-                self._agent_memories[agent_name]["memories"] = self._agent_memories[
-                    agent_name
+            if len(self._agent_memories[canonical]["memories"]) > 100:
+                self._agent_memories[canonical]["memories"] = self._agent_memories[
+                    canonical
                 ]["memories"][-100:]
             self._mark_dirty_unlocked("agent_memories")
 
@@ -509,7 +682,8 @@ class AgentMemoryManager:
         Returns:
             記憶列表
         """
-        memories = self._agent_memories.get(agent_name, {}).get("memories", [])
+        canonical, _, _ = self._canonical_identity(agent_name)
+        memories = self._agent_memories.get(canonical, {}).get("memories", [])
         if limit:
             return memories[-limit:]
         return memories
@@ -518,30 +692,77 @@ class AgentMemoryManager:
         self, agent_name: str, key: str, default: Any = None
     ) -> Any:
         """獲取智能體偏好設置"""
-        agent_data = self._agent_memories.get(agent_name, {})
+        canonical, _, _ = self._canonical_identity(agent_name)
+        agent_data = self._agent_memories.get(canonical, {})
         preferences = agent_data.get("preferences", {})
         return preferences.get(key, default)
 
     def set_agent_preference(
-        self, agent_name: str, key: str, value: Any, force_save: bool = False
+        self,
+        agent_name: str,
+        key: str,
+        value: Any,
+        force_save: bool = False,
+        source: str = "user_explicit",
+        priority: int = 0,
+        confidence: float = 1.0,
     ):
         """設置智能體偏好"""
+        canonical, source_role, _ = self._canonical_identity(agent_name)
         with self._lock:
-            if agent_name not in self._agent_memories:
-                self._agent_memories[agent_name] = {
+            if canonical not in self._agent_memories:
+                self._agent_memories[canonical] = {
                     "created_at": datetime.now().isoformat(),
                     "last_updated": datetime.now().isoformat(),
                     "memories": [],
                     "preferences": {},
+                    "preference_metadata": {},
+                    "conflicts": [],
                 }
 
-            if "preferences" not in self._agent_memories[agent_name]:
-                self._agent_memories[agent_name]["preferences"] = {}
-
-            self._agent_memories[agent_name]["preferences"][key] = value
-            self._agent_memories[agent_name]["last_updated"] = (
-                datetime.now().isoformat()
-            )
+            state = self._agent_memories[canonical]
+            state.setdefault("preferences", {})
+            state.setdefault("preference_metadata", {})
+            state.setdefault("conflicts", [])
+            now = datetime.now().isoformat()
+            existing = None
+            if key in state["preferences"]:
+                existing = {
+                    "key": key,
+                    "value": state["preferences"][key],
+                    **dict(state["preference_metadata"].get(key, {})),
+                }
+            incoming = {
+                "key": key,
+                "value": value,
+                "source": source,
+                "priority": priority,
+                "confidence": confidence,
+                "updated_at": now,
+                "source_role": source_role,
+            }
+            decision = self._conflict_resolver.resolve(existing, incoming)
+            winner = decision.winner
+            state["preferences"][key] = winner.get("value")
+            state["preference_metadata"][key] = {
+                field: winner.get(field)
+                for field in (
+                    "source",
+                    "priority",
+                    "confidence",
+                    "updated_at",
+                    "source_role",
+                )
+            }
+            if decision.conflict:
+                state["conflicts"].append(
+                    {
+                        "key": key,
+                        "reason": decision.reason,
+                        "resolved_at": now,
+                    }
+                )
+            state["last_updated"] = now
             self._mark_dirty_unlocked("agent_preferences")
 
         if force_save:
@@ -567,23 +788,37 @@ class AgentMemoryManager:
             metadata: 額外元數據
             force_save: 是否立即保存
         """
+        canonical, source_role, capability_mode = self._canonical_identity(agent_name)
         with self._lock:
             # 創建對話ID
-            conversation_id = self._generate_conversation_id(agent_name, user_message)
+            conversation_id = self._generate_conversation_id(canonical, user_message)
 
             if conversation_id not in self._conversations:
                 self._conversations[conversation_id] = {
-                    "agent_name": agent_name,
+                    "agent_name": canonical,
                     "created_at": datetime.now().isoformat(),
                     "last_message_at": datetime.now().isoformat(),
                     "messages": [],
                 }
 
+            safe_metadata = dict(metadata or {})
+            safe_metadata.setdefault("source_role", source_role)
+            safe_metadata.setdefault("capability_mode", capability_mode)
+            content_hash = self._turn_hash(user_message, assistant_message)
+            safe_metadata["content_hash"] = content_hash
+            if any(
+                str((item.get("metadata") or {}).get("content_hash", "")) == content_hash
+                or self._turn_hash(item.get("user", ""), item.get("assistant", "")) == content_hash
+                for item in self._conversations[conversation_id].get("messages", [])
+                if isinstance(item, dict)
+            ):
+                return
+
             message_entry = {
                 "timestamp": datetime.now().isoformat(),
                 "user": user_message,
                 "assistant": assistant_message,
-                "metadata": metadata or {},
+                "metadata": safe_metadata,
             }
 
             self._conversations[conversation_id]["messages"].append(message_entry)
@@ -591,14 +826,13 @@ class AgentMemoryManager:
                 datetime.now().isoformat()
             )
 
-            # 只保留最近1000條對話
-            if len(self._conversations) > 1000:
+            if len(self._conversations) > 10000:
                 # 刪除最舊的對話
                 sorted_convs = sorted(
                     self._conversations.items(),
                     key=lambda x: x[1].get("last_message_at", ""),
                 )
-                for old_id, _ in sorted_convs[:100]:
+                for old_id, _ in sorted_convs[:500]:
                     del self._conversations[old_id]
             self._mark_dirty_unlocked("conversations")
 
@@ -608,7 +842,7 @@ class AgentMemoryManager:
     def _generate_conversation_id(self, agent_name: str, message: str) -> str:
         """生成對話ID"""
         content = f"{agent_name}:{message[:50]}"
-        return hashlib.md5(content.encode()).hexdigest()[:16]
+        return hashlib.sha256(content.encode()).hexdigest()[:24]
 
     def get_conversation_history(
         self, agent_name: str = None, limit: int = 50
@@ -624,10 +858,11 @@ class AgentMemoryManager:
             對話歷史列表
         """
         if agent_name:
+            canonical, _, _ = self._canonical_identity(agent_name)
             convs = [
                 c
                 for c in self._conversations.values()
-                if c.get("agent_name") == agent_name
+                if c.get("agent_name") == canonical
             ]
         else:
             convs = list(self._conversations.values())
@@ -654,9 +889,10 @@ class AgentMemoryManager:
             訊息列表
         """
         all_messages = []
+        canonical = self._canonical_identity(agent_name)[0] if agent_name else ""
 
         for conv in self._conversations.values():
-            if agent_name and conv.get("agent_name") != agent_name:
+            if canonical and conv.get("agent_name") != canonical:
                 continue
             all_messages.extend(conv.get("messages", []))
 
@@ -681,9 +917,10 @@ class AgentMemoryManager:
         """
         results = []
         query_lower = query.lower()
+        canonical = self._canonical_identity(agent_name)[0] if agent_name else ""
 
         for conv in self._conversations.values():
-            if agent_name and conv.get("agent_name") != agent_name:
+            if canonical and conv.get("agent_name") != canonical:
                 continue
 
             for msg in conv.get("messages", []):

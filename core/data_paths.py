@@ -2,12 +2,47 @@
 from __future__ import annotations
 
 import os
+import platform
 from pathlib import Path
+from typing import Mapping
 
 
-def resolve_data_root(base_dir: str | Path) -> Path:
+def default_trevor_data_dir(
+    *,
+    deployment: str = "",
+    platform_name: str | None = None,
+    home: Path | None = None,
+) -> Path:
+    target = str(deployment or "").strip().lower()
+    if target == "oci":
+        return Path("/var/lib/trevor")
+    system = str(platform_name or platform.system()).strip().lower()
+    home_dir = (home or Path.home()).expanduser()
+    if system == "darwin":
+        return home_dir / "Library" / "Application Support" / "Trevor"
+    if system == "windows":
+        local_app_data = os.environ.get("LOCALAPPDATA", "").strip()
+        return Path(local_app_data) / "Trevor" if local_app_data else home_dir / "AppData" / "Local" / "Trevor"
+    return home_dir / ".local" / "share" / "trevor"
+
+
+def resolve_data_root(
+    base_dir: str | Path,
+    *,
+    env: Mapping[str, str] | None = None,
+) -> Path:
     """Resolve workspace data root across symlink/junction/plain-folder layouts."""
+    environment = os.environ if env is None else env
+    configured = str(environment.get("TREVOR_DATA_DIR", "") or "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
     workspace = Path(base_dir).expanduser().resolve()
+    module_workspace = Path(__file__).resolve().parent.parent
+    legacy_layout = str(environment.get("TREVOR_LEGACY_DATA_LAYOUT", "") or "").strip().lower()
+    if workspace == module_workspace and legacy_layout not in {"1", "true", "yes", "on"}:
+        return default_trevor_data_dir(
+            deployment=str(environment.get("TREVOR_DEPLOYMENT", "") or "")
+        ).expanduser().resolve()
     primary = workspace / "data"
     fallback = workspace / "data_hdd_storage"
 

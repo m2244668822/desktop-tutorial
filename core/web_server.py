@@ -23,11 +23,20 @@ from urllib import request as urllib_request
 from urllib.parse import urlencode, parse_qs, urlparse
 
 from core.agent_collaboration_audit import record_agent_collaboration_event
+from core.ai_horde_assets import AIHordeAssetStore
+from core.ai_horde_client import AIHordeClient, AIHordeError
+from core.ai_horde_jobs import AIHordeJobManager
 from core.capability_registry import build_capability_registry
 from core.data_paths import ProjectPaths
 from core.openclaw_adapter import OpenClawAdapter
 from core.task_board import task_items_payload, task_summary_payload
 from core.traffic_governor import decide_route
+from core.trevor_identity import (
+    TREVOR_AGENT_ID,
+    TREVOR_DISPLAY_NAME,
+    decorate_trevor_response,
+    normalize_trevor_identity,
+)
 
 # Shim for pywebview API in web mode
 WEB_BRIDGE_SHIM = r"""
@@ -95,20 +104,17 @@ class WebServerMode:
         self._provider_cache_ts = 0.0
         self._provider_ttl_sec = 2.0
         self.openclaw = OpenClawAdapter(self.workspace_path)
+        self.ai_horde_client = AIHordeClient()
+        self.ai_horde_assets = AIHordeAssetStore(self.paths.data)
+        self.ai_horde_jobs = AIHordeJobManager(
+            self.ai_horde_client,
+            self.ai_horde_assets,
+            max_concurrent=int(os.getenv("AI_HORDE_MAX_CONCURRENT_JOBS", "2") or "2"),
+            max_queued=int(os.getenv("AI_HORDE_MAX_QUEUED_JOBS", "8") or "8"),
+            timeout_seconds=float(os.getenv("AI_HORDE_JOB_TIMEOUT_SECONDS", "600") or "600"),
+        )
 
-        self._agent_key_map = {
-            "general": "通用",
-            "dispatcher": "申言者",
-            "manager": "申言者",
-            "researcher": "研究員",
-            "engineer": "工程師",
-            "relay": "中繼器",
-            "xiaobian": "小編",
-            "proclaimer": "申言者",
-            "prophet": "申言者",
-            "whitehat": "帽子",
-            "hat": "帽子",
-        }
+        self._agent_key_map = {"trevor": TREVOR_DISPLAY_NAME}
         self._openclaw_execution_tokens = {
             "修",
             "修復",
@@ -240,6 +246,48 @@ class WebServerMode:
             "traffic_governor": traffic_governor,
         }
 
+    def trevor_status_payload(self) -> dict:
+        readiness = self.readiness_payload()
+        graphiti_port = int(os.getenv("TREVOR_GRAPHITI_PORT", "8091") or "8091")
+        migration_manifest = self.paths.data / "migrations" / "graphiti_manifest.json"
+        return {
+            "ok": bool(readiness.get("required_ready")),
+            "identity": normalize_trevor_identity().public_dict(),
+            "frontend": {"ready": True, "entry": "/chat_shell"},
+            "backend": {
+                "ready": bool(readiness.get("bridge_ready")),
+                "status": readiness.get("status", "degraded"),
+            },
+            "graphiti": {
+                "ready": self._tcp_up("127.0.0.1", graphiti_port),
+                "private": True,
+            },
+            "autonomy": {
+                "ready": bool(getattr(self.bridge, "monitor_active", False)),
+                "max_concurrent_tasks": 1,
+            },
+            "tailscale": {
+                "private_only": True,
+                "configured": bool(os.getenv("TAILSCALE_HOSTNAME", "").strip()),
+            },
+            "data_migration": {
+                "manifest_ready": migration_manifest.exists(),
+                "state": "ready" if migration_manifest.exists() else "pending",
+            },
+            "degraded_reasons": list(readiness.get("degraded_reasons", [])),
+        }
+
+    def trevor_provider_payload(self) -> dict:
+        try:
+            payload = self.bridge.get_trevor_provider_status() or {}
+        except Exception:
+            payload = {"ok": False, "providers": []}
+        return {
+            **payload,
+            "identity": {"id": TREVOR_AGENT_ID, "display_name": TREVOR_DISPLAY_NAME},
+            "secrets_exposed": False,
+        }
+
     def _should_try_openclaw_task(self, message: str, mode: str = "auto") -> bool:
         status = self.openclaw.status()
         if not status.get("ok") or not status.get("task_forwarding_configured"):
@@ -288,9 +336,20 @@ class WebServerMode:
         allow_fallback: bool,
     ) -> dict:
         message = str(payload.get("message", "") or "")
+        requested_agent = str(payload.get("agent", "") or "").strip()
+        requested_role = str(role_value or TREVOR_DISPLAY_NAME).strip()
+        capability_mode = str(payload.get("capability_mode", "") or "")
+        deliberation = str(payload.get("deliberation", "auto") or "auto")
+        identity = normalize_trevor_identity(
+            agent=requested_agent,
+            role=requested_role,
+            capability_mode=capability_mode,
+        )
         openclaw_payload = {
             "message": message,
-            "role": role_value,
+            "role": TREVOR_DISPLAY_NAME,
+            "agent": TREVOR_AGENT_ID,
+            "capability_mode": identity.capability_mode,
             "mode": payload.get("interaction_mode", payload.get("mode", "execution")),
             "task_type": payload.get("task_type", "execution"),
             "require_approval": bool(payload.get("require_approval", False)),
@@ -302,7 +361,7 @@ class WebServerMode:
             audit = record_agent_collaboration_event(
                 self.workspace_path,
                 task_goal=message,
-                agent=role_value,
+                agent=TREVOR_DISPLAY_NAME,
                 route=route,
                 decision="OpenClaw 接管任務",
                 outcome="success",
@@ -310,22 +369,26 @@ class WebServerMode:
                 score_delta=5,
                 details={"openclaw": openclaw_result},
             )
-            return {
+            return decorate_trevor_response({
                 "ok": True,
                 "reply": reply,
-                "role": role_value,
                 "route": route,
                 "status": "openclaw_completed",
                 "response": openclaw_result.get("response", {}),
                 "fallback_used": False,
                 "audit_id": audit["id"],
                 "openclaw": openclaw_result,
-            }
+                "deliberation": {
+                    "mode": deliberation,
+                    "status": "controller_only",
+                    "providers": ["nvidia"],
+                },
+            }, requested_agent=requested_agent, requested_role=requested_role, capability_mode=identity.capability_mode)
 
         audit = record_agent_collaboration_event(
             self.workspace_path,
             task_goal=message,
-            agent=role_value,
+            agent=TREVOR_DISPLAY_NAME,
             route=route,
             decision="OpenClaw 優先轉送",
             outcome="failed",
@@ -334,14 +397,14 @@ class WebServerMode:
             details={"openclaw": openclaw_result},
         )
         if not allow_fallback:
-            return {
+            return decorate_trevor_response({
                 "ok": False,
                 "route": route,
                 "status": "openclaw_failed",
                 "response": openclaw_result,
                 "fallback_used": False,
                 "audit_id": audit["id"],
-            }
+            }, requested_agent=requested_agent, requested_role=requested_role, capability_mode=identity.capability_mode)
 
         bridge_result = self.bridge.send_message(
             message,
@@ -349,6 +412,8 @@ class WebServerMode:
             payload.get("session_id", ""),
             payload.get("model", "auto"),
             payload.get("interaction_mode", "auto"),
+            capability_mode,
+            deliberation,
         )
         if isinstance(bridge_result, dict):
             bridge_result["fallback_used"] = True
@@ -357,16 +422,15 @@ class WebServerMode:
             bridge_result["route"] = "DesktopBridge"
             bridge_result["status"] = "fallback_completed"
             return bridge_result
-        return {
+        return decorate_trevor_response({
             "ok": True,
             "reply": str(bridge_result),
-            "role": role_value,
             "route": "DesktopBridge",
             "status": "fallback_completed",
             "fallback_used": True,
             "audit_id": audit["id"],
             "openclaw": openclaw_result,
-        }
+        }, requested_agent=requested_agent, requested_role=requested_role, capability_mode=identity.capability_mode)
 
     def get_handler(self, template_map, redirect_map):
         server_instance = self
@@ -423,6 +487,29 @@ class WebServerMode:
                     if not self._is_client_disconnect(exc):
                         raise
 
+            def _send_binary(
+                self,
+                body: bytes,
+                content_type: str,
+                *,
+                status: int = HTTPStatus.OK,
+                private_cache: bool = False,
+            ):
+                try:
+                    self.send_response(status)
+                    self._send_cors_headers()
+                    self.send_header("Content-Type", content_type)
+                    self.send_header("X-Content-Type-Options", "nosniff")
+                    if private_cache:
+                        self.send_header("Cache-Control", "private, max-age=3600")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    if self.command != "HEAD":
+                        self.wfile.write(body)
+                except OSError as exc:
+                    if not self._is_client_disconnect(exc):
+                        raise
+
             def _send_redirect(self, location: str, status: int = HTTPStatus.FOUND):
                 try:
                     self.send_response(status)
@@ -460,6 +547,41 @@ class WebServerMode:
 
                 if route_path == "/api/runtime/topology":
                     self._send_json(server_instance.topology_payload())
+                    return
+
+                if route_path == "/api/trevor/status":
+                    self._send_json(server_instance.trevor_status_payload())
+                    return
+
+                if route_path == "/api/trevor/providers":
+                    self._send_json(server_instance.trevor_provider_payload())
+                    return
+
+                if route_path == "/api/ai-horde/status":
+                    self._send_json(server_instance.ai_horde_client.public_status())
+                    return
+
+                if route_path.startswith("/api/ai-horde/jobs/"):
+                    job_id = route_path.rsplit("/", 1)[-1]
+                    try:
+                        self._send_json(server_instance.ai_horde_jobs.get_job(job_id))
+                    except AIHordeError as exc:
+                        self._send_json(
+                            {"ok": False, "state": "failed", "error": exc.public_dict()},
+                            status=HTTPStatus.NOT_FOUND
+                            if exc.code == "job_not_found"
+                            else HTTPStatus.BAD_REQUEST,
+                        )
+                    return
+
+                if route_path.startswith("/api/ai-horde/assets/"):
+                    asset_id = route_path.rsplit("/", 1)[-1]
+                    asset = server_instance.ai_horde_assets.read_asset(asset_id)
+                    if asset is None:
+                        self._send_text("Not Found", status=HTTPStatus.NOT_FOUND)
+                    else:
+                        body, content_type = asset
+                        self._send_binary(body, content_type, private_cache=True)
                     return
 
                 if route_path == "/api/openclaw/status":
@@ -757,18 +879,51 @@ class WebServerMode:
             def do_POST(self):
                 parsed = urlparse(self.path)
                 route_path = server_instance._normalize_route_path(parsed.path)
-                raw_len = int(self.headers.get("Content-Length", "0") or "0")
+                try:
+                    raw_len = int(self.headers.get("Content-Length", "0") or "0")
+                except (TypeError, ValueError):
+                    raw_len = 0
+                if raw_len < 0 or raw_len > 64 * 1024:
+                    self._send_json(
+                        {
+                            "ok": False,
+                            "error": AIHordeError("invalid_request").public_dict(),
+                        },
+                        status=HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                    )
+                    return
                 body = self.rfile.read(raw_len) if raw_len > 0 else b"{}"
                 try:
                     payload = json.loads(body.decode("utf-8") or "{}")
                 except Exception:
                     payload = {}
 
+                if route_path == "/api/ai-horde/jobs":
+                    try:
+                        result = server_instance.ai_horde_jobs.create_job(payload)
+                    except AIHordeError as exc:
+                        status = (
+                            HTTPStatus.TOO_MANY_REQUESTS
+                            if exc.code == "queue_full"
+                            else HTTPStatus.BAD_REQUEST
+                        )
+                        self._send_json(
+                            {"ok": False, "state": "failed", "error": exc.public_dict()},
+                            status=status,
+                        )
+                        return
+                    self._send_json(result, status=HTTPStatus.ACCEPTED)
+                    return
+
                 if route_path in {"/api/send_message", "/api/send_message/", "/chat/agent", "/chat/agent/"}:
-                    role_value = payload.get("role", "申言者")
+                    requested_agent = str(payload.get("agent", "") or "").strip()
+                    role_value = payload.get("role") or requested_agent or TREVOR_DISPLAY_NAME
+                    capability_mode = payload.get("capability_mode", "")
+                    deliberation = payload.get("deliberation", "auto")
                     # 若 chat shell 傳 agent key，先轉成 bridge 需要的 role。
                     if route_path in {"/chat/agent", "/chat/agent/"}:
                         agent_to_role = {
+                            "trevor": TREVOR_DISPLAY_NAME,
                             "dispatcher": "申言者",
                             "manager": "申言者",
                             "general": "通用",
@@ -807,15 +962,20 @@ class WebServerMode:
                             payload.get("session_id", ""),
                             payload.get("model", "auto"),
                             payload.get("interaction_mode", "auto"),
+                            capability_mode,
+                            deliberation,
                         )
                     except Exception as exc:
-                        self._send_json(
+                        self._send_json(decorate_trevor_response(
                             {
                                 "ok": False,
                                 "error": "send_message_failed",
                                 "detail": str(exc),
-                                "role": role_value,
                             },
+                            requested_agent=requested_agent,
+                            requested_role=str(role_value),
+                            capability_mode=str(capability_mode),
+                        ),
                             status=HTTPStatus.INTERNAL_SERVER_ERROR,
                         )
                         return
@@ -877,6 +1037,10 @@ def run_web_server(bridge: any, host: str, port: int, open_browser: bool = False
     """Run Web server mode with shared bridge and template routes."""
     paths = ProjectPaths(bridge.workspace)
     server_logic = WebServerMode(bridge, bridge.workspace, paths)
+    try:
+        bridge.start_trevor_provider_validation()
+    except Exception:
+        pass
     
     template_map = {
         "/chat_shell": paths.templates / "chat_shell.html",

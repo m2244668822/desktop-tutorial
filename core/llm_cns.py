@@ -34,7 +34,7 @@ class ProviderRuntimeConfig:
 
 
 PROVIDER_PROFILES: tuple[ProviderProfile, ...] = (
-    ProviderProfile("NVIDIA", "NVAPI_API_KEY", "free/primary"),
+    ProviderProfile("NVIDIA", "NVIDIA_API_KEY", "free/primary"),
     ProviderProfile("Groq", "GROQ_API_KEY", "free"),
     ProviderProfile("Gemini", "GEMINI_API_KEY", "free"),
     ProviderProfile("Google", "GOOGLE_API_KEY", "google-api"),
@@ -45,9 +45,9 @@ PROVIDER_PROFILES: tuple[ProviderProfile, ...] = (
 RUNTIME_PROVIDER_PROFILES: dict[str, dict[str, Any]] = {
     "nvidia": {
         "label": "NVIDIA",
-        "key_names": ("NVAPI_API_KEY", "OPENAI_API_KEY"),
-        "base_names": ("NVIDIA_BASE_URL", "OPENAI_BASE_URL"),
-        "model_names": ("NVIDIA_MODEL", "OPENAI_MODEL"),
+        "key_names": ("NVIDIA_API_KEY", "NVAPI_API_KEY"),
+        "base_names": ("NVIDIA_BASE_URL",),
+        "model_names": ("NVIDIA_MODEL", "NVIDIA_CONTROL_MODEL"),
         "default_base": "https://integrate.api.nvidia.com/v1",
         "default_model": "",
     },
@@ -233,7 +233,7 @@ def llm_snapshot(workspace: Path) -> dict[str, Any]:
     ).strip()
     return {
         "env_path": str(env_path),
-        "key_source": str(nvidia.get("key_name", "NVAPI_API_KEY")),
+        "key_source": str(nvidia.get("key_name", "NVIDIA_API_KEY")),
         "key_state": describe_key_state(chosen_key),
         "base_url": str(nvidia.get("base_url", "")),
         "model": model or "not_configured",

@@ -3,6 +3,8 @@ from dataclasses import dataclass, field
 import re
 from typing import Dict, List, Optional
 
+from core.trevor_identity import LEGACY_ALIAS_MODES, capability_mode_for_alias
+
 
 ZH_STOPWORDS = {
     "這個", "那個", "目前", "現在", "需要", "可以", "幫我", "一下", "然後", "以及",
@@ -942,9 +944,42 @@ AGENT_SPECS = {
     for key, spec in AGENT_SPECS.items()
 }
 
+LEGACY_AGENT_SPECS = AGENT_SPECS
+
+
+def _build_trevor_spec() -> AgentSpec:
+    specs = list(LEGACY_AGENT_SPECS.values())
+    return AgentSpec(
+        key="trevor",
+        label="崔佛",
+        description="唯一公開智能體；依任務切換一般、程式、研究、安全、內容與學習能力模式。",
+        capabilities=_merge_unique(
+            capability for spec in specs for capability in spec.capabilities
+        ),
+        signal_tags=_merge_unique(
+            signal for spec in specs for signal in spec.signal_tags
+        ),
+        collaborators=["trevor"],
+        proactive_jobs=_merge_unique(
+            job for spec in specs for job in spec.proactive_jobs
+        ),
+        preferred_model="nvidia/nemotron-3-ultra-550b-a55b",
+        prompt_intro=(
+            "你是崔佛，系統唯一公開智能體。你可依任務切換一般、程式、研究、安全、"
+            "內容與學習能力，但不可把能力模式描述成其他獨立人格。NVIDIA 是唯一能規劃、"
+            "呼叫工具、寫入記憶與執行自主任務的控制核心。"
+        ),
+    )
+
+
+AGENT_SPECS = {"trevor": _build_trevor_spec()}
+
 
 def get_agent_spec(agent_key: str) -> Optional[AgentSpec]:
-    return AGENT_SPECS.get(agent_key)
+    normalized = str(agent_key or "").strip()
+    if normalized in AGENT_SPECS or normalized in LEGACY_ALIAS_MODES:
+        return AGENT_SPECS["trevor"]
+    return None
 
 
 def list_agent_specs() -> List[AgentSpec]:
@@ -1017,6 +1052,9 @@ def build_agent_prompt(
     style_guidelines = task_data.get("style_guidelines", "")
     learned_signals = signal_tags or []
     domain = task_data.get("domain", "general")
+    capability_mode = str(
+        task_data.get("capability_mode") or capability_mode_for_alias(agent_key)
+    )
     creative_submode = task_data.get("creative_submode", "")
     video_workflow_engine = task_data.get("video_workflow_engine", "")
     interaction_mode = task_data.get("interaction_mode", "")
@@ -1025,6 +1063,9 @@ def build_agent_prompt(
         "-----",
         "【智能體】",
         f"{spec.label} ({spec.key})",
+        "",
+        "【能力模式】",
+        capability_mode,
         "",
         "【角色說明】",
         spec.prompt_intro or spec.description,

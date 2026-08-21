@@ -302,12 +302,7 @@
 
     <div class="sb-sec">
       <div class="sb-lbl">智能體</div>
-      <div class="nav-item" id="nav-researcher" onclick="selectAgent('researcher','🔬','研究學習中樞')"><span>🔬</span> 研究學習中樞<span class="nav-dot"></span><span class="nav-cnt" id="cnt-researcher"></span></div>
-      <div class="nav-item" id="nav-engineer" onclick="selectAgent('engineer','⚙️','工程師')"><span>⚙️</span> 工程師<span class="nav-dot"></span><span class="nav-cnt" id="cnt-engineer"></span></div>
-      <div class="nav-item" id="nav-xiaobian" onclick="selectAgent('xiaobian','✍️','小編')"><span>✍️</span> 小編<span class="nav-dot"></span><span class="nav-cnt" id="cnt-xiaobian"></span></div>
-      <div class="nav-item" id="nav-proclaimer" onclick="selectAgent('proclaimer','✝️','申言者')"><span>✝️</span> 申言者<span class="nav-dot"></span><span class="nav-cnt" id="cnt-proclaimer"></span></div>
-      <div class="nav-item" id="nav-whitehat" onclick="selectAgent('whitehat','🕵️','白帽駭客')"><span>🕵️</span> 白帽駭客<span class="nav-dot"></span><span class="nav-cnt" id="cnt-whitehat"></span></div>
-      <div class="nav-item" id="nav-general" onclick="selectAgent('general','🤖','通用')"><span>🤖</span> 通用<span class="nav-dot"></span><span class="nav-cnt" id="cnt-general"></span></div>
+      <div class="nav-item" id="nav-trevor" onclick="selectAgent('trevor','🧭','崔佛')"><span>🧭</span> 崔佛<span class="nav-dot"></span><span class="nav-cnt" id="cnt-trevor"></span></div>
     </div>
 
     <div class="sb-sec">
@@ -417,7 +412,7 @@
     <div class="chat-view" id="chatView">
       <div class="chat-topbar">
         <button class="back-btn" onclick="showHub()">← 返回</button>
-        <span class="role-tag" id="roleTag">申言者</span>
+        <span class="role-tag" id="roleTag">崔佛</span>
         <span class="model-indicator" id="modelIndicator"></span>
         <span class="backend-sync" id="backendSync">後台同步：待機</span>
       </div>
@@ -494,7 +489,22 @@
     <option value="coding">程式</option>
     <option value="creative">創意</option>
     <option value="image_generation">圖像生成</option>
+    <option value="horde_text">共享文字</option>
     <option value="qa">問答</option>
+  </select>
+  <select class="bar-select" id="capabilitySelect" title="崔佛能力模式">
+    <option value="general">一般</option>
+    <option value="coding">程式</option>
+    <option value="research">研究</option>
+    <option value="security">安全</option>
+    <option value="content">內容</option>
+    <option value="learning">學習</option>
+  </select>
+  <select class="bar-select" id="deliberationSelect" title="多模型審議模式">
+    <option value="auto">自動審議</option>
+    <option value="fast">快速</option>
+    <option value="cross_check">交叉檢查</option>
+    <option value="rigorous">嚴謹</option>
   </select>
   <button class="attach-btn" id="imageModeBtn" title="啟用圖像生成" onclick="enableImageGenerationMode()">🎨</button>
   <button class="attach-btn" title="附加圖片" onclick="triggerFilePicker()">📎</button>
@@ -546,12 +556,14 @@ function newId() {
 renderApiBaseBadge();
 
 let state = {
-  agentKey: "proclaimer",
-  agentLabel: "申言者",
-  agentIcon: "👑",
+  agentKey: "trevor",
+  agentLabel: "崔佛",
+  agentIcon: "🧭",
   model: "ollama_qwen25_7b",
   modelLabel: "Qwen2.5 7B",
   interactionMode: "auto",
+  capabilityMode: "general",
+  deliberation: "auto",
   sessionId: newId(),
   composing: false,
   attachments: [],
@@ -606,6 +618,12 @@ function toggleLowRestrict() {
 }
 
 const AGENT_META = {
+  trevor: {
+    label: "崔佛", icon: "🧭",
+    desc: "唯一公開智能體；依需求切換一般、程式、研究、安全、內容與學習能力模式。",
+    caps: ["🧭 任務判讀", "⚙️ 程式處理", "🔬 研究查證", "🛡️ 安全覆核", "✍️ 內容優化", "🧠 持續學習"],
+    prompts: ["整理目前狀態並給下一步", "切換程式模式處理問題", "用多模型交叉檢查這個答案"]
+  },
   dispatcher: {
     label: "申言者中樞", icon: "✝️",
     desc: "舊總管相容入口已併入申言者；負責治理、分派、風險分級與多智能體協調。",
@@ -664,6 +682,7 @@ const UI_LABELS = {
     coding: "程式",
     creative: "創意",
     image_generation: "圖像生成",
+    horde_text: "共享文字",
     qa: "問答",
   },
   taskStatus: {
@@ -686,15 +705,13 @@ function labelTaskStatus(status) {
 function normalizeAgentKey(key) {
   const normalized = String(key || "").trim().toLowerCase();
   const aliasMap = {
-    learner: "researcher",
-    dispatcher: "proclaimer",
-    manager: "proclaimer",
-    prophet: "proclaimer",
-    申言者: "proclaimer",
-    hat: "whitehat",
-    帽子: "whitehat",
+    learner: "trevor", researcher: "trevor", engineer: "trevor",
+    dispatcher: "trevor", manager: "trevor", prophet: "trevor", proclaimer: "trevor",
+    xiaobian: "trevor", general: "trevor", whitehat: "trevor", hat: "trevor", relay: "trevor",
+    申言者: "trevor", 總管: "trevor", 工程師: "trevor", 研究員: "trevor",
+    小編: "trevor", 帽子: "trevor", 學習器: "trevor", 崔佛: "trevor",
   };
-  return aliasMap[normalized] || normalized;
+  return normalized === "trevor" ? "trevor" : (aliasMap[normalized] || "trevor");
 }
 
 function openExternal(url) {
@@ -742,11 +759,8 @@ function setActiveNav(id) {
 ════════════════════════════════════════ */
 async function selectAgent(key, icon, label) {
   key = normalizeAgentKey(key);
-  if (key === "researcher") {
-    key = "researcher";
-    icon = "🔬";
-    label = AGENT_META.researcher.label;
-  }
+  icon = AGENT_META.trevor.icon;
+  label = AGENT_META.trevor.label;
   // Save current agent's chat before switching
   const prevKey = state.agentKey;
   if (prevKey && agentChats[prevKey] !== undefined) {
@@ -979,17 +993,18 @@ function addMediaMsg(role, files) {
 }
 
 function appendGeneratedImages(container, images) {
-  const list = Array.isArray(images) ? images.filter(img => img && img.src) : [];
+  const list = Array.isArray(images) ? images.filter(img => img && (img.src || img.url)) : [];
   if (!container || !list.length) return;
   const grid = document.createElement("div");
   grid.className = "generated-image-grid";
   list.forEach((item, index) => {
+    const source = item.src || item.url;
     const card = document.createElement("div");
     card.className = "generated-image-card";
     const img = document.createElement("img");
-    img.src = item.src;
-    img.alt = item.revised_prompt || item.prompt || `生成圖片 ${index + 1}`;
-    img.onclick = () => openLightbox(item.src);
+    img.src = source;
+    img.alt = item.alt || item.revised_prompt || item.prompt || `生成圖片 ${index + 1}`;
+    img.onclick = () => openLightbox(source);
     const meta = document.createElement("div");
     meta.className = "generated-image-meta";
     meta.textContent = `${item.provider || "圖像"} · ${item.model || "已生成"}`;
@@ -998,6 +1013,48 @@ function appendGeneratedImages(container, images) {
     grid.appendChild(card);
   });
   container.appendChild(grid);
+}
+
+function isAIHordeMode(mode) {
+  return mode === "image_generation" || mode === "horde_text";
+}
+
+async function runAIHordeJob(mode, prompt, bubble) {
+  const kind = mode === "image_generation" ? "image" : "text";
+  const createResponse = await fetch("/api/ai-horde/jobs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind, prompt, params: {} }),
+  });
+  let created = {};
+  try { created = await createResponse.json(); } catch (_) {}
+  if (!createResponse.ok || !created.job_id) {
+    return { ok: false, status: createResponse.status, data: created };
+  }
+  const deadline = Date.now() + 10 * 60 * 1000;
+  let pollAfter = Math.max(2000, Math.min(5000, Number(created.poll_after_ms || 2000)));
+  while (Date.now() < deadline) {
+    bubble.textContent = created.state === "queued" ? "已排入共享算力。" : "共享算力正在生成。";
+    await new Promise(resolve => setTimeout(resolve, pollAfter));
+    const pollResponse = await fetch(`/api/ai-horde/jobs/${created.job_id}`, { headers: { "Accept": "application/json" } });
+    let result = {};
+    try { result = await pollResponse.json(); } catch (_) {}
+    if (!pollResponse.ok || result.state === "failed" || result.state === "complete") {
+      return { ok: pollResponse.ok && result.state === "complete", status: pollResponse.status, data: result };
+    }
+    created = result;
+    const queuePosition = Number(result.queue_position || 0);
+    const waitTime = Number(result.wait_time || 0);
+    bubble.textContent = result.state === "queued"
+      ? `已排入共享算力，前方約 ${queuePosition} 個工作。`
+      : `共享算力正在生成，預估等待 ${waitTime} 秒。`;
+    pollAfter = Math.max(2000, Math.min(5000, Number(result.poll_after_ms || 3000)));
+  }
+  return {
+    ok: false,
+    status: 408,
+    data: { error: { code: "job_timeout", message: "共享算力等待逾時，請稍後重新提交。" } },
+  };
 }
 
 function showQR(replies) {
@@ -1166,12 +1223,12 @@ async function sendMessage(options = {}) {
   if (!document.getElementById("chatView").classList.contains("vis")) showChat();
 
   const iMode = document.getElementById("interactionSelect").value || state.interactionMode;
-  // 程式任務預設交給工程師，避免被申言者中樞覆蓋成泛用對話。
-  if (iMode === "coding" && state.agentKey !== "engineer") {
-    state.agentKey = "engineer";
-    state.agentLabel = AGENT_META.engineer?.label || "工程師";
-    state.agentIcon = AGENT_META.engineer?.icon || "⚙️";
-    setActiveNav("nav-engineer");
+  // 程式任務切換崔佛的 coding 能力模式，不再切換公開身份。
+  if (iMode === "coding") {
+    state.agentKey = "trevor";
+    state.agentLabel = AGENT_META.trevor.label;
+    state.agentIcon = AGENT_META.trevor.icon;
+    setActiveNav("nav-trevor");
     const role = document.getElementById("roleTag");
     if (role) role.textContent = `${state.agentIcon} ${state.agentLabel}`;
   }
@@ -1202,6 +1259,8 @@ async function sendMessage(options = {}) {
       agent: state.agentKey,
       model: state.model,
       interaction_mode: iMode,
+      capability_mode: iMode === "coding" ? "coding" : (document.getElementById("capabilitySelect").value || state.capabilityMode),
+      deliberation: document.getElementById("deliberationSelect").value || state.deliberation,
       session_id: state.sessionId,
       conversation,
     };
@@ -1227,19 +1286,24 @@ async function sendMessage(options = {}) {
       conversationTurns: Array.isArray(conversation) ? conversation.length : 0,
     });
     // #endregion
-    const r = await _fetchWithRetry("/chat/agent", {
-      method: "POST",
-      headers: reqHeaders,
-      body: JSON.stringify(payload),
-    });
-
-    /* 安全讀取 body，加 60s 逾時防止 body 掛住 */
+    let r;
     let d = {};
-    try {
-      const jsonPromise = r.json();
-      const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error("body timeout")), 60000));
-      d = await Promise.race([jsonPromise, timeout]);
-    } catch (_) {}
+    if (iMode === "image_generation" || iMode === "horde_text") {
+      const hordeResult = await runAIHordeJob(iMode, text, bubble);
+      r = { ok: hordeResult.ok, status: hordeResult.status };
+      d = hordeResult.data;
+    } else {
+      r = await _fetchWithRetry("/chat/agent", {
+        method: "POST",
+        headers: reqHeaders,
+        body: JSON.stringify(payload),
+      });
+      try {
+        const jsonPromise = r.json();
+        const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error("body timeout")), 60000));
+        d = await Promise.race([jsonPromise, timeout]);
+      } catch (_) {}
+    }
 
     if (!r.ok) {
       // #region agent log
@@ -1249,10 +1313,11 @@ async function sendMessage(options = {}) {
         error_id: d.error_id || "",
       });
       // #endregion
+      const apiError = d.error && typeof d.error === "object" ? d.error : {};
       const diag = normalizeBackendError({
         status: r.status,
-        error: d.error || `HTTP ${r.status}`,
-        error_code: d.error_code || "",
+        error: apiError.message || d.error || `HTTP ${r.status}`,
+        error_code: apiError.code || d.error_code || "",
       });
       const errId = d.error_id ? ` [err:${d.error_id}]` : "";
       bubble.innerHTML = `<span style="color:#fca5a5">【${state.agentLabel}】${diag.userMessage}（${diag.code}${errId}）</span>`;
@@ -1598,6 +1663,8 @@ function refreshInputPlaceholder() {
   if (!input) return;
   input.placeholder = mode === "image_generation"
     ? "描述你想生成的圖片，按兩次 Enter/送出確認..."
+    : mode === "horde_text"
+      ? "輸入要交給共享文字算力的內容..."
     : "輸入訊息，按兩次 Enter/送出確認；Shift+Enter 換行...";
 }
 
@@ -1605,8 +1672,8 @@ async function enableImageGenerationMode() {
   const select = document.getElementById("interactionSelect");
   if (select) select.value = "image_generation";
   state.interactionMode = "image_generation";
-  if (state.agentKey !== "xiaobian") {
-    await selectAgent("xiaobian", "✍️", "小編設計師");
+  if (state.agentKey !== "trevor") {
+    await selectAgent("trevor", "🧭", "崔佛");
   }
   refreshInputPlaceholder();
   const input = document.getElementById("msgInput");
@@ -2103,6 +2170,14 @@ document.addEventListener("keyup", handleGlobalEscape, true);
 document.getElementById("interactionSelect").addEventListener("change", e => {
   state.interactionMode = e.target.value;
   refreshInputPlaceholder();
+  resetSendConfirmation();
+});
+document.getElementById("capabilitySelect").addEventListener("change", e => {
+  state.capabilityMode = e.target.value;
+  resetSendConfirmation();
+});
+document.getElementById("deliberationSelect").addEventListener("change", e => {
+  state.deliberation = e.target.value;
   resetSendConfirmation();
 });
 document.getElementById("newBtn").addEventListener("click", () => {

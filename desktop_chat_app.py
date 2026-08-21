@@ -44,6 +44,16 @@ except Exception:
     psutil = None
 
 from core.data_paths import ProjectPaths, resolve_data_root
+from core.deliberation import DeliberationCouncil
+from core.provider_client import ProviderHttpClient
+from core.provider_registry import ProviderRegistry
+from core.trevor_identity import (
+    CAPABILITY_MODES,
+    TREVOR_DISPLAY_NAME,
+    canonicalize_trevor_reply,
+    decorate_trevor_response,
+    normalize_trevor_identity,
+)
 from core.agent_prompts import (
     AGENT_SYSTEM_PROMPTS,
     AGENT_WINDOW_ROLES,
@@ -220,7 +230,7 @@ BACKEND_LABELS = {
 }
 
 DEFAULT_CHAT_MODEL_BY_PROVIDER = {
-    "nvidia": "meta/llama-3.1-8b-instruct",
+    "nvidia": "nvidia/nemotron-3-ultra-550b-a55b",
     "openai": "gpt-4o-mini",
     "groq": "llama-3.1-8b-instant",
     "gemini": "gemini-2.0-flash",
@@ -323,6 +333,25 @@ class DesktopBridge:
             1.2, max(0.0, float(os.getenv("CHAT_LLM_TEMPERATURE", "0.45") or 0.45))
         )
         self.last_live_llm_meta: dict[str, Any] = {}
+        provider_env = self._load_merged_env_data()
+        provider_env.update({key: value for key, value in os.environ.items() if value})
+        self.deliberation_rollout = str(
+            provider_env.get("TREVOR_DELIBERATION_ROLLOUT", "shadow") or "shadow"
+        ).strip().lower()
+        if self.deliberation_rollout not in {"shadow", "fast", "cross_check", "rigorous"}:
+            self.deliberation_rollout = "shadow"
+        self.provider_registry = ProviderRegistry(env=provider_env)
+        self.provider_client = ProviderHttpClient(
+            self.provider_registry,
+            timeout=self.live_llm_timeout_sec,
+        )
+        self.deliberation_runner = self.provider_client.call
+        self.deliberation_council = DeliberationCouncil(
+            self.provider_registry,
+            runner=self.deliberation_runner,
+            polisher=self.deliberation_runner,
+        )
+        self._provider_validation_started = False
         self._langgraph_status_cache: dict[str, Any] = {
             "checked_at": 0.0,
             "available": False,
@@ -593,10 +622,8 @@ class DesktopBridge:
         }
 
     def get_agent_memory_aeg_status(self) -> dict:
-        """Report whether every visible agent shares memory and AEG search paths."""
-        roles = list(getattr(self, "agent_language_enabled", {}) or {})
-        if not roles:
-            roles = list(ONLY_AGENT_ROLES)
+        """Report Trevor's shared memory, knowledge, and AEG readiness."""
+        roles = [TREVOR_DISPLAY_NAME]
         knowledge = self._knowledge_status_summary()
         aeg_path = self.paths.data / "knowledge_hub" / "aeg_keyword_graph.json"
         aeg_payload: dict[str, Any] = {}
@@ -643,7 +670,8 @@ class DesktopBridge:
                 item["long_term_memory"] and item["knowledge_search"] and item["aeg_search"]
                 for item in per_agent
             ),
-            "capability_model": "shared_layer_per_role",
+            "capability_model": "single_identity_capability_modes",
+            "capability_modes": list(CAPABILITY_MODES),
             "roles": per_agent,
             "knowledge_hub": knowledge,
             "aeg": {
@@ -656,9 +684,8 @@ class DesktopBridge:
                 "readable_ratio": float(aeg_payload.get("readable_ratio", 0) or 0),
             },
             "notes": [
-                "所有角色共用同一個 KnowledgeHub/AEG 搜尋層。",
-                "永久對話記憶以 role/agent_name 分流保存，不是各自孤立資料庫。",
-                "工程語譯 handoff 是附加能力，不覆蓋申言者原本治理能力。",
+                "崔佛以單一身份共用 KnowledgeHub/AEG 搜尋層。",
+                "舊角色只保留為來源與能力模式，不再建立獨立記憶人格。",
             ],
         }
 
@@ -1341,21 +1368,13 @@ class DesktopBridge:
         }
 
     def _role_to_agent_key(self, role: str) -> str:
-        role_map = {
-            "總管": "proclaimer",
-            "申言者": "proclaimer",
-            "通用": "general",
-            "研究員": "researcher",
-            "工程師": "engineer",
-            "小編": "xiaobian",
-            "帽子": "whitehat",
-            "中繼器": "relay",
-        }
-        return role_map.get(str(role or "").strip(), "proclaimer")
+        return "trevor"
 
     def _normalize_role_name(self, role: str | None) -> str:
         role_name = str(role or self.default_role or "申言者").strip()
         aliases = {
+            "trevor": "申言者",
+            "崔佛": "申言者",
             "總管": "申言者",
             "dispatcher": "申言者",
             "manager": "申言者",
@@ -1509,17 +1528,21 @@ class DesktopBridge:
         self,
         *,
         role: str,
+        requested_role: str,
+        capability_mode: str,
+        deliberation: str,
         reply: str,
         requested_backend: str,
         analysis: dict,
         purpose: str = "discussion",
     ) -> dict:
         duration = round(time.time() - self.last_message_ts, 3)
+        reply = canonicalize_trevor_reply(reply, capability_mode)
         self.last_reply = reply
         if self.memory_manager:
             try:
                 self.memory_manager.save_conversation(
-                    agent_name=role,
+                    agent_name=TREVOR_DISPLAY_NAME,
                     user_message=self.last_message,
                     assistant_message=reply,
                     metadata={
@@ -1528,15 +1551,15 @@ class DesktopBridge:
                         "mode": "discussion",
                         "purpose": purpose,
                         "policy_mode": "frontend_training_only",
+                        "source_role": role,
+                        "capability_mode": capability_mode,
                     },
                 )
             except Exception:
                 pass
-        return {
+        return decorate_trevor_response({
             "ok": True,
             "reply": reply,
-            "role": role,
-            "agent": self._role_to_agent_key(role),
             "backend": requested_backend,
             "duration_s": duration,
             "response_time": duration,
@@ -1548,11 +1571,22 @@ class DesktopBridge:
             "interaction_mode": "discussion",
             "model": requested_backend,
             "policy": dict(self.agent_task_policy),
-        }
+            "deliberation": {
+                "mode": deliberation,
+                "status": "not_requested",
+                "providers": [],
+                "agreement_score": None,
+                "confidence": None,
+            },
+        }, requested_role=requested_role, capability_mode=capability_mode)
 
     def _normalize_interaction_mode(self, mode: str | None) -> str:
         normalized = str(mode or "auto").strip().lower()
         return normalized if normalized else "auto"
+
+    def _normalize_deliberation_mode(self, mode: str | None) -> str:
+        normalized = str(mode or "auto").strip().lower()
+        return normalized if normalized in {"auto", "fast", "cross_check", "rigorous"} else "auto"
 
     def _text_fingerprint(self, text: str) -> str:
         compact = re.sub(r"\s+", "", str(text or "").strip().lower())
@@ -2113,19 +2147,19 @@ class DesktopBridge:
                 cfg = {}
 
         key_names = {
-            "nvidia": ("NVAPI_API_KEY", "OPENAI_API_KEY"),
+            "nvidia": ("NVIDIA_API_KEY", "NVAPI_API_KEY"),
             "openai": ("OPENAI_API_KEY",),
             "groq": ("GROQ_API_KEY",),
             "gemini": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
         }
         base_names = {
-            "nvidia": ("NVIDIA_BASE_URL", "OPENAI_BASE_URL"),
+            "nvidia": ("NVIDIA_BASE_URL",),
             "openai": ("OPENAI_PROVIDER_BASE_URL", "OPENAI_BASE_URL"),
             "groq": ("GROQ_BASE_URL", "OPENAI_BASE_URL"),
             "gemini": ("GEMINI_BASE_URL", "OPENAI_BASE_URL"),
         }
         model_names = {
-            "nvidia": ("NVIDIA_MODEL", "OPENAI_MODEL"),
+            "nvidia": ("NVIDIA_MODEL", "NVIDIA_CONTROL_MODEL"),
             "openai": ("OPENAI_PROVIDER_MODEL", "OPENAI_MODEL"),
             "groq": ("GROQ_MODEL", "OPENAI_MODEL"),
             "gemini": ("GEMINI_MODEL", "OPENAI_MODEL"),
@@ -2341,6 +2375,8 @@ class DesktopBridge:
         role: str,
         requested_backend: str,
         retrieval_brief: str = "",
+        capability_mode: str = "general",
+        deliberation: str = "auto",
     ) -> tuple[str, dict[str, Any]]:
         if not self.enable_live_llm_default:
             return "", {
@@ -2350,6 +2386,74 @@ class DesktopBridge:
             }
 
         backend = str(requested_backend or "nvidia").strip().lower()
+        deliberation = self._normalize_deliberation_mode(deliberation)
+        if backend != "open_source":
+            try:
+                council_mode = deliberation
+                shadow = False
+                if deliberation == "auto":
+                    if self.deliberation_rollout == "shadow":
+                        council_mode = "cross_check"
+                        shadow = True
+                    else:
+                        council_mode = self.deliberation_rollout
+                council = self.deliberation_council
+                if (
+                    council.registry is not self.provider_registry
+                    or council.runner is not self.deliberation_runner
+                ):
+                    council = DeliberationCouncil(
+                        self.provider_registry,
+                        runner=self.deliberation_runner,
+                        polisher=self.deliberation_runner,
+                    )
+                    self.deliberation_council = council
+                result = council.deliberate(
+                    message,
+                    mode=council_mode,
+                    capability_mode=capability_mode,
+                    shadow=shadow,
+                    conversation=list(self.conversation_context[-self.max_context:]),
+                    memory_context=retrieval_brief,
+                )
+                metadata = dict(result.metadata)
+                metadata["requested_mode"] = deliberation
+                metadata["effective_mode"] = council_mode
+                if result.answer.strip():
+                    return result.answer.strip(), {
+                        "ok": True,
+                        "attempted": True,
+                        "fallback_used": metadata.get("status") == "degraded",
+                        "provider": metadata.get("selected_provider", "nvidia"),
+                        "model": self.provider_registry.model_for(
+                            str(metadata.get("selected_provider", "nvidia") or "nvidia"),
+                            "coding" if capability_mode == "coding" else "control",
+                        ),
+                        "deliberation": metadata,
+                        "evidence_summary": list(result.evidence_summary),
+                    }
+                return "", {
+                    "ok": False,
+                    "attempted": True,
+                    "fallback_used": True,
+                    "provider": "nvidia",
+                    "fallback_reason": "no_eligible_deliberation_candidate",
+                    "deliberation": metadata,
+                }
+            except Exception as exc:
+                return "", {
+                    "ok": False,
+                    "attempted": True,
+                    "fallback_used": True,
+                    "provider": "nvidia",
+                    "fallback_reason": str(exc),
+                    "deliberation": {
+                        "mode": deliberation,
+                        "status": "failed",
+                        "providers": [],
+                    },
+                }
+
         messages = self._build_live_llm_messages(
             role=role,
             user_message=message,
@@ -2381,7 +2485,7 @@ class DesktopBridge:
         if purpose == "execution":
             return "nvidia"
         if purpose == "discussion":
-            return "open_source"
+            return "nvidia"
         pref = str(env.get("CHAT_PREFERRED_PROVIDER", "")).strip().lower()
         if pref in {"nvidia", "openai", "groq", "gemini"}:
             return pref
@@ -2420,9 +2524,16 @@ class DesktopBridge:
         return True
 
     def _is_cloud_available(self, backend: str) -> bool:
+        registry = getattr(self, "provider_registry", None)
+        if registry is not None:
+            try:
+                registry.get(backend)
+                return registry.is_available(backend)
+            except (KeyError, TypeError):
+                pass
         env = self._load_merged_env_data()
         key_map = {
-            "nvidia": "NVAPI_API_KEY",
+            "nvidia": "NVIDIA_API_KEY",
             "openai": "OPENAI_API_KEY",
             "groq": "GROQ_API_KEY",
             "gemini": "GEMINI_API_KEY",
@@ -2529,9 +2640,25 @@ class DesktopBridge:
             "請確認目標與限制後，我再繼續執行。"
         )
 
-    def send_message(self, message: str, role: str = "申言者", session_id: str = "", model_key: str = "auto", interaction_mode: str = "auto") -> dict:
+    def send_message(
+        self,
+        message: str,
+        role: str = TREVOR_DISPLAY_NAME,
+        session_id: str = "",
+        model_key: str = "auto",
+        interaction_mode: str = "auto",
+        capability_mode: str = "",
+        deliberation: str = "auto",
+    ) -> dict:
         start_ts = time.time()
-        role = self._normalize_role_name(role)
+        requested_role = str(role or TREVOR_DISPLAY_NAME).strip()
+        identity = normalize_trevor_identity(
+            role=requested_role,
+            capability_mode=capability_mode,
+        )
+        capability_mode = identity.capability_mode
+        deliberation = self._normalize_deliberation_mode(deliberation)
+        role = self._normalize_role_name(requested_role)
         self.last_message = message
         self.last_message_ts = start_ts
         self.reply_counter += 1
@@ -2602,6 +2729,9 @@ class DesktopBridge:
             )
             return self._build_policy_response(
                 role=role,
+                requested_role=requested_role,
+                capability_mode=capability_mode,
+                deliberation=deliberation,
                 reply=self._build_policy_penalty_reply(role, event),
                 requested_backend=requested_backend,
                 analysis=analysis,
@@ -2613,6 +2743,9 @@ class DesktopBridge:
         ):
             return self._build_policy_response(
                 role=role,
+                requested_role=requested_role,
+                capability_mode=capability_mode,
+                deliberation=deliberation,
                 reply=self._build_bipolar_training_reply(role),
                 requested_backend=requested_backend,
                 analysis=analysis,
@@ -2725,6 +2858,8 @@ class DesktopBridge:
                     role=role,
                     requested_backend=requested_backend,
                     retrieval_brief=retrieval_brief,
+                    capability_mode=capability_mode,
+                    deliberation=deliberation,
                 )
                 if live_reply.strip():
                     reply = live_reply.strip()
@@ -2808,6 +2943,8 @@ class DesktopBridge:
             except Exception:
                 pass
 
+        reply = canonicalize_trevor_reply(reply, capability_mode)
+
         self._remember_dialog_turn(
             user_message=message,
             assistant_message=reply,
@@ -2849,7 +2986,7 @@ class DesktopBridge:
         if self.memory_manager:
             try:
                 self.memory_manager.save_conversation(
-                    agent_name=role,
+                    agent_name=TREVOR_DISPLAY_NAME,
                     user_message=message,
                     assistant_message=reply,
                     metadata={
@@ -2862,6 +2999,8 @@ class DesktopBridge:
                         "react_action": react_loop.get("action", ""),
                         "keywords": turn_keywords[:8],
                         "retrieval_match_count": int(retrieval_payload.get("match_count", 0) or 0),
+                        "source_role": role,
+                        "capability_mode": capability_mode,
                     }
                 )
             except Exception:
@@ -2870,11 +3009,19 @@ class DesktopBridge:
         duration = round(time.time() - start_ts, 3)
         self.last_reply = reply
 
-        return {
+        deliberation_payload = live_llm_meta.get("deliberation")
+        if not isinstance(deliberation_payload, dict):
+            deliberation_payload = {
+                "mode": deliberation,
+                "status": "controller_only" if workflow_ran else "not_requested",
+                "providers": ["nvidia"] if workflow_ran else [],
+                "agreement_score": None,
+                "confidence": None,
+            }
+
+        return decorate_trevor_response({
             "ok": True,
             "reply": reply,
-            "role": role,
-            "agent": self._role_to_agent_key(role),
             "backend": requested_backend,
             "duration_s": duration,
             "response_time": duration,
@@ -2892,7 +3039,8 @@ class DesktopBridge:
             "escalation": escalation,
             "react": react_loop,
             "prophet_engineer_handoff": prophet_engineer_handoff,
-        }
+            "deliberation": deliberation_payload,
+        }, requested_role=requested_role, capability_mode=capability_mode)
 
     def _system_profile(self) -> dict:
         if psutil:
@@ -2983,6 +3131,31 @@ class DesktopBridge:
             except Exception:
                 pass
         return {"providers": {}}
+
+    def get_trevor_provider_status(self) -> dict:
+        return self.provider_registry.public_status()
+
+    def validate_trevor_provider_models(self) -> dict:
+        self.provider_registry.validate_models(self.provider_client.list_models)
+        return self.get_trevor_provider_status()
+
+    def start_trevor_provider_validation(self) -> bool:
+        if self._provider_validation_started:
+            return False
+        self._provider_validation_started = True
+
+        def validate() -> None:
+            try:
+                self.validate_trevor_provider_models()
+            finally:
+                self._provider_validation_started = False
+
+        threading.Thread(
+            target=validate,
+            name="trevor-provider-validation",
+            daemon=True,
+        ).start()
+        return True
 
     def _get_available_models(self) -> list:
         return [{"name": "qwen2.5:7b", "size_gb": 4.7}]

@@ -6,9 +6,11 @@ def test_all_visible_agents_report_memory_and_aeg_capabilities():
     try:
         status = bridge.get_agent_memory_aeg_status()
         roles = {item["role"] for item in status["roles"]}
-        assert {"申言者", "通用", "研究員", "工程師", "小編"}.issubset(roles)
-        assert "總管" not in roles
-        assert status["capability_model"] == "shared_layer_per_role"
+        assert roles == {"崔佛"}
+        assert status["capability_model"] == "single_identity_capability_modes"
+        assert {"general", "coding", "research", "security", "content", "learning"}.issubset(
+            set(status["capability_modes"])
+        )
         assert status["aeg"]["keywords_count"] >= 1
         assert status["knowledge_hub"]["total_items"] >= 1
         for item in status["roles"]:
