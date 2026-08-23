@@ -2,7 +2,8 @@
 set -euo pipefail
 
 BASE_URL="http://127.0.0.1:5001"
-ENV_FILE="/Volumes/智能體/城城城程式/.sync_user_project/.env"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+ENV_FILE="$ROOT_DIR/.env"
 
 if [[ ! -f "$ENV_FILE" ]]; then
   echo "[error] .env not found: $ENV_FILE"

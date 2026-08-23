@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CHAT_HTML = ROOT / ".sync_user_project" / "templates" / "chat.html"
+CHAT_HTML = ROOT / "templates" / "chat.html"
 
 
 class ChatDoubleConfirmTests(unittest.TestCase):
@@ -19,16 +19,12 @@ class ChatDoubleConfirmTests(unittest.TestCase):
         self.assertNotIn('onclick="sendMessage()"', self.html)
         self.assertRegex(
             self.html,
-            r"keydown[\s\S]+?confirmAndSendMessage\(\)",
+            r"function handleMessageKeydown[\s\S]+?confirmAndSendMessage\(\)",
         )
 
     def test_no_ui_helper_bypasses_send_confirmation(self):
         direct_calls = re.findall(r"(?<!function )\bsendMessage\(\);", self.html)
-        self.assertEqual(
-            ["sendMessage();"],
-            direct_calls,
-            "Only the double-confirm wrapper should call sendMessage() directly.",
-        )
+        self.assertEqual(["sendMessage();"], direct_calls)
 
     def test_copy_tells_user_send_is_two_step(self):
         self.assertIn("按兩次", self.html)
@@ -36,11 +32,8 @@ class ChatDoubleConfirmTests(unittest.TestCase):
 
     def test_quick_reply_buttons_submit_immediately(self):
         self.assertIn("function submitQuickReply", self.html)
-        self.assertRegex(
-            self.html,
-            r"btn\.onclick\s*=\s*\(\)\s*=>\s*\{\s*submitQuickReply\(r\)",
-        )
-        self.assertIn('sendMessage({ source: "quick_reply" })', self.html)
+        self.assertIn("submitQuickReply(r);", self.html)
+        self.assertIn('return sendMessage({ source: "quick_reply", force: true });', self.html)
 
 
 if __name__ == "__main__":

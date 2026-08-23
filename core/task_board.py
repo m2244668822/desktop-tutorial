@@ -14,6 +14,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from core.trevor_identity import TREVOR_AGENT_ID, TREVOR_DISPLAY_NAME, normalize_trevor_identity
+
 STATUS_KEYS = ("pending", "running", "completed", "failed")
 UNRESOLVED_STATUSES = {"pending", "running", "failed"}
 
@@ -44,35 +46,6 @@ STATUS_ALIASES = {
     "cancelled": "failed",
     "canceled": "failed",
 }
-
-ROUTE_AGENT_ALIASES = {
-    "dispatcher": "proclaimer",
-    "manager": "proclaimer",
-    "general": "general",
-    "orchestrator": "proclaimer",
-    "engineering": "engineer",
-    "engineer": "engineer",
-    "dev": "engineer",
-    "research": "researcher",
-    "researcher": "researcher",
-    "editor": "xiaobian",
-    "xiaobian": "xiaobian",
-    "content": "xiaobian",
-    "prophet": "proclaimer",
-    "proclaimer": "proclaimer",
-    "security": "whitehat",
-    "whitehat": "whitehat",
-    "hat": "whitehat",
-    "relay": "relay",
-    "總管": "proclaimer",
-    "通用": "general",
-    "工程師": "engineer",
-    "研究員": "researcher",
-    "小編": "xiaobian",
-    "申言者": "proclaimer",
-    "帽子": "whitehat",
-}
-
 
 def _now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
@@ -137,9 +110,11 @@ def _normalize_status(raw: Any = "", *, failed_steps: Any = 0) -> str:
 
 
 def _normalize_agent(route: Any) -> str:
-    text = str(route or "").strip()
-    lowered = text.lower().replace(" ", "_").replace("-", "_")
-    return ROUTE_AGENT_ALIASES.get(lowered, "proclaimer")
+    return TREVOR_AGENT_ID
+
+
+def _capability_mode(route: Any) -> str:
+    return normalize_trevor_identity(role=str(route or "")).capability_mode
 
 
 def _queue_files(workspace_root: Path) -> list[Path]:
@@ -206,9 +181,10 @@ def _queue_task_to_item(task: dict[str, Any], source_path: Path) -> dict[str, An
         "trace_id": _safe_text(task.get("trace_id"), 120),
         "status": _normalize_status(raw_status, failed_steps=failed_steps),
         "title": _safe_text(title),
-        "route": _safe_text(route, 80),
+        "route": TREVOR_AGENT_ID,
         "assigned_agent": _normalize_agent(route),
-        "agent_label": _safe_text(route or _normalize_agent(route), 80),
+        "agent_label": TREVOR_DISPLAY_NAME,
+        "capability_mode": _capability_mode(route),
         "priority": _safe_int(task.get("priority"), 0),
         "created_at": _safe_text(task.get("created_at") or updated_at, 80),
         "updated_at": _safe_text(updated_at, 80),
@@ -236,9 +212,10 @@ def _workflow_payload_to_item(payload: dict[str, Any], source_path: Path) -> dic
         "trace_id": _safe_text(trace_id, 120),
         "status": _normalize_status(raw_status, failed_steps=failed_steps),
         "title": _safe_text(title),
-        "route": _safe_text(route, 80),
+        "route": TREVOR_AGENT_ID,
         "assigned_agent": _normalize_agent(route),
-        "agent_label": _safe_text(route or _normalize_agent(route), 80),
+        "agent_label": TREVOR_DISPLAY_NAME,
+        "capability_mode": _capability_mode(route),
         "priority": _safe_int(state.get("priority"), 0),
         "created_at": _safe_text(created_at, 80),
         "updated_at": _safe_text(updated_at, 80),
@@ -279,9 +256,10 @@ def _workflow_text_to_item(text: str, source_path: Path) -> dict[str, Any]:
         "trace_id": _safe_text(trace_id, 120),
         "status": _normalize_status(raw_status, failed_steps=failed_steps),
         "title": _safe_text(title),
-        "route": _safe_text(route, 80),
+        "route": TREVOR_AGENT_ID,
         "assigned_agent": _normalize_agent(route),
-        "agent_label": _safe_text(route or _normalize_agent(route), 80),
+        "agent_label": TREVOR_DISPLAY_NAME,
+        "capability_mode": _capability_mode(route),
         "priority": 0,
         "created_at": _safe_text(created_at, 80),
         "updated_at": _safe_text(created_at, 80),

@@ -71,12 +71,15 @@ class DeliberationCouncil:
         runner: Callable[[ProviderSpec, dict[str, Any]], Any],
         sanitizer: ExternalContentSanitizer | None = None,
         polisher: Callable[[ProviderSpec, dict[str, Any]], Any] | None = None,
+        audit_callback: Callable[[str, dict[str, Any]], Any] | None = None,
     ):
         self.registry = registry
         self.runner = runner
         self.sanitizer = sanitizer or ExternalContentSanitizer()
         self.polisher = polisher
+        self.audit_callback = audit_callback
         self._rotation_index = 0
+        self._last_selected_provider = ''
 
     def _providers_for_mode(self, mode: str) -> tuple[list[str], list[str]]:
         requested = str(mode or 'auto').strip().lower()
@@ -347,6 +350,23 @@ class DeliberationCouncil:
             for evidence in top.evidence
             if (evidence.get('verified', False) if isinstance(evidence, Mapping) else True)
         ]
+        if self.audit_callback is not None and top.provider != self._last_selected_provider:
+            self.audit_callback(
+                'model_switch',
+                {
+                    'from_provider': self._last_selected_provider,
+                    'to_provider': top.provider,
+                    'model': self.registry.model_for(
+                        top.provider,
+                        'coding'
+                        if top.provider == 'nvidia' and capability_mode == 'coding'
+                        else 'dialogue',
+                    ),
+                    'mode': str(mode or 'auto'),
+                    'shadow': bool(shadow),
+                },
+            )
+            self._last_selected_provider = top.provider
         return CouncilResult(
             answer=answer,
             metadata={

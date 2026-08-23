@@ -9,6 +9,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from core.audit_chain import HashChainAuditLog
+from core.content_sanitizer import ExternalContentSanitizer
+from core.data_paths import resolve_data_root
+from core.trevor_identity import TREVOR_AGENT_ID, TREVOR_DISPLAY_NAME, normalize_trevor_identity
 
 AUDIT_RELATIVE_PATH = Path("logs") / "agent_collaboration_audit.jsonl"
 
@@ -63,11 +67,16 @@ def record_agent_collaboration_event(
     root = Path(workspace).expanduser().resolve()
     path = root / AUDIT_RELATIVE_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
+    source_role = str(agent or TREVOR_DISPLAY_NAME).strip() or TREVOR_DISPLAY_NAME
+    identity = normalize_trevor_identity(role=source_role)
     event = {
         "id": str(uuid.uuid4()),
         "created_at": datetime.now().isoformat(),
         "task_goal": task_goal,
-        "agent": agent,
+        "agent": TREVOR_DISPLAY_NAME,
+        "identity": TREVOR_AGENT_ID,
+        "source_role": source_role,
+        "capability_mode": identity.capability_mode,
         "route": route,
         "decision": decision,
         "outcome": outcome,
@@ -87,8 +96,24 @@ def record_agent_collaboration_event(
     for key, value in overlay.items():
         if value not in (None, "", [], {}):
             event[key] = value
+    sanitizer = ExternalContentSanitizer()
+
+    def redact(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {str(key): redact(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [redact(item) for item in value]
+        if isinstance(value, str):
+            return sanitizer.sanitize(message=value).payload["message"]
+        return value
+
+    event = redact(event)
     with path.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(event, ensure_ascii=False) + "\n")
+    chain = HashChainAuditLog(resolve_data_root(root) / "audit" / "events.jsonl")
+    chain_event = chain.append("agent_collaboration", event)
+    event["chain_event_id"] = chain_event["event_id"]
+    event["chain_hash"] = chain_event["event_hash"]
     return event
 
 

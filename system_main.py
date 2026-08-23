@@ -167,7 +167,7 @@ def launch_desktop(python_bin: Path, energy_lite: bool, unified: bool) -> int:
 
 
 def launch_autopilot(
-    python_bin: Path, interval: int, skill_check_minutes: int, skip_health: bool
+    python_bin: Path, heartbeat: int, evaluation: int, skip_health: bool
 ) -> int:
     if not skip_health:
         rc = health_check(python_bin)
@@ -178,13 +178,13 @@ def launch_autopilot(
     cmd = [
         str(python_bin),
         str(daemon),
-        "--interval",
-        str(interval),
-        "--skill-check-minutes",
-        str(skill_check_minutes),
+        "--heartbeat",
+        str(heartbeat),
+        "--evaluation",
+        str(evaluation),
     ]
     print(
-        f"🤖 啟動自治守護模式 interval={interval}s skill_check={skill_check_minutes}min"
+        f"🤖 啟動崔佛自治守護 heartbeat={heartbeat}s evaluation={evaluation}s"
     )
     return run(cmd)
 
@@ -237,7 +237,12 @@ def run_interactive_menu(python_bin: Path, args: argparse.Namespace) -> int:
         elif choice == "2":
             return launch_desktop(python_bin, args.energy_lite, args.unified)
         elif choice == "3":
-            return launch_autopilot(python_bin, args.autopilot_interval, args.autopilot_skill_check_minutes, args.skip_health)
+            return launch_autopilot(
+                python_bin,
+                args.autopilot_heartbeat,
+                args.autopilot_evaluation,
+                args.skip_health,
+            )
         elif choice == "4":
             health_check(python_bin)
         elif choice == "5":
@@ -275,7 +280,7 @@ def run_interactive_menu(python_bin: Path, args: argparse.Namespace) -> int:
         print("\n" + "=" * 80 + "\n")
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="AI 智能體中心：系統單一主入口")
     parser.add_argument(
         "mode",
@@ -299,18 +304,20 @@ def parse_args() -> argparse.Namespace:
         "--skip-health", action="store_true", help="略過啟動前健康檢查"
     )
     parser.add_argument(
+        "--autopilot-heartbeat",
         "--autopilot-interval",
+        dest="autopilot_heartbeat",
         type=int,
-        default=30,
-        help="autopilot 迴圈間隔秒數（最小 5）",
+        default=60,
+        help="自治 heartbeat 間隔秒數（預設 60）",
     )
     parser.add_argument(
-        "--autopilot-skill-check-minutes",
+        "--autopilot-evaluation",
         type=int,
-        default=10,
-        help="autopilot skill 穩定性巡檢頻率（分鐘）",
+        default=900,
+        help="自治任務評估間隔秒數（預設 900）",
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def main() -> int:
@@ -344,8 +351,8 @@ def main() -> int:
     if args.mode == "autopilot":
         return launch_autopilot(
             python_bin=python_bin,
-            interval=max(5, int(args.autopilot_interval)),
-            skill_check_minutes=max(1, int(args.autopilot_skill_check_minutes)),
+            heartbeat=max(5, int(args.autopilot_heartbeat)),
+            evaluation=max(60, int(args.autopilot_evaluation)),
             skip_health=bool(args.skip_health),
         )
 
@@ -358,4 +365,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

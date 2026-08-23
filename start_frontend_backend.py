@@ -1,36 +1,46 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-直接啟動前後端和網站
-"""
+from __future__ import annotations
+
+import argparse
 import subprocess
 import sys
-import os
 from pathlib import Path
 
-BASE_DIR = Path(r"g:\城城城程式")
-os.chdir(str(BASE_DIR))
 
-print("\n" + "="*50)
-print("  🚀 AI 智能體協作系統")
-print("="*50)
-print(f"\n📂 工作目錄: {BASE_DIR}")
-print(f"🐍 Python: {sys.version.split()[0]}")
-print(f"\n🌐 啟動 Web 模式...")
-print(f"📍 訪問地址: http://127.0.0.1:5001")
-print("\n" + "="*50 + "\n")
+BASE_DIR = Path(__file__).resolve().parent
 
-# 啟動系統
-try:
-    # 使用 subprocess 啟動，這樣可以獲得完整的日誌輸出
-    result = subprocess.run(
-        [sys.executable, "system_main.py", "web", "--open-browser", "--skip-health"],
-        cwd=str(BASE_DIR)
-    )
-    sys.exit(result.returncode)
-except KeyboardInterrupt:
-    print("\n\n✅ 系統已停止")
-    sys.exit(0)
-except Exception as e:
-    print(f"\n❌ 啟動失敗: {e}")
-    sys.exit(1)
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description='啟動崔佛前後端服務')
+    parser.add_argument('--host', default='127.0.0.1')
+    parser.add_argument('--port', type=int, default=5001)
+    parser.add_argument('--open-browser', action='store_true')
+    parser.add_argument('--run-health', action='store_true')
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+    command = [
+        sys.executable,
+        str(BASE_DIR / 'system_main.py'),
+        'web',
+        '--host',
+        args.host,
+        '--port',
+        str(args.port),
+        '--energy-lite',
+    ]
+    if args.open_browser:
+        command.append('--open-browser')
+    if not args.run_health:
+        command.append('--skip-health')
+    print(f'啟動崔佛前後端：http://{args.host}:{args.port}')
+    try:
+        return subprocess.run(command, cwd=BASE_DIR, check=False).returncode
+    except KeyboardInterrupt:
+        return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

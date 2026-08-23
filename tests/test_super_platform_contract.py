@@ -99,13 +99,13 @@ class SuperPlatformContractTests(unittest.TestCase):
         self.assertEqual(decision["route_order"][:2], ["openclaw", "desktop_bridge"])
         self.assertFalse(decision["n8n_required"])
 
-    def test_auto_discussion_prefers_open_source_even_when_cloud_provider_is_preferred(self):
+    def test_auto_discussion_prefers_nvidia_control_core(self):
         from desktop_chat_app import DesktopBridge
 
         bridge = DesktopBridge.__new__(DesktopBridge)
         bridge._load_merged_env_data = lambda: {"CHAT_PREFERRED_PROVIDER": "groq"}
 
-        self.assertEqual(bridge._requested_backend_for_purpose("discussion"), "open_source")
+        self.assertEqual(bridge._requested_backend_for_purpose("discussion"), "nvidia")
 
     def test_auto_discussion_does_not_spend_cloud_when_local_model_is_unhealthy(self):
         from desktop_chat_app import DesktopBridge

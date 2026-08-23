@@ -1,0 +1,35 @@
+[Unit]
+Description=Trevor autonomy scheduler
+After=network-online.target trevor-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=trevor
+Group=trevor
+WorkingDirectory=/opt/trevor/app
+Environment=TREVOR_DEPLOYMENT=oci
+Environment=TREVOR_DATA_DIR=/var/lib/trevor
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+EnvironmentFile=-/etc/trevor/trevor.env
+LoadCredential=nvidia_api_key:/etc/trevor/credentials/nvidia_api_key
+ExecStart=/opt/trevor/app/.venv/bin/python /opt/trevor/app/tools/agent_autonomy_daemon.py --scheduler-only --heartbeat 60 --evaluation 900
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths=/var/lib/trevor
+
+[Install]
+WantedBy=multi-user.target

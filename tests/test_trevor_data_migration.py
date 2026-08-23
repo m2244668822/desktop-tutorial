@@ -23,6 +23,7 @@ class TrevorDataMigrationTests(unittest.TestCase):
 
     def test_migration_is_repeatable_deduplicated_and_preserves_source_role(self):
         from core.data_migration import TrevorDataMigrator
+        from core.encrypted_store import AESGCMJsonStore
 
         with tempfile.TemporaryDirectory() as tmp:
             workspace = Path(tmp) / 'workspace'
@@ -63,12 +64,14 @@ class TrevorDataMigrationTests(unittest.TestCase):
                 encoding='utf-8',
             )
 
-            migrator = TrevorDataMigrator(workspace, destination)
+            store = AESGCMJsonStore(lambda: b'd' * 32)
+            migrator = TrevorDataMigrator(workspace, destination, json_store=store)
             first = migrator.migrate()
             second = migrator.migrate()
-            conversations = json.loads(
-                (destination / 'agent_memories' / 'conversations.json').read_text(encoding='utf-8')
-            )
+            destination_file = destination / 'agent_memories' / 'conversations.json'
+            conversations = store.read_json(destination_file, {})
+            raw_destination = destination_file.read_text(encoding='utf-8')
+            destination_is_encrypted = store.is_encrypted(destination_file)
             manifest_exists = (
                 destination / 'migrations' / 'trevor_data_manifest.json'
             ).exists()
@@ -80,6 +83,8 @@ class TrevorDataMigrationTests(unittest.TestCase):
         self.assertEqual({'崔佛'}, {thread['agent_name'] for thread in conversations.values()})
         self.assertIn('工程師', {message['metadata']['source_role'] for message in messages})
         self.assertTrue(manifest_exists)
+        self.assertNotIn('重複問題', raw_destination)
+        self.assertTrue(destination_is_encrypted)
 
 
 if __name__ == '__main__':

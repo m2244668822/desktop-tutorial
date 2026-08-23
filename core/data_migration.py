@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+from core.audit_chain import HashChainAuditLog
+from core.encrypted_store import AESGCMJsonStore, DeviceEncryptionKey
 from core.trevor_identity import TREVOR_DISPLAY_NAME, normalize_trevor_identity
 
 
@@ -39,10 +41,21 @@ def _atomic_json(path: Path, payload: Any) -> None:
 
 
 class TrevorDataMigrator:
-    def __init__(self, workspace: str | Path, destination: str | Path):
+    def __init__(
+        self,
+        workspace: str | Path,
+        destination: str | Path,
+        *,
+        json_store: AESGCMJsonStore | None = None,
+        audit_log: HashChainAuditLog | None = None,
+    ):
         self.workspace = Path(workspace).expanduser().resolve()
         self.destination = Path(destination).expanduser().resolve()
         self.destination.mkdir(parents=True, exist_ok=True)
+        self.json_store = json_store or AESGCMJsonStore(DeviceEncryptionKey().get_or_create)
+        self.audit_log = audit_log or HashChainAuditLog(
+            self.destination / "audit" / "events.jsonl"
+        )
         self._turns: set[str] = set()
         self._conversations: dict[str, dict[str, Any]] = {}
         self._source_counts: dict[str, int] = {}
@@ -61,6 +74,12 @@ class TrevorDataMigrator:
                 relative = source.relative_to(source_root)
                 if relative == Path("agent_memories/conversations.json"):
                     continue
+                try:
+                    envelope = json.loads(source.read_text(encoding="utf-8"))
+                except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                    continue
+                if not isinstance(envelope, dict) or envelope.get("algorithm") != "AES-256-GCM":
+                    continue
                 target = self.destination / relative
                 if target.exists():
                     continue
@@ -68,6 +87,12 @@ class TrevorDataMigrator:
                 shutil.copy2(source, target)
                 copied += 1
         return copied
+
+    def _read_private_json(self, path: Path, default: Any) -> Any:
+        try:
+            return self.json_store.read_json(path, default)
+        except Exception:
+            raise RuntimeError("private_migration_source_unreadable")
 
     def _add_turn(
         self,
@@ -123,7 +148,7 @@ class TrevorDataMigrator:
         self._source_counts[source] = self._source_counts.get(source, 0) + 1
 
     def _ingest_manager_file(self, path: Path, source: str) -> None:
-        payload = _read_json(path, {})
+        payload = self._read_private_json(path, {})
         if not isinstance(payload, dict):
             return
         for thread_id, thread in payload.items():
@@ -146,7 +171,7 @@ class TrevorDataMigrator:
                 )
 
     def _ingest_legacy_list(self, path: Path) -> None:
-        payload = _read_json(path, [])
+        payload = self._read_private_json(path, [])
         if not isinstance(payload, list):
             return
         for index, row in enumerate(payload):
@@ -183,7 +208,7 @@ class TrevorDataMigrator:
         self._ingest_legacy_list(
             self.workspace / "500" / "llama32-chat" / "data" / "conversations.json"
         )
-        _atomic_json(destination_file, self._conversations)
+        self.json_store.write_json(destination_file, self._conversations)
         manifest = {
             "schema_version": 1,
             "identity": "trevor",
@@ -198,6 +223,17 @@ class TrevorDataMigrator:
         _atomic_json(
             self.destination / "migrations" / "trevor_data_manifest.json",
             manifest,
+        )
+        self.audit_log.append(
+            "data_migration_completed",
+            {
+                "target": "trevor_device_store",
+                "unique_turns": manifest["unique_turns"],
+                "conversation_threads": manifest["conversation_threads"],
+                "copied_encrypted_files": manifest["copied_files"],
+                "rerunnable": True,
+                "encrypted": True,
+            },
         )
         return manifest
 

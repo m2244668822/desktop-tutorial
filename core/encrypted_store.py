@@ -24,12 +24,31 @@ class DeviceEncryptionKey:
         *,
         service: str = "trevor.memory",
         account: str = "aes-256-gcm",
+        credentials_directory: str | os.PathLike[str] | None = None,
     ):
         self.credential_store = credential_store or KeychainCredentialStore()
         self.service = service
         self.account = account
+        self.credentials_directory = (
+            Path(credentials_directory).expanduser()
+            if credentials_directory is not None
+            else None
+        )
 
     def get_or_create(self) -> bytes:
+        directory = self.credentials_directory
+        if directory is None:
+            configured_directory = os.getenv("CREDENTIALS_DIRECTORY", "").strip()
+            directory = Path(configured_directory) if configured_directory else None
+        if directory is not None:
+            try:
+                systemd_value = (directory / "trevor_memory_key_b64").read_text(
+                    encoding="utf-8"
+                ).strip()
+            except OSError:
+                systemd_value = ""
+            if systemd_value:
+                return self._decode(systemd_value)
         configured = os.getenv("TREVOR_MEMORY_KEY_B64", "").strip()
         if configured:
             return self._decode(configured)
@@ -67,12 +86,12 @@ class AESGCMJsonStore:
         return key
 
     @staticmethod
-    def _load_envelope(path: Path) -> dict[str, Any]:
+    def _load_envelope(path: Path) -> Any:
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise EncryptedStoreError("encrypted_store_read_failed") from exc
-        return payload if isinstance(payload, dict) else {}
+        return payload
 
     def is_encrypted(self, path: str | Path) -> bool:
         target = Path(path)
@@ -93,7 +112,7 @@ class AESGCMJsonStore:
         if not target.exists():
             return default
         envelope = self._load_envelope(target)
-        if envelope.get("algorithm") != "AES-256-GCM":
+        if not isinstance(envelope, dict) or envelope.get("algorithm") != "AES-256-GCM":
             return envelope
         try:
             nonce = base64.b64decode(str(envelope["nonce"]), validate=True)

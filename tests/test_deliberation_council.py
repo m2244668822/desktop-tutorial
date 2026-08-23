@@ -203,6 +203,35 @@ class DeliberationCouncilTests(unittest.TestCase):
         self.assertEqual('shadow', result.metadata['status'])
         self.assertNotEqual('nvidia', result.metadata['shadow_recommendation'])
 
+    def test_selected_provider_changes_emit_model_switch_audit(self):
+        from core.deliberation import DeliberationCouncil
+
+        events = []
+        reject_nvidia = False
+
+        def runner(provider, request):
+            if reject_nvidia and provider.name == 'nvidia':
+                return candidate('rejected', 'same', safe=False)
+            return candidate(provider.name, 'same')
+
+        council = DeliberationCouncil(
+            self.build_registry(),
+            runner=runner,
+            audit_callback=lambda event_type, payload: events.append(
+                (event_type, payload)
+            ),
+        )
+        council.deliberate('第一題', mode='fast')
+        council.deliberate('第二題', mode='fast')
+        reject_nvidia = True
+        council.deliberate('第三題', mode='cross_check')
+
+        self.assertEqual(['model_switch', 'model_switch'], [event[0] for event in events])
+        self.assertEqual('', events[0][1]['from_provider'])
+        self.assertEqual('nvidia', events[0][1]['to_provider'])
+        self.assertEqual('nvidia', events[1][1]['from_provider'])
+        self.assertEqual('gemini', events[1][1]['to_provider'])
+
 
 if __name__ == '__main__':
     unittest.main()

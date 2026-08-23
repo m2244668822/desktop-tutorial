@@ -14,7 +14,7 @@ import threading
 import time
 import webbrowser
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -22,16 +22,20 @@ from urllib import error as urllib_error
 from urllib import request as urllib_request
 from urllib.parse import urlencode, parse_qs, urlparse
 
+from core.api_auth import build_api_key_store
 from core.agent_collaboration_audit import record_agent_collaboration_event
 from core.ai_horde_assets import AIHordeAssetStore
 from core.ai_horde_client import AIHordeClient, AIHordeError
 from core.ai_horde_jobs import AIHordeJobManager
+from core.audit_chain import HashChainAuditLog
+from core.autonomy import AutonomyPolicy, AutonomyQueue, mark_user_activity
 from core.capability_registry import build_capability_registry
 from core.data_paths import ProjectPaths
 from core.openclaw_adapter import OpenClawAdapter
 from core.task_board import task_items_payload, task_summary_payload
 from core.traffic_governor import decide_route
 from core.trevor_identity import (
+    CAPABILITY_MODES,
     TREVOR_AGENT_ID,
     TREVOR_DISPLAY_NAME,
     decorate_trevor_response,
@@ -91,7 +95,7 @@ class WebServerMode:
         self._data_dir = self.paths.data
         self._conv_dir = self._data_dir / "conversations"
         self._conv_dir.mkdir(parents=True, exist_ok=True)
-        self._archive_dir = self.paths.archive / "chat_sessions"
+        self._archive_dir = self.paths.data / "archive" / "chat_sessions"
         self._archive_dir.mkdir(parents=True, exist_ok=True)
         
         self._snapshot_lock = threading.Lock()
@@ -112,6 +116,14 @@ class WebServerMode:
             max_concurrent=int(os.getenv("AI_HORDE_MAX_CONCURRENT_JOBS", "2") or "2"),
             max_queued=int(os.getenv("AI_HORDE_MAX_QUEUED_JOBS", "8") or "8"),
             timeout_seconds=float(os.getenv("AI_HORDE_JOB_TIMEOUT_SECONDS", "600") or "600"),
+        )
+        self.api_key_store, self.api_auth_status = build_api_key_store(self.paths.data)
+        self.api_auth_required = str(
+            os.getenv("TREVOR_API_AUTH_REQUIRED", "false") or "false"
+        ).strip().lower() in {"1", "true", "yes", "on"}
+        self.audit_log = HashChainAuditLog(self.paths.data / "audit" / "events.jsonl")
+        self.autonomy_queue = AutonomyQueue(
+            self.paths.data / "autonomy" / "task_queue.json"
         )
 
         self._agent_key_map = {"trevor": TREVOR_DISPLAY_NAME}
@@ -136,6 +148,17 @@ class WebServerMode:
             "OpenClaw",
             "Lobster",
         }
+
+    def authorize_headers(self, headers: any, required_scope: str) -> dict:
+        if self.api_key_store is None:
+            return {"ok": False, "error": "auth_not_configured"}
+        authorization = str(headers.get("Authorization", "") or "").strip()
+        supplied = authorization[7:].strip() if authorization.startswith("Bearer ") else ""
+        if not supplied:
+            supplied = str(headers.get("X-API-Token", "") or "").strip()
+        if not supplied:
+            return {"ok": False, "error": "authentication_required"}
+        return self.api_key_store.authenticate(supplied, required_scope=required_scope)
 
     def _normalize_route_path(self, path: str) -> str:
         """?舀 reverse-proxy 頝臬?憒?/Perob"""
@@ -248,8 +271,53 @@ class WebServerMode:
 
     def trevor_status_payload(self) -> dict:
         readiness = self.readiness_payload()
-        graphiti_port = int(os.getenv("TREVOR_GRAPHITI_PORT", "8091") or "8091")
+        try:
+            graphiti_port = int(os.getenv("TREVOR_GRAPHITI_PORT", "8091") or "8091")
+        except (TypeError, ValueError):
+            graphiti_port = 8091
         migration_manifest = self.paths.data / "migrations" / "graphiti_manifest.json"
+        autonomy_dir = self.paths.data / "autonomy"
+
+        def runtime_state(name: str) -> dict:
+            path = autonomy_dir / name
+            try:
+                state = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                state = {}
+            heartbeat = str(state.get("heartbeat_at", "") or "")
+            try:
+                parsed = datetime.fromisoformat(heartbeat.replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                age_seconds = max(
+                    0.0,
+                    (datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)).total_seconds(),
+                )
+            except ValueError:
+                age_seconds = None
+            ready = bool(
+                state.get("daemon_status") == "running"
+                and age_seconds is not None
+                and age_seconds <= 180
+            )
+            return {
+                "ready": ready,
+                "status": str(state.get("daemon_status", "not_running") or "not_running"),
+                "mode": str(state.get("mode", "") or ""),
+                "heartbeat_at": heartbeat,
+            }
+
+        scheduler = runtime_state("scheduler_state.json")
+        worker = runtime_state("worker_state.json")
+        combined = runtime_state("daemon_state.json")
+        scheduler_ready = scheduler["ready"] or combined["ready"]
+        worker_ready = worker["ready"] or combined["ready"]
+        local_monitor_ready = bool(getattr(self.bridge, "monitor_active", False))
+        try:
+            queued_tasks = self.autonomy_queue.tasks()
+        except (RuntimeError, OSError, AttributeError):
+            queued_tasks = []
+        tailscale_socket = Path("/var/run/tailscale/tailscaled.sock")
         return {
             "ok": bool(readiness.get("required_ready")),
             "identity": normalize_trevor_identity().public_dict(),
@@ -263,12 +331,22 @@ class WebServerMode:
                 "private": True,
             },
             "autonomy": {
-                "ready": bool(getattr(self.bridge, "monitor_active", False)),
+                "ready": bool(
+                    (scheduler_ready and worker_ready)
+                    or combined["ready"]
+                    or local_monitor_ready
+                ),
+                "scheduler": {**scheduler, "ready": scheduler_ready},
+                "worker": {**worker, "ready": worker_ready},
+                "combined": combined,
+                "pending_tasks": sum(task.get("status") == "pending" for task in queued_tasks),
                 "max_concurrent_tasks": 1,
             },
             "tailscale": {
                 "private_only": True,
-                "configured": bool(os.getenv("TAILSCALE_HOSTNAME", "").strip()),
+                "configured": bool(
+                    os.getenv("TAILSCALE_HOSTNAME", "").strip() or tailscale_socket.exists()
+                ),
             },
             "data_migration": {
                 "manifest_ready": migration_manifest.exists(),
@@ -436,6 +514,20 @@ class WebServerMode:
         server_instance = self
         
         class Handler(BaseHTTPRequestHandler):
+            def _require_scope(self, scope: str) -> dict | None:
+                authorization = server_instance.authorize_headers(self.headers, scope)
+                if authorization.get("ok"):
+                    return authorization
+                error = str(authorization.get("error", "authentication_required"))
+                if error == "auth_not_configured":
+                    status = HTTPStatus.SERVICE_UNAVAILABLE
+                elif error == "scope_denied":
+                    status = HTTPStatus.FORBIDDEN
+                else:
+                    status = HTTPStatus.UNAUTHORIZED
+                self._send_json({"ok": False, "error": error}, status=status)
+                return None
+
             def _is_client_disconnect(self, exc: BaseException) -> bool:
                 if isinstance(exc, (BrokenPipeError, ConnectionResetError)):
                     return True
@@ -557,11 +649,79 @@ class WebServerMode:
                     self._send_json(server_instance.trevor_provider_payload())
                     return
 
+                if route_path == "/api/trevor/tasks":
+                    if self._require_scope("tasks") is None:
+                        return
+                    try:
+                        limit = int((query.get("limit") or ["50"])[0] or 50)
+                    except (TypeError, ValueError):
+                        self._send_json(
+                            {"ok": False, "error": "invalid_limit"},
+                            status=HTTPStatus.BAD_REQUEST,
+                        )
+                        return
+                    self._send_json(
+                        task_items_payload(
+                            server_instance.workspace_path,
+                            status=str((query.get("status") or [""])[0]),
+                            limit=max(1, min(limit, 500)),
+                            compact=True,
+                        )
+                    )
+                    return
+
+                if route_path == "/api/trevor/audit":
+                    if self._require_scope("audit") is None:
+                        return
+                    try:
+                        limit = int((query.get("limit") or ["100"])[0] or 100)
+                        events = server_instance.audit_log.read(limit=limit)
+                        verification = server_instance.audit_log.verify()
+                    except (RuntimeError, ValueError):
+                        self._send_json(
+                            {"ok": False, "error": "audit_chain_invalid"},
+                            status=HTTPStatus.CONFLICT,
+                        )
+                        return
+                    self._send_json(
+                        {"ok": True, "verification": verification, "events": events}
+                    )
+                    return
+
+                if route_path == "/api/trevor/users/keys":
+                    if self._require_scope("users") is None:
+                        return
+                    self._send_json(
+                        {
+                            "ok": True,
+                            "keys": server_instance.api_key_store.list_public(),
+                        }
+                    )
+                    return
+
+                if route_path == "/api/trevor/memory/status":
+                    if self._require_scope("memory") is None:
+                        return
+                    manager = getattr(server_instance.bridge, "memory_manager", None)
+                    conversations = getattr(manager, "_conversations", {}) if manager else {}
+                    self._send_json(
+                        {
+                            "ok": True,
+                            "identity": normalize_trevor_identity().public_dict(),
+                            "threads": len(conversations) if isinstance(conversations, dict) else 0,
+                            "conflict_policy": "safety_then_source_priority_then_recency",
+                            "encrypted_at_rest": bool(getattr(manager, "_json_store", None)),
+                        }
+                    )
+                    return
+
                 if route_path == "/api/ai-horde/status":
                     self._send_json(server_instance.ai_horde_client.public_status())
                     return
 
                 if route_path.startswith("/api/ai-horde/jobs/"):
+                    if server_instance.api_auth_required and self._require_scope("chat") is None:
+                        return
                     job_id = route_path.rsplit("/", 1)[-1]
                     try:
                         self._send_json(server_instance.ai_horde_jobs.get_job(job_id))
@@ -575,6 +735,8 @@ class WebServerMode:
                     return
 
                 if route_path.startswith("/api/ai-horde/assets/"):
+                    if server_instance.api_auth_required and self._require_scope("chat") is None:
+                        return
                     asset_id = route_path.rsplit("/", 1)[-1]
                     asset = server_instance.ai_horde_assets.read_asset(asset_id)
                     if asset is None:
@@ -813,24 +975,17 @@ class WebServerMode:
                         conversations = getattr(mm, "_conversations", {}) or {}
                         if isinstance(conversations, dict):
                             for conv_id, conv in conversations.items():
-                                agent_name = str(conv.get("agent_name", "通用") or "通用")
-                                agent_key_map = {
-                                    "總管": "proclaimer",
-                                    "研究員": "researcher",
-                                    "工程師": "engineer",
-                                    "小編": "xiaobian",
-                                    "申言者": "proclaimer",
-                                    "帽子": "whitehat",
-                                    "中繼器": "relay",
-                                    "通用": "general",
-                                }
-                                agent = agent_key_map.get(agent_name, "general")
                                 for m in conv.get("messages", []):
+                                    metadata = m.get("metadata", {}) if isinstance(m, dict) else {}
                                     rows.append(
                                         {
                                             "conversation_id": conv_id,
-                                            "agent": agent,
-                                            "agent_name": agent_name,
+                                            "agent": TREVOR_AGENT_ID,
+                                            "agent_name": TREVOR_DISPLAY_NAME,
+                                            "capability_mode": str(
+                                                metadata.get("capability_mode", "general")
+                                                or "general"
+                                            ),
                                             "timestamp": m.get("timestamp", ""),
                                             "user": m.get("user", ""),
                                             "assistant": m.get("assistant", ""),
@@ -899,6 +1054,8 @@ class WebServerMode:
                     payload = {}
 
                 if route_path == "/api/ai-horde/jobs":
+                    if server_instance.api_auth_required and self._require_scope("chat") is None:
+                        return
                     try:
                         result = server_instance.ai_horde_jobs.create_job(payload)
                     except AIHordeError as exc:
@@ -915,7 +1072,119 @@ class WebServerMode:
                     self._send_json(result, status=HTTPStatus.ACCEPTED)
                     return
 
+                if route_path == "/api/trevor/tasks":
+                    authorization = self._require_scope("tasks")
+                    if authorization is None:
+                        return
+                    instruction = str(payload.get("input", "") or "").strip()
+                    category = str(payload.get("category", "maintenance") or "maintenance").lower()
+                    requested_mode = str(payload.get("capability_mode", "") or "").lower()
+                    if not instruction:
+                        self._send_json(
+                            {"ok": False, "error": "task_input_required"},
+                            status=HTTPStatus.BAD_REQUEST,
+                        )
+                        return
+                    if category not in AutonomyPolicy.ALLOWED_CATEGORIES:
+                        self._send_json(
+                            {"ok": False, "error": "invalid_category"},
+                            status=HTTPStatus.BAD_REQUEST,
+                        )
+                        return
+                    if requested_mode and requested_mode not in CAPABILITY_MODES:
+                        self._send_json(
+                            {"ok": False, "error": "invalid_capability_mode"},
+                            status=HTTPStatus.BAD_REQUEST,
+                        )
+                        return
+                    try:
+                        priority = int(payload.get("priority", 5) or 5)
+                    except (TypeError, ValueError):
+                        self._send_json(
+                            {"ok": False, "error": "invalid_priority"},
+                            status=HTTPStatus.BAD_REQUEST,
+                        )
+                        return
+                    identity = normalize_trevor_identity(
+                        agent=str(payload.get("agent", "") or ""),
+                        role=str(payload.get("role", "") or ""),
+                        capability_mode=requested_mode,
+                    )
+                    task = server_instance.autonomy_queue.enqueue(
+                        instruction,
+                        capability_mode=identity.capability_mode,
+                        category=category,
+                        priority=priority,
+                        metadata={
+                            "requested_by_key": authorization.get("key_id", ""),
+                            "legacy_alias_normalized": identity.deprecated_alias,
+                            "source_role": identity.source_alias,
+                        },
+                    )
+                    server_instance.audit_log.append(
+                        "autonomy_task_queued",
+                        {
+                            "task_id": task["id"],
+                            "category": task["category"],
+                            "capability_mode": task["capability_mode"],
+                            "actor_key_id": authorization.get("key_id", ""),
+                        },
+                    )
+                    self._send_json({"ok": True, "task": task}, status=HTTPStatus.ACCEPTED)
+                    return
+
+                if route_path == "/api/trevor/users/keys":
+                    authorization = self._require_scope("users")
+                    if authorization is None:
+                        return
+                    try:
+                        created = server_instance.api_key_store.create(
+                            str(payload.get("label", "api-client") or "api-client"),
+                            payload.get("scopes", []),
+                        )
+                    except ValueError:
+                        self._send_json(
+                            {"ok": False, "error": "invalid_scope"},
+                            status=HTTPStatus.BAD_REQUEST,
+                        )
+                        return
+                    server_instance.audit_log.append(
+                        "user_key_created",
+                        {
+                            "actor_key_id": authorization.get("key_id", ""),
+                            "created_key_id": created["record"]["id"],
+                            "prefix": created["record"]["prefix"],
+                            "scopes": created["record"]["scopes"],
+                        },
+                    )
+                    self._send_json({"ok": True, **created}, status=HTTPStatus.CREATED)
+                    return
+
+                if route_path == "/api/trevor/users/keys/revoke":
+                    authorization = self._require_scope("users")
+                    if authorization is None:
+                        return
+                    key_id = str(payload.get("key_id", "") or "").strip()
+                    if not server_instance.api_key_store.revoke(key_id):
+                        self._send_json(
+                            {"ok": False, "error": "key_not_found"},
+                            status=HTTPStatus.NOT_FOUND,
+                        )
+                        return
+                    server_instance.audit_log.append(
+                        "user_key_revoked",
+                        {
+                            "actor_key_id": authorization.get("key_id", ""),
+                            "revoked_key_id": key_id,
+                        },
+                    )
+                    self._send_json({"ok": True, "key_id": key_id})
+                    return
+
                 if route_path in {"/api/send_message", "/api/send_message/", "/chat/agent", "/chat/agent/"}:
+                    if server_instance.api_auth_required and self._require_scope("chat") is None:
+                        return
+                    mark_user_activity(server_instance.paths.data)
                     requested_agent = str(payload.get("agent", "") or "").strip()
                     role_value = payload.get("role") or requested_agent or TREVOR_DISPLAY_NAME
                     capability_mode = payload.get("capability_mode", "")
@@ -983,6 +1252,8 @@ class WebServerMode:
                     return
 
                 if route_path == "/api/openclaw/task":
+                    if server_instance.api_auth_required and self._require_scope("tasks") is None:
+                        return
                     role_value = str(payload.get("role", "工程師") or "工程師")
                     self._send_json(
                         server_instance._forward_openclaw_or_fallback(

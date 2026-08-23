@@ -116,9 +116,11 @@ class ProviderRegistry:
         env: Mapping[str, Any] | None = None,
         free_tier_confirmed: Iterable[str] = (),
         now: Callable[[], float] = time.time,
+        credential_resolver: Callable[[str], str] | None = None,
     ):
         self._env = _clean_env(env)
         self._now = now
+        self._credential_resolver = credential_resolver
         self._specs = {spec.name: spec for spec in PROVIDER_SPECS}
         self._states = {name: ProviderState() for name in self._specs}
         self._credentials: dict[str, str] = {}
@@ -128,7 +130,14 @@ class ProviderRegistry:
         self._configure()
         self._apply_family_diversity()
 
-    def _first_value(self, names: tuple[str, ...]) -> str:
+    def _first_value(self, provider: str, names: tuple[str, ...]) -> str:
+        if self._credential_resolver is not None:
+            try:
+                resolved = str(self._credential_resolver(provider) or '').strip()
+            except Exception:
+                resolved = ''
+            if resolved and not self._is_placeholder(resolved):
+                return resolved
         for name in names:
             value = self._env.get(name, '').strip()
             if value and not self._is_placeholder(value):
@@ -156,7 +165,7 @@ class ProviderRegistry:
     def _configure(self) -> None:
         for name, spec in self._specs.items():
             state = self._states[name]
-            credential = self._first_value(spec.key_names)
+            credential = self._first_value(name, spec.key_names)
             account_id = self._env.get(spec.account_id_name, '').strip() if spec.account_id_name else ''
             if credential:
                 self._credentials[name] = credential

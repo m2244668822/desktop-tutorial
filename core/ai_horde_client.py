@@ -8,6 +8,7 @@ from typing import Any
 from urllib import error as urllib_error
 from urllib import request as urllib_request
 from urllib.parse import urlparse
+from pathlib import Path
 
 from core.keychain_credentials import KeychainCredentialStore
 
@@ -154,6 +155,7 @@ class AIHordeClient:
         keychain_service: str | None = None,
         keychain_account: str | None = None,
         timeout: float | None = None,
+        credentials_directory: str | os.PathLike[str] | None = None,
     ):
         self.credential_store = credential_store or KeychainCredentialStore()
         self.transport = transport or UrllibJsonTransport()
@@ -173,9 +175,26 @@ class AIHordeClient:
             keychain_account or os.getenv('AI_HORDE_KEYCHAIN_ACCOUNT', 'api-key')
         ).strip()
         self.timeout = float(timeout or os.getenv('AI_HORDE_REQUEST_TIMEOUT_SECONDS', '30'))
+        self.credentials_directory = (
+            Path(credentials_directory).expanduser()
+            if credentials_directory is not None
+            else None
+        )
 
     def __repr__(self) -> str:
-        return f'AIHordeClient(api_base={self.api_base!r}, credential_source="keychain")'
+        return f'AIHordeClient(api_base={self.api_base!r}, credential_source="secure_store")'
+
+    def _systemd_credential(self) -> str:
+        directory = self.credentials_directory
+        if directory is None:
+            configured = str(os.getenv('CREDENTIALS_DIRECTORY', '') or '').strip()
+            directory = Path(configured) if configured else None
+        if directory is None:
+            return ''
+        try:
+            return (directory / 'ai_horde_api_key').read_text(encoding='utf-8').strip()
+        except OSError:
+            return ''
 
     def public_status(self) -> dict[str, Any]:
         enabled = str(os.getenv('AI_HORDE_ENABLED', 'true')).strip().lower() in {
@@ -184,18 +203,21 @@ class AIHordeClient:
             'yes',
             'on',
         }
-        credential = self.credential_store.get_secret(
-            self.keychain_service, self.keychain_account
-        )
+        systemd_credential = self._systemd_credential()
+        credential = self.credential_store.get_secret(self.keychain_service, self.keychain_account)
+        source = 'systemd' if systemd_credential else ('keychain' if credential.configured else 'none')
         return {
             'ok': True,
             'enabled': enabled,
-            'configured': bool(credential.configured),
-            'key_source': 'keychain',
+            'configured': bool(systemd_credential or credential.configured),
+            'key_source': source,
             'supports': ['image', 'text'],
         }
 
     def _credential(self) -> str:
+        systemd_credential = self._systemd_credential()
+        if systemd_credential:
+            return systemd_credential
         result = self.credential_store.get_secret(self.keychain_service, self.keychain_account)
         if result.configured:
             return result.value

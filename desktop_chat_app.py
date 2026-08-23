@@ -45,7 +45,9 @@ except Exception:
 
 from core.data_paths import ProjectPaths, resolve_data_root
 from core.deliberation import DeliberationCouncil
+from core.audit_chain import HashChainAuditLog
 from core.provider_client import ProviderHttpClient
+from core.provider_credentials import ProviderCredentialResolver
 from core.provider_registry import ProviderRegistry
 from core.trevor_identity import (
     CAPABILITY_MODES,
@@ -340,16 +342,26 @@ class DesktopBridge:
         ).strip().lower()
         if self.deliberation_rollout not in {"shadow", "fast", "cross_check", "rigorous"}:
             self.deliberation_rollout = "shadow"
-        self.provider_registry = ProviderRegistry(env=provider_env)
+        self.provider_credential_resolver = ProviderCredentialResolver()
+        self.provider_registry = ProviderRegistry(
+            env=provider_env,
+            credential_resolver=lambda provider: self.provider_credential_resolver.resolve(
+                provider
+            ).value,
+        )
         self.provider_client = ProviderHttpClient(
             self.provider_registry,
             timeout=self.live_llm_timeout_sec,
         )
         self.deliberation_runner = self.provider_client.call
+        self.trevor_audit_log = HashChainAuditLog(
+            self.paths.data / "audit" / "events.jsonl"
+        )
         self.deliberation_council = DeliberationCouncil(
             self.provider_registry,
             runner=self.deliberation_runner,
             polisher=self.deliberation_runner,
+            audit_callback=self.trevor_audit_log.append,
         )
         self._provider_validation_started = False
         self._langgraph_status_cache: dict[str, Any] = {
@@ -2171,8 +2183,15 @@ class DesktopBridge:
             "gemini": "https://generativelanguage.googleapis.com/v1beta/openai",
         }
 
-        key = str(cfg.get("key", "") or "").strip()
-        key_name = str(cfg.get("key_name", "") or "").strip()
+        key = ""
+        key_name = ""
+        if provider != "openai" and hasattr(self, "provider_registry"):
+            key = self.provider_registry.credential_for(provider)
+            if key:
+                key_name = f"{provider}_secure_store"
+        if not key:
+            key = str(cfg.get("key", "") or "").strip()
+            key_name = str(cfg.get("key_name", "") or "").strip()
         if self._is_placeholder_token(key):
             key = ""
         if not key:
@@ -2406,6 +2425,7 @@ class DesktopBridge:
                         self.provider_registry,
                         runner=self.deliberation_runner,
                         polisher=self.deliberation_runner,
+                        audit_callback=self.trevor_audit_log.append,
                     )
                     self.deliberation_council = council
                 result = council.deliberate(
