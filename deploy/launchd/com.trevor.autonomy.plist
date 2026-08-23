@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.trevor.autonomy</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__TREVOR_PYTHON__</string>
+    <string>__TREVOR_ROOT__/tools/agent_autonomy_daemon.py</string>
+    <string>--heartbeat</string>
+    <string>60</string>
+    <string>--evaluation</string>
+    <string>900</string>
+    <string>--nightly-hour</string>
+    <string>3</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>PYTHONUNBUFFERED</key>
+    <string>1</string>
+    <key>PYTHONUTF8</key>
+    <string>1</string>
+    <key>TREVOR_DATA_DIR</key>
+    <string>__TREVOR_DATA_DIR__</string>
+    <key>TREVOR_DEPLOYMENT</key>
+    <string>mac</string>
+    <key>TREVOR_MEMORY_ENCRYPTION</key>
+    <string>required</string>
+  </dict>
+  <key>WorkingDirectory</key>
+  <string>__TREVOR_ROOT__</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+  <key>StandardOutPath</key>
+  <string>__TREVOR_LOG_DIR__/autonomy.log</string>
+  <key>StandardErrorPath</key>
+  <string>__TREVOR_LOG_DIR__/autonomy.error.log</string>
+</dict>
+</plist>
