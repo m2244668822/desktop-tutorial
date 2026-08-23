@@ -33,9 +33,8 @@ import sqlalchemy as sa
 
 REQUIRED_BRANCHES = [
     "main",
-    "codex/backend-mainline",
-    "codex/frontend-showcase",
-    "codex/db-migration-postgres",
+    "pre-trevor",
+    "trevor/integration",
 ]
 
 REQUIRED_GITIGNORE_PATTERNS = [
@@ -130,8 +129,22 @@ def check_local_repo(project_root: Path) -> list[CheckItem]:
     if not git_dir.exists():
         return results
 
-    branch_proc = run_cmd(["git", "branch", "--format=%(refname:short)"], project_root)
-    branches = set(line.strip() for line in branch_proc.stdout.splitlines() if line.strip())
+    branch_proc = run_cmd(
+        [
+            "git",
+            "for-each-ref",
+            "--format=%(refname:short)",
+            "refs/heads",
+            "refs/remotes/origin",
+        ],
+        project_root,
+    )
+    branches = set()
+    for line in branch_proc.stdout.splitlines():
+        branch = line.strip()
+        if not branch or branch == "origin/HEAD":
+            continue
+        branches.add(branch.removeprefix("origin/"))
     missing_branches = [branch for branch in REQUIRED_BRANCHES if branch not in branches]
     results.append(
         CheckItem(
@@ -220,7 +233,14 @@ def check_local_repo(project_root: Path) -> list[CheckItem]:
     return results
 
 
-def check_github_repo(repo_slug: str, token: str, timeout: int) -> list[CheckItem]:
+def check_github_repo(
+    repo_slug: str,
+    token: str,
+    timeout: int,
+    *,
+    include_admin_checks: bool = True,
+    require_private: bool = True,
+) -> list[CheckItem]:
     results: list[CheckItem] = []
     owner, repo = repo_slug_parts(repo_slug)
 
@@ -238,12 +258,19 @@ def check_github_repo(repo_slug: str, token: str, timeout: int) -> list[CheckIte
         return results
 
     repo_data = repo_resp.json()
+    repository_is_private = bool(repo_data.get("private"))
     results.append(
         CheckItem(
             key="github.repo_private",
-            ok=bool(repo_data.get("private")),
+            ok=repository_is_private or not require_private,
             severity="error",
-            detail="repository is private" if repo_data.get("private") else "repository is not private",
+            detail=(
+                "repository is private"
+                if repository_is_private
+                else "public repository explicitly allowed"
+                if not require_private
+                else "repository is not private"
+            ),
         )
     )
 
@@ -270,6 +297,9 @@ def check_github_repo(repo_slug: str, token: str, timeout: int) -> list[CheckIte
                 meta={"response": collab_resp.text[:500]},
             )
         )
+
+    if not include_admin_checks:
+        return results
 
     actions_resp = github_get(f"/repos/{owner}/{repo}/actions/permissions", token, timeout)
     if actions_resp.status_code == 200:
@@ -532,6 +562,8 @@ def main() -> int:
     parser.add_argument("--skip-local-checks", action="store_true")
     parser.add_argument("--skip-service-checks", action="store_true")
     parser.add_argument("--skip-github-checks", action="store_true")
+    parser.add_argument("--skip-github-admin-checks", action="store_true")
+    parser.add_argument("--allow-public-repo", action="store_true")
     parser.add_argument("--skip-db-checks", action="store_true")
     parser.add_argument("--strict", action="store_true", help="Exit non-zero if any warning/error check fails")
     parser.add_argument(
@@ -555,7 +587,15 @@ def main() -> int:
 
     if not args.skip_github_checks and args.repo:
         if args.github_token:
-            checks.extend(check_github_repo(args.repo, args.github_token, args.http_timeout))
+            checks.extend(
+                check_github_repo(
+                    args.repo,
+                    args.github_token,
+                    args.http_timeout,
+                    include_admin_checks=not args.skip_github_admin_checks,
+                    require_private=not args.allow_public_repo,
+                )
+            )
         else:
             checks.append(
                 CheckItem(
