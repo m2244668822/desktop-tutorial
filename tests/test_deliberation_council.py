@@ -162,6 +162,74 @@ class DeliberationCouncilTests(unittest.TestCase):
         self.assertEqual('quota_exhausted', registry.state('gemini').disabled_reason)
         self.assertNotIn('openai', result.metadata['providers'])
 
+    def test_nvidia_503_uses_nvidia_hosted_general_backup(self):
+        from core.deliberation import DeliberationCouncil
+        from core.provider_registry import ProviderCallError
+
+        models = []
+
+        def runner(provider, request):
+            models.append(request['model'])
+            if request['model'] == 'nvidia/nemotron-3-ultra-550b-a55b':
+                raise ProviderCallError('temporarily unavailable', status_code=503)
+            return candidate('nvidia backup answer', 'same')
+
+        result = DeliberationCouncil(self.build_registry(), runner=runner).deliberate(
+            '問題', mode='fast'
+        )
+
+        self.assertEqual(
+            [
+                'nvidia/nemotron-3-ultra-550b-a55b',
+                'nvidia/nemotron-3-super-120b-a12b',
+            ],
+            models,
+        )
+        self.assertEqual('nvidia backup answer', result.answer)
+        self.assertEqual('nvidia', result.metadata['selected_provider'])
+        self.assertEqual(
+            'nvidia/nemotron-3-super-120b-a12b',
+            result.metadata['selected_model'],
+        )
+        self.assertTrue(result.metadata['provider_model_fallback'])
+
+    def test_malformed_nvidia_quality_uses_validated_nvidia_backup(self):
+        from core.deliberation import DeliberationCouncil
+
+        models = []
+
+        def runner(provider, request):
+            models.append(request['model'])
+            if request['model'] == 'nvidia/nemotron-3-ultra-550b-a55b':
+                malformed = candidate('malformed', 'same')
+                malformed['quality'] = 1.0
+                return malformed
+            return candidate('valid backup', 'same')
+
+        result = DeliberationCouncil(self.build_registry(), runner=runner).deliberate(
+            '問題', mode='fast'
+        )
+
+        self.assertEqual(2, len(models))
+        self.assertEqual('valid backup', result.answer)
+        self.assertTrue(result.metadata['provider_model_fallback'])
+
+    def test_malformed_quality_is_rejected_not_reported_as_provider_outage(self):
+        from core.deliberation import DeliberationCouncil
+
+        def runner(provider, request):
+            malformed = candidate('malformed', 'same')
+            malformed['quality'] = 1.0
+            return malformed
+
+        result = DeliberationCouncil(self.build_registry(), runner=runner).deliberate(
+            '問題', mode='fast'
+        )
+
+        self.assertEqual('', result.answer)
+        self.assertEqual(['nvidia'], result.metadata['rejected_providers'])
+        self.assertEqual([], result.metadata['unavailable_providers'])
+
     def test_polish_that_adds_claims_is_rejected(self):
         from core.deliberation import DeliberationCouncil
 

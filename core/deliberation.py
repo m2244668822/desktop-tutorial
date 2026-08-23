@@ -39,6 +39,8 @@ class Candidate:
     assumptions: list[Any]
     confidence: float
     quality: dict[str, Any]
+    model: str = ''
+    used_model_fallback: bool = False
     score: float = 0.0
     consistency: float = 0.0
 
@@ -109,9 +111,19 @@ class DeliberationCouncil:
         parsed = json.loads(text)
         return dict(parsed) if isinstance(parsed, Mapping) else {}
 
-    def _build_candidate(self, provider: str, payload: Any) -> Candidate:
+    def _build_candidate(
+        self,
+        provider: str,
+        payload: Any,
+        *,
+        model: str = '',
+        used_model_fallback: bool = False,
+    ) -> Candidate:
         parsed = self._parse_payload(payload)
-        quality = dict(parsed.get('quality') or {})
+        quality_payload = parsed.get('quality')
+        if not isinstance(quality_payload, Mapping):
+            raise ValueError('candidate_quality_object_required')
+        quality = dict(quality_payload)
         return Candidate(
             provider=provider,
             answer=str(parsed.get('answer', '') or '').strip(),
@@ -120,6 +132,8 @@ class DeliberationCouncil:
             assumptions=list(parsed.get('assumptions') or []),
             confidence=_clamp(parsed.get('confidence'), 0.0),
             quality=quality,
+            model=str(model or ''),
+            used_model_fallback=bool(used_model_fallback),
         )
 
     @staticmethod
@@ -266,15 +280,57 @@ class DeliberationCouncil:
 
         for provider in selected:
             attempted.append(provider)
+            purpose = (
+                'coding'
+                if provider == 'nvidia' and capability_mode == 'coding'
+                else 'dialogue'
+            )
             request = self.registry.build_dialogue_request(
                 provider,
                 sanitized.payload,
-                purpose='coding' if provider == 'nvidia' and capability_mode == 'coding' else 'dialogue',
+                purpose=purpose,
             )
             started = time.perf_counter()
             try:
-                payload = self.runner(self.registry.get(provider), request)
-                candidate = self._build_candidate(provider, payload)
+                requests = [request]
+                for fallback_model in self.registry.fallback_models_for(provider, purpose):
+                    fallback_request = dict(request)
+                    fallback_request['model'] = fallback_model
+                    requests.append(fallback_request)
+                candidate = None
+                format_rejected = False
+                for request_index, provider_request in enumerate(requests):
+                    try:
+                        payload = self.runner(
+                            self.registry.get(provider), provider_request
+                        )
+                    except ProviderCallError as exc:
+                        retryable = bool(
+                            exc.status_code == 408
+                            or (exc.status_code is not None and exc.status_code >= 500)
+                        )
+                        if retryable and request_index + 1 < len(requests):
+                            continue
+                        raise
+                    try:
+                        candidate = self._build_candidate(
+                            provider,
+                            payload,
+                            model=str(provider_request.get('model', '') or ''),
+                            used_model_fallback=provider_request is not request,
+                        )
+                    except (TypeError, ValueError, json.JSONDecodeError):
+                        format_rejected = True
+                        if request_index + 1 < len(requests):
+                            continue
+                        break
+                    break
+                if candidate is None and format_rejected:
+                    self.registry.record_failure(provider)
+                    rejected.append(provider)
+                    continue
+                if candidate is None:
+                    raise RuntimeError('candidate_missing')
                 latency_ms = (time.perf_counter() - started) * 1000
                 self.registry.record_success(provider, latency_ms)
                 if not candidate.answer or not candidate.passes_gates:
@@ -343,7 +399,11 @@ class DeliberationCouncil:
         if shadow:
             status = 'shadow_degraded' if unavailable or len(attempted) < len(desired) else 'shadow'
         else:
-            status = 'degraded' if unavailable or len(attempted) < len(desired) else 'complete'
+            status = (
+                'degraded'
+                if unavailable or len(attempted) < len(desired) or top.used_model_fallback
+                else 'complete'
+            )
         agreement_score = sum(item.consistency for item in candidates) / len(candidates)
         evidence_summary = [
             evidence.get('summary', '') if isinstance(evidence, Mapping) else str(evidence)
@@ -356,12 +416,7 @@ class DeliberationCouncil:
                 {
                     'from_provider': self._last_selected_provider,
                     'to_provider': top.provider,
-                    'model': self.registry.model_for(
-                        top.provider,
-                        'coding'
-                        if top.provider == 'nvidia' and capability_mode == 'coding'
-                        else 'dialogue',
-                    ),
+                    'model': top.model or self.registry.model_for(top.provider),
                     'mode': str(mode or 'auto'),
                     'shadow': bool(shadow),
                 },
@@ -378,6 +433,8 @@ class DeliberationCouncil:
                 'agreement_score': round(agreement_score, 4),
                 'confidence': round(top.confidence, 4),
                 'selected_provider': top.provider,
+                'selected_model': top.model or self.registry.model_for(top.provider),
+                'provider_model_fallback': top.used_model_fallback,
                 'shadow_recommendation': recommendation if shadow else '',
                 'score': round(top.score, 4),
                 'arbitrated': arbitrated,

@@ -39,7 +39,10 @@ class ProviderRegistryTests(unittest.TestCase):
             registry.model_for('nvidia', 'control'),
         )
         self.assertEqual('poolside/laguna-xs-2.1', registry.model_for('nvidia', 'coding'))
-        self.assertEqual('z-ai/glm-5.2', registry.model_for('nvidia', 'general_backup'))
+        self.assertEqual(
+            'nvidia/nemotron-3-super-120b-a12b',
+            registry.model_for('nvidia', 'general_backup'),
+        )
         self.assertTrue(registry.get('nvidia').control_authority)
         self.assertFalse(registry.get('gemini').control_authority)
 
@@ -87,6 +90,27 @@ class ProviderRegistryTests(unittest.TestCase):
 
         self.assertFalse(registry.is_available('gemini'))
         self.assertEqual('model_unavailable', registry.state('gemini').disabled_reason)
+
+    def test_model_discovery_prunes_missing_nvidia_fallback_only(self):
+        from core.provider_registry import ProviderRegistry
+
+        registry = ProviderRegistry(
+            env={
+                'NVIDIA_API_KEY': 'nvapi-test-value',
+                'NVIDIA_GENERAL_BACKUP_MODEL': 'missing/model',
+            }
+        )
+        registry.validate_models(
+            lambda provider: {
+                'nvidia/nemotron-3-ultra-550b-a55b',
+                'poolside/laguna-xs-2.1',
+            }
+            if provider == 'nvidia'
+            else set()
+        )
+
+        self.assertTrue(registry.is_available('nvidia'))
+        self.assertEqual((), registry.fallback_models_for('nvidia'))
 
     def test_duplicate_model_family_disables_fake_diversity_seat(self):
         from core.provider_registry import ProviderRegistry

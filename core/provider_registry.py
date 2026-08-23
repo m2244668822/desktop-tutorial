@@ -96,7 +96,13 @@ PROVIDER_SPECS: tuple[ProviderSpec, ...] = (
 MODEL_OVERRIDES = {
     ('nvidia', 'control'): 'nvidia/nemotron-3-ultra-550b-a55b',
     ('nvidia', 'coding'): 'poolside/laguna-xs-2.1',
-    ('nvidia', 'general_backup'): 'z-ai/glm-5.2',
+    ('nvidia', 'general_backup'): 'nvidia/nemotron-3-super-120b-a12b',
+}
+
+NVIDIA_PURPOSE_ENV = {
+    'control': 'NVIDIA_CONTROL_MODEL',
+    'coding': 'NVIDIA_CODING_MODEL',
+    'general_backup': 'NVIDIA_GENERAL_BACKUP_MODEL',
 }
 
 
@@ -126,6 +132,8 @@ class ProviderRegistry:
         self._credentials: dict[str, str] = {}
         self._accounts: dict[str, str] = {}
         self._models = {name: spec.default_model for name, spec in self._specs.items()}
+        self._purpose_models = dict(MODEL_OVERRIDES)
+        self._discovered_models: dict[str, set[str]] = {}
         self._confirmed = {str(name).strip().lower() for name in free_tier_confirmed}
         self._configure()
         self._apply_family_diversity()
@@ -188,6 +196,13 @@ class ProviderRegistry:
             if requested_model and not self._is_placeholder(requested_model):
                 self._models[name] = requested_model
 
+            if name == 'nvidia':
+                for purpose, purpose_env_name in NVIDIA_PURPOSE_ENV.items():
+                    purpose_model = self._env.get(purpose_env_name, '').strip()
+                    if purpose_model and not self._is_placeholder(purpose_model):
+                        self._purpose_models[(name, purpose)] = purpose_model
+                self._models[name] = self._purpose_models[(name, 'control')]
+
             if not self._is_free_tier_confirmed(name):
                 state.disabled_reason = 'free_tier_unconfirmed'
                 continue
@@ -242,7 +257,28 @@ class ProviderRegistry:
 
     def model_for(self, provider: str, purpose: str = 'dialogue') -> str:
         key = (str(provider).strip().lower(), str(purpose).strip().lower())
-        return MODEL_OVERRIDES.get(key, self._models[key[0]])
+        return self._purpose_models.get(key, self._models[key[0]])
+
+    def fallback_models_for(self, provider: str, purpose: str = 'dialogue') -> tuple[str, ...]:
+        name = str(provider or '').strip().lower()
+        requested_purpose = str(purpose or 'dialogue').strip().lower()
+        if name != 'nvidia':
+            return ()
+        candidates = (
+            ('control', 'general_backup')
+            if requested_purpose == 'coding'
+            else ('general_backup',)
+        )
+        primary = self.model_for(name, requested_purpose)
+        fallback_models = []
+        for fallback_purpose in candidates:
+            model = self.model_for(name, fallback_purpose)
+            discovered = self._discovered_models.get(name)
+            if discovered is not None and model.removeprefix('models/') not in discovered:
+                continue
+            if model != primary and model not in fallback_models:
+                fallback_models.append(model)
+        return tuple(fallback_models)
 
     def is_available(self, provider: str) -> bool:
         name = str(provider).strip().lower()
@@ -275,6 +311,7 @@ class ProviderRegistry:
                 state.last_checked_at = self._now()
                 continue
             state.last_checked_at = self._now()
+            self._discovered_models[name] = discovered
             expected = self.model_for(name)
             if discovered and expected.removeprefix('models/') in discovered:
                 state.disabled_reason = ''
@@ -334,7 +371,9 @@ class ProviderRegistry:
                 {
                     'role': 'system',
                     'content': (
-                        'Return JSON only with answer, claims, evidence, assumptions, confidence, and quality. '
+                        'Return one JSON object only with answer, claims, evidence, assumptions, confidence, '
+                        'and quality. quality must be an object with numeric evidence_verification and '
+                        'requirement_fit fields plus boolean safe, privacy_ok, format_ok, and tests_ok fields. '
                         'Do not reveal hidden reasoning. You have no tools, task API, autonomy API, or memory-write access.'
                     ),
                 },
