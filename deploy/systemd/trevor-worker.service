@@ -1,0 +1,36 @@
+[Unit]
+Description=Trevor isolated autonomy task worker
+After=network-online.target trevor-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=trevor
+Group=trevor
+WorkingDirectory=/opt/trevor/app
+Environment=TREVOR_DEPLOYMENT=oci
+Environment=TREVOR_DATA_DIR=/var/lib/trevor
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+EnvironmentFile=-/etc/trevor/trevor.env
+LoadCredential=nvidia_api_key:/etc/trevor/credentials/nvidia_api_key
+LoadCredential=trevor_memory_key_b64:/etc/trevor/credentials/trevor_memory_key_b64
+ExecStart=/opt/trevor/app/.venv/bin/python /opt/trevor/app/tools/agent_autonomy_daemon.py --worker-only --heartbeat 60 --evaluation 60
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=60
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths=/var/lib/trevor /opt/trevor/app
+
+[Install]
+WantedBy=multi-user.target

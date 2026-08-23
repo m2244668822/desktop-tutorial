@@ -1,0 +1,18 @@
+services:
+  agent-system:
+    build: .
+    volumes:
+      - .:/app
+    environment:
+      - BASE_DIR=/app
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+
+volumes:
+  ollama_data:

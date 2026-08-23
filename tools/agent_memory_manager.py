@@ -1,0 +1,1239 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+智能體統一記憶管理系統 (Agent Unified Memory Manager)
+
+功能：
+1. 智能體記憶持久化 - 所有智能體的狀態、偏好、學習成果持久化儲存
+2. 對話上下文保存 - 完整對話歷史持久化，包括用戶/助手訊息對
+3. IDE上下文保存 - VSCode 狀態、工作區資訊、打開的檔案等
+
+使用方式：
+from agent_memory_manager import AgentMemoryManager
+memory_manager = AgentMemoryManager()
+
+# 保存智能體記憶
+memory_manager.save_agent_memory("總管", {"last_task": "...", "learned_preferences": {...}})
+
+# 保存對話
+memory_manager.save_conversation("總管", "用戶訊息", "助手回覆")
+
+# 保存IDE上下文
+memory_manager.save_ide_context({"workspace": "...", "open_files": [...], "vscode_status": {...}})
+"""
+
+import json
+import os
+import sys
+import time as time_module
+from pathlib import Path
+from typing import Dict, List, Optional, Any
+from datetime import datetime, timedelta
+from collections import defaultdict
+import threading
+import hashlib
+
+from core.data_paths import resolve_data_root
+from core.encrypted_store import AESGCMJsonStore, DeviceEncryptionKey, EncryptedStoreError
+from core.memory_conflicts import MemoryConflictResolver
+from core.trevor_identity import TREVOR_DISPLAY_NAME, normalize_trevor_identity
+
+
+def _configure_utf8_stdio() -> None:
+    """Keep Windows terminals from crashing on UTF-8 status text."""
+    for stream in (getattr(sys, "stdout", None), getattr(sys, "stderr", None)):
+        try:
+            if hasattr(stream, "reconfigure"):
+                stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
+_configure_utf8_stdio()
+
+
+def _resolve_data_root(base_dir: Path) -> Path:
+    return resolve_data_root(base_dir)
+
+
+class AgentMemoryManager:
+    """智能體統一記憶管理系統"""
+
+    def __init__(
+        self,
+        base_dir: str = None,
+        auto_save: bool = True,
+        json_store: AESGCMJsonStore | None = None,
+        encrypt_at_rest: bool | None = None,
+    ):
+        """
+        初始化智能體記憶管理系統
+
+        Args:
+            base_dir: 基礎目錄
+            auto_save: 是否自動保存（定時自動保存）
+        """
+        self.base_dir = Path(base_dir) if base_dir else Path(__file__).resolve().parents[1]
+        self.auto_save = auto_save
+        self._lock = threading.Lock()
+        self._conflict_resolver = MemoryConflictResolver()
+        self._json_store = json_store
+        if self._json_store is None and self._should_encrypt_at_rest(encrypt_at_rest):
+            self._json_store = AESGCMJsonStore(DeviceEncryptionKey().get_or_create)
+
+        # 記憶存儲路徑
+        data_root = _resolve_data_root(self.base_dir)
+        self.memory_dir = data_root / "agent_memories"
+        self.memory_dir.mkdir(parents=True, exist_ok=True)
+
+        # 各類記憶文件
+        self.agent_memory_file = self.memory_dir / "agent_memories.json"
+        self.conversation_file = self.memory_dir / "conversations.json"
+        self.ide_context_file = self.memory_dir / "ide_context.json"
+        self.session_file = self.memory_dir / "sessions.json"
+
+        # 內存緩存
+        self._agent_memories = {}
+        self._conversations = {}
+        self._ide_context = {}
+        self._sessions = {}
+
+        # 最後保存時間
+        self._last_save_time = datetime.now()
+        self._save_interval = timedelta(seconds=30)  # 自動保存間隔
+        self._save_summary_interval = timedelta(minutes=5)
+        self._last_save_summary_time = datetime.now()
+
+        # 保存失敗追蹤與重試機制
+        self._save_failures = 0
+        self._max_save_failures = 3
+        self._last_save_error = None
+        self._save_retry_pending = False
+        self._dirty = False
+        self._dirty_reasons: defaultdict[str, int] = defaultdict(int)
+        self._save_success_since_start = 0
+        self._save_skipped_since_start = 0
+        self._save_failure_since_start = 0
+        self._backup_dir = self.memory_dir / "backups"
+        self._backup_dir.mkdir(parents=True, exist_ok=True)
+
+        # 初始化
+        self._load_all()
+        self._auto_recover_conversations()
+        normalized = self._normalize_trevor_memory_state()
+        if normalized:
+            self._dirty = True
+        self._encrypt_legacy_private_files()
+
+        # 啟動定時保存線程
+        if self.auto_save:
+            self._start_auto_save()
+
+        print(f"✅ 智能體統一記憶管理系統已初始化")
+        print(f"   記憶目錄: {self.memory_dir}")
+        print(f"   自動保存: {'啟用' if self.auto_save else '停用'}")
+
+    def _should_encrypt_at_rest(self, configured: bool | None) -> bool:
+        if configured is not None:
+            return bool(configured)
+        env_value = str(os.getenv("TREVOR_MEMORY_ENCRYPTION", "") or "").strip().lower()
+        if env_value:
+            return env_value in {"1", "true", "yes", "on", "required"}
+        return self.base_dir.expanduser().resolve() == Path(__file__).resolve().parents[1]
+
+    def _read_json(self, path: Path, default: Any) -> Any:
+        if self._json_store is not None:
+            return self._json_store.read_json(path, default)
+        with open(path, "r", encoding="utf-8") as file_handle:
+            return json.load(file_handle)
+
+    def _encrypt_legacy_private_files(self) -> None:
+        if self._json_store is None:
+            return
+        private_state = (
+            (self.agent_memory_file, self._agent_memories),
+            (self.conversation_file, self._conversations),
+            (self.ide_context_file, self._ide_context),
+            (self.session_file, self._sessions),
+        )
+        migrated = 0
+        for path, payload in private_state:
+            if path.exists() and not self._json_store.is_encrypted(path):
+                self._json_store.write_json(path, payload)
+                migrated += 1
+        if migrated:
+            print(f"   🔐 已加密 {migrated} 個舊版私密記憶檔")
+
+    def _auto_recover_conversations(self):
+        """若主 conversations 過少，自動從可用備份來源補回（不覆蓋現有）。"""
+        try:
+            current_count = len(self._conversations) if isinstance(self._conversations, dict) else 0
+            if current_count >= 20:
+                return
+
+            merged = dict(self._conversations or {})
+            recovered = 0
+
+            # 來源 1: HDD 鏡像（同格式）
+            hdd_conv = self.base_dir / "data_hdd_storage" / "agent_memories" / "conversations.json"
+            if hdd_conv.exists():
+                try:
+                    data = json.loads(hdd_conv.read_text(encoding="utf-8"))
+                    if isinstance(data, dict):
+                        for cid, payload in data.items():
+                            if cid not in merged and isinstance(payload, dict):
+                                merged[cid] = payload
+                                recovered += 1
+                except Exception:
+                    pass
+
+            # 來源 2: 舊 GPT conversations list（prompt/response）轉為通用 thread
+            legacy_conv = self.base_dir / "500" / "llama32-chat" / "data" / "conversations.json"
+            if legacy_conv.exists():
+                try:
+                    rows = json.loads(legacy_conv.read_text(encoding="utf-8"))
+                    if isinstance(rows, list):
+                        for idx, row in enumerate(rows):
+                            if not isinstance(row, dict):
+                                continue
+                            prompt = str(row.get("prompt", "")).strip()
+                            response = str(row.get("response", "")).strip()
+                            if not prompt and not response:
+                                continue
+                            ts = str(row.get("timestamp", ""))
+                            conv_id = f"legacy-{idx:06d}"
+                            if conv_id in merged:
+                                continue
+                            merged[conv_id] = {
+                                "agent_name": "通用",
+                                "created_at": ts,
+                                "last_message_at": ts,
+                                "messages": [
+                                    {
+                                        "timestamp": ts,
+                                        "user": prompt,
+                                        "assistant": response,
+                                        "metadata": {
+                                            "source": "legacy_llama32_chat",
+                                            "model": row.get("model", ""),
+                                            "status": row.get("status", ""),
+                                        },
+                                    }
+                                ],
+                            }
+                            recovered += 1
+                except Exception:
+                    pass
+
+            if recovered > 0:
+                self._conversations = merged
+                self._save_conversations()
+                print(f"   ♻️ 已自動恢復對話記錄: +{recovered}（總計 {len(self._conversations)}）")
+        except Exception as e:
+            print(f"   ⚠️ 自動恢復對話記錄失敗: {e}")
+
+    @staticmethod
+    def _canonical_identity(agent_name: str) -> tuple[str, str, str]:
+        source_role = str(agent_name or TREVOR_DISPLAY_NAME).strip() or TREVOR_DISPLAY_NAME
+        identity = normalize_trevor_identity(role=source_role)
+        return TREVOR_DISPLAY_NAME, source_role, identity.capability_mode
+
+    @staticmethod
+    def _turn_hash(user_message: str, assistant_message: str) -> str:
+        normalized = "\n".join(
+            " ".join(str(value or "").split()).strip().lower()
+            for value in (user_message, assistant_message)
+        )
+        return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+    def _normalize_trevor_memory_state(self) -> bool:
+        changed = False
+        if self._agent_memories:
+            combined = {
+                "created_at": "",
+                "last_updated": "",
+                "memories": [],
+                "preferences": {},
+                "preference_metadata": {},
+                "conflicts": [],
+            }
+            preference_winners: dict[str, dict[str, Any]] = {}
+            for owner, payload in self._agent_memories.items():
+                if not isinstance(payload, dict):
+                    continue
+                created_at = str(payload.get("created_at", "") or "")
+                updated_at = str(payload.get("last_updated", "") or "")
+                if created_at and (
+                    not combined["created_at"] or created_at < combined["created_at"]
+                ):
+                    combined["created_at"] = created_at
+                if updated_at > combined["last_updated"]:
+                    combined["last_updated"] = updated_at
+                for memory in payload.get("memories", []) or []:
+                    if not isinstance(memory, dict):
+                        continue
+                    item = dict(memory)
+                    item.setdefault("source_role", owner)
+                    item.setdefault(
+                        "capability_mode",
+                        normalize_trevor_identity(role=owner).capability_mode,
+                    )
+                    combined["memories"].append(item)
+                preference_metadata = payload.get("preference_metadata", {}) or {}
+                for key, value in (payload.get("preferences", {}) or {}).items():
+                    metadata = preference_metadata.get(key, {})
+                    incoming = {
+                        "key": key,
+                        "value": value,
+                        "source": metadata.get("source", "legacy"),
+                        "priority": metadata.get("priority", 0),
+                        "confidence": metadata.get("confidence", 0.5),
+                        "updated_at": metadata.get("updated_at", updated_at),
+                        "source_role": metadata.get("source_role", owner),
+                    }
+                    decision = self._conflict_resolver.resolve(
+                        preference_winners.get(key), incoming
+                    )
+                    preference_winners[key] = decision.winner
+                    if decision.conflict:
+                        combined["conflicts"].append(
+                            {
+                                "key": key,
+                                "reason": decision.reason,
+                                "winner_source": decision.winner.get("source", ""),
+                                "resolved_at": datetime.now().isoformat(),
+                            }
+                        )
+            for key, winner in preference_winners.items():
+                combined["preferences"][key] = winner.get("value")
+                combined["preference_metadata"][key] = {
+                    field: winner.get(field)
+                    for field in (
+                        "source",
+                        "priority",
+                        "confidence",
+                        "updated_at",
+                        "source_role",
+                    )
+                }
+            if not combined["created_at"]:
+                combined["created_at"] = datetime.now().isoformat()
+            if not combined["last_updated"]:
+                combined["last_updated"] = datetime.now().isoformat()
+            changed = set(self._agent_memories) != {TREVOR_DISPLAY_NAME}
+            self._agent_memories = {TREVOR_DISPLAY_NAME: combined}
+
+        seen_turns: set[str] = set()
+        for conversation in self._conversations.values():
+            if not isinstance(conversation, dict):
+                continue
+            owner = str(conversation.get("agent_name", TREVOR_DISPLAY_NAME) or TREVOR_DISPLAY_NAME)
+            canonical, source_role, capability_mode = self._canonical_identity(owner)
+            if owner != canonical:
+                changed = True
+            conversation["agent_name"] = canonical
+            unique_messages = []
+            for message in conversation.get("messages", []) or []:
+                if not isinstance(message, dict):
+                    continue
+                item = dict(message)
+                metadata = dict(item.get("metadata") or {})
+                metadata.setdefault("source_role", source_role)
+                metadata.setdefault("capability_mode", capability_mode)
+                content_hash = str(metadata.get("content_hash", "") or "") or self._turn_hash(
+                    item.get("user", ""), item.get("assistant", "")
+                )
+                metadata["content_hash"] = content_hash
+                if content_hash in seen_turns:
+                    changed = True
+                    continue
+                seen_turns.add(content_hash)
+                item["metadata"] = metadata
+                unique_messages.append(item)
+            conversation["messages"] = unique_messages
+        return changed
+
+    def _load_all(self):
+        """加載所有記憶數據"""
+        self._load_agent_memories()
+        self._load_conversations()
+        self._load_ide_context()
+        self._load_sessions()
+
+    def _load_agent_memories(self):
+        """加載智能體記憶"""
+        if self.agent_memory_file.exists():
+            try:
+                self._agent_memories = self._read_json(self.agent_memory_file, {})
+                print(f"   📦 已加載 {len(self._agent_memories)} 個智能體記憶")
+            except EncryptedStoreError:
+                raise
+            except Exception as e:
+                print(f"   ⚠️ 加載智能體記憶失敗: {e}")
+                self._agent_memories = {}
+
+    def _load_conversations(self):
+        """加載對話歷史"""
+        if self.conversation_file.exists():
+            try:
+                self._conversations = self._read_json(self.conversation_file, {})
+                total_messages = sum(
+                    len(conv.get("messages", []))
+                    for conv in self._conversations.values()
+                )
+                print(
+                    f"   💬 已加載 {len(self._conversations)} 個對話記錄 ({total_messages} 條訊息)"
+                )
+            except EncryptedStoreError:
+                raise
+            except Exception as e:
+                print(f"   ⚠️ 加載對話歷史失敗: {e}")
+                self._conversations = {}
+
+    def _load_ide_context(self):
+        """加載IDE上下文"""
+        if self.ide_context_file.exists():
+            try:
+                self._ide_context = self._read_json(self.ide_context_file, {})
+                print(f"   🖥️ 已加載IDE上下文")
+            except EncryptedStoreError:
+                raise
+            except Exception as e:
+                print(f"   ⚠️ 加載IDE上下文失敗: {e}")
+                self._ide_context = {}
+
+    def _load_sessions(self):
+        """加載會話記錄"""
+        if self.session_file.exists():
+            try:
+                self._sessions = self._read_json(self.session_file, {})
+                print(f"   📋 已加載 {len(self._sessions)} 個會話記錄")
+            except EncryptedStoreError:
+                raise
+            except Exception as e:
+                print(f"   ⚠️ 加載會話記錄失敗: {e}")
+                self._sessions = {}
+
+    def _start_auto_save(self):
+        """啟動定時自動保存"""
+
+        def auto_save_loop():
+            while self.auto_save:
+                try:
+                    time_module.sleep(self._save_interval.total_seconds())
+                    if self._should_save():
+                        self._save_all(reason="auto")
+                except Exception as e:
+                    print(f"   ⚠️ 自動保存失敗: {e}")
+
+        import threading
+
+        self._save_thread = threading.Thread(target=auto_save_loop, daemon=True)
+        self._save_thread.start()
+
+    def _should_save(self) -> bool:
+        """檢查是否應該保存"""
+        # 如果有待重試的保存，縮短間隔
+        if self._save_retry_pending:
+            self._save_retry_pending = False
+            return True
+        if datetime.now() - self._last_save_time <= self._save_interval:
+            return False
+        if not self._dirty:
+            self._save_skipped_since_start += 1
+            self._maybe_emit_save_summary()
+            return False
+        return True
+
+    def _mark_dirty_unlocked(self, reason: str) -> None:
+        """Mark in-memory state as changed without taking the lock."""
+        self._dirty = True
+        self._dirty_reasons[str(reason or "unknown")] += 1
+
+    def _clear_dirty_unlocked(self) -> None:
+        self._dirty = False
+        self._dirty_reasons.clear()
+
+    def _maybe_emit_save_summary(self) -> None:
+        """Emit one compact autosave summary per interval instead of per tick."""
+        now = datetime.now()
+        if now - self._last_save_summary_time < self._save_summary_interval:
+            return
+        self._last_save_summary_time = now
+        last_saved = self._last_save_time.isoformat() if self._last_save_time else "never"
+        print(
+            "   🧾 記憶保存彙總: "
+            f"成功 {self._save_success_since_start}、"
+            f"略過 {self._save_skipped_since_start}、"
+            f"失敗 {self._save_failure_since_start}、"
+            f"最後保存 {last_saved}"
+        )
+
+    def _save_all(self, reason: str = "manual"):
+        """保存所有記憶數據"""
+        with self._lock:
+            if not self._dirty and not self._save_retry_pending:
+                self._save_skipped_since_start += 1
+                self._maybe_emit_save_summary()
+                return
+            try:
+                self._save_agent_memories()
+                self._save_conversations()
+                self._save_ide_context()
+                self._save_sessions()
+                self._last_save_time = datetime.now()
+                self._save_success_since_start += 1
+                # 保存成功，重置失敗計數
+                if self._save_failures > 0:
+                    print(
+                        f"   ✅ 記憶保存已恢復正常 (之前 {self._save_failures} 次失敗)"
+                    )
+                self._save_failures = 0
+                self._last_save_error = None
+                self._clear_dirty_unlocked()
+                print(f"   💾 記憶已保存 ({reason})")
+            except Exception as e:
+                self._save_failures += 1
+                self._save_failure_since_start += 1
+                self._last_save_error = str(e)
+                print(
+                    f"   ⚠️ 保存失敗 ({self._save_failures}/{self._max_save_failures}): {e}"
+                )
+
+                # 嘗試創建備份
+                self._create_backup_on_failure()
+
+                # 如果失敗次數過多，嘗試緊急保存
+                if self._save_failures >= self._max_save_failures:
+                    self._emergency_save()
+
+    def _create_backup_on_failure(self):
+        """保存失敗時創建緊急備份"""
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+            # 備份智能體記憶
+            if self._agent_memories:
+                backup_file = (
+                    self._backup_dir / f"agent_memories_backup_{timestamp}.json"
+                )
+                self._atomic_write_json(backup_file, self._agent_memories)
+                print(f"   📦 已創建記憶備份: {backup_file.name}")
+
+            # 備份對話
+            if self._conversations:
+                backup_file = (
+                    self._backup_dir / f"conversations_backup_{timestamp}.json"
+                )
+                self._atomic_write_json(backup_file, self._conversations)
+                print(f"   📦 已創建對話備份: {backup_file.name}")
+
+            # 清理舊備份（保留最近10個）
+            self._cleanup_old_backups()
+
+        except Exception as backup_error:
+            print(f"   ❌ 備份創建失敗: {backup_error}")
+
+    def _cleanup_old_backups(self):
+        """清理舊備份文件"""
+        try:
+            backup_files = sorted(
+                self._backup_dir.glob("*.json"), key=lambda p: p.stat().st_mtime
+            )
+            # 保留最近20個備份
+            for old_file in backup_files[:-20]:
+                old_file.unlink()
+        except Exception:
+            pass  # 安靜失敗
+
+    def _emergency_save(self):
+        """緊急保存 - 嘗試逐個保存每個數據"""
+        print(f"   🚨 執行緊急保存...")
+
+        # 嘗試分别保存每個數據源
+        emergency_methods = [
+            ("智能體記憶", self._save_agent_memories, self.agent_memory_file),
+            ("對話", self._save_conversations, self.conversation_file),
+            ("IDE上下文", self._save_ide_context, self.ide_context_file),
+            ("會話", self._save_sessions, self.session_file),
+        ]
+
+        for name, method, file_path in emergency_methods:
+            try:
+                method()
+                print(f"   ✅ {name} 緊急保存成功")
+            except Exception as e:
+                print(f"   ❌ {name} 緊急保存失敗: {e}")
+
+        # 標記需要重試
+        self._save_retry_pending = True
+        self._last_save_time = (
+            datetime.now() - self._save_interval + timedelta(seconds=10)
+        )  # 10秒後重試
+
+    def get_save_status(self) -> Dict:
+        """獲取保存狀態"""
+        return {
+            "last_save_time": self._last_save_time.isoformat()
+            if self._last_save_time
+            else None,
+            "dirty": bool(self._dirty),
+            "dirty_reasons": dict(self._dirty_reasons),
+            "save_failures": self._save_failures,
+            "max_failures": self._max_save_failures,
+            "last_error": self._last_save_error,
+            "retry_pending": self._save_retry_pending,
+            "auto_save_enabled": self.auto_save,
+            "save_interval_seconds": int(self._save_interval.total_seconds()),
+            "summary_interval_seconds": int(self._save_summary_interval.total_seconds()),
+            "save_success_since_start": self._save_success_since_start,
+            "skipped_since_start": self._save_skipped_since_start,
+            "failure_since_start": self._save_failure_since_start,
+        }
+
+    def _atomic_write_json(self, path: Path, data: Any) -> None:
+        """Write JSON through a temp file so readers never see half-written data."""
+        if self._json_store is not None:
+            self._json_store.write_json(path, data)
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = path.with_name(
+            f"{path.name}.tmp-{os.getpid()}-{threading.get_ident()}"
+        )
+        with open(tmp_path, "w", encoding="utf-8", newline="\n") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+            f.write("\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.chmod(tmp_path, 0o600)
+        os.replace(tmp_path, path)
+
+    def _save_agent_memories(self):
+        """保存智能體記憶"""
+        self._atomic_write_json(self.agent_memory_file, self._agent_memories)
+
+    def _save_conversations(self):
+        """保存對話歷史"""
+        self._atomic_write_json(self.conversation_file, self._conversations)
+
+    def _save_ide_context(self):
+        """保存IDE上下文"""
+        self._atomic_write_json(self.ide_context_file, self._ide_context)
+
+    def _save_sessions(self):
+        """保存會話記錄"""
+        self._atomic_write_json(self.session_file, self._sessions)
+
+    # ==================== 智能體記憶 API ====================
+
+    def save_agent_memory(
+        self, agent_name: str, memory_data: Dict[str, Any], force_save: bool = False
+    ):
+        """
+        保存智能體記憶
+
+        Args:
+            agent_name: 智能體名稱
+            memory_data: 記憶數據
+            force_save: 是否立即保存
+        """
+        canonical, source_role, capability_mode = self._canonical_identity(agent_name)
+        with self._lock:
+            if canonical not in self._agent_memories:
+                self._agent_memories[canonical] = {
+                    "created_at": datetime.now().isoformat(),
+                    "last_updated": datetime.now().isoformat(),
+                    "memories": [],
+                    "preferences": {},
+                    "preference_metadata": {},
+                    "conflicts": [],
+                }
+
+            memory_entry = {
+                "timestamp": datetime.now().isoformat(),
+                "data": memory_data,
+                "source_role": source_role,
+                "capability_mode": capability_mode,
+            }
+
+            self._agent_memories[canonical]["memories"].append(memory_entry)
+            self._agent_memories[canonical]["last_updated"] = (
+                datetime.now().isoformat()
+            )
+
+            # 只保留最近100條記憶
+            if len(self._agent_memories[canonical]["memories"]) > 100:
+                self._agent_memories[canonical]["memories"] = self._agent_memories[
+                    canonical
+                ]["memories"][-100:]
+            self._mark_dirty_unlocked("agent_memories")
+
+        if force_save:
+            self._save_all(reason="force_agent_memory")
+
+    def get_agent_memory(self, agent_name: str, limit: int = None) -> List[Dict]:
+        """
+        獲取智能體記憶
+
+        Args:
+            agent_name: 智能體名稱
+            limit: 返回數量限制
+
+        Returns:
+            記憶列表
+        """
+        canonical, _, _ = self._canonical_identity(agent_name)
+        memories = self._agent_memories.get(canonical, {}).get("memories", [])
+        if limit:
+            return memories[-limit:]
+        return memories
+
+    def get_agent_preference(
+        self, agent_name: str, key: str, default: Any = None
+    ) -> Any:
+        """獲取智能體偏好設置"""
+        canonical, _, _ = self._canonical_identity(agent_name)
+        agent_data = self._agent_memories.get(canonical, {})
+        preferences = agent_data.get("preferences", {})
+        return preferences.get(key, default)
+
+    def set_agent_preference(
+        self,
+        agent_name: str,
+        key: str,
+        value: Any,
+        force_save: bool = False,
+        source: str = "user_explicit",
+        priority: int = 0,
+        confidence: float = 1.0,
+    ):
+        """設置智能體偏好"""
+        canonical, source_role, _ = self._canonical_identity(agent_name)
+        with self._lock:
+            if canonical not in self._agent_memories:
+                self._agent_memories[canonical] = {
+                    "created_at": datetime.now().isoformat(),
+                    "last_updated": datetime.now().isoformat(),
+                    "memories": [],
+                    "preferences": {},
+                    "preference_metadata": {},
+                    "conflicts": [],
+                }
+
+            state = self._agent_memories[canonical]
+            state.setdefault("preferences", {})
+            state.setdefault("preference_metadata", {})
+            state.setdefault("conflicts", [])
+            now = datetime.now().isoformat()
+            existing = None
+            if key in state["preferences"]:
+                existing = {
+                    "key": key,
+                    "value": state["preferences"][key],
+                    **dict(state["preference_metadata"].get(key, {})),
+                }
+            incoming = {
+                "key": key,
+                "value": value,
+                "source": source,
+                "priority": priority,
+                "confidence": confidence,
+                "updated_at": now,
+                "source_role": source_role,
+            }
+            decision = self._conflict_resolver.resolve(existing, incoming)
+            winner = decision.winner
+            state["preferences"][key] = winner.get("value")
+            state["preference_metadata"][key] = {
+                field: winner.get(field)
+                for field in (
+                    "source",
+                    "priority",
+                    "confidence",
+                    "updated_at",
+                    "source_role",
+                )
+            }
+            if decision.conflict:
+                state["conflicts"].append(
+                    {
+                        "key": key,
+                        "reason": decision.reason,
+                        "resolved_at": now,
+                    }
+                )
+            state["last_updated"] = now
+            self._mark_dirty_unlocked("agent_preferences")
+
+        if force_save:
+            self._save_all(reason="force_agent_preference")
+
+    # ==================== 對話上下文 API ====================
+
+    def save_conversation(
+        self,
+        agent_name: str,
+        user_message: str,
+        assistant_message: str,
+        metadata: Dict = None,
+        force_save: bool = False,
+    ):
+        """
+        保存對話記錄
+
+        Args:
+            agent_name: 智能體名稱
+            user_message: 用戶訊息
+            assistant_message: 助手回覆
+            metadata: 額外元數據
+            force_save: 是否立即保存
+        """
+        canonical, source_role, capability_mode = self._canonical_identity(agent_name)
+        with self._lock:
+            # 創建對話ID
+            conversation_id = self._generate_conversation_id(canonical, user_message)
+
+            if conversation_id not in self._conversations:
+                self._conversations[conversation_id] = {
+                    "agent_name": canonical,
+                    "created_at": datetime.now().isoformat(),
+                    "last_message_at": datetime.now().isoformat(),
+                    "messages": [],
+                }
+
+            safe_metadata = dict(metadata or {})
+            safe_metadata.setdefault("source_role", source_role)
+            safe_metadata.setdefault("capability_mode", capability_mode)
+            content_hash = self._turn_hash(user_message, assistant_message)
+            safe_metadata["content_hash"] = content_hash
+            if any(
+                str((item.get("metadata") or {}).get("content_hash", "")) == content_hash
+                or self._turn_hash(item.get("user", ""), item.get("assistant", "")) == content_hash
+                for item in self._conversations[conversation_id].get("messages", [])
+                if isinstance(item, dict)
+            ):
+                return
+
+            message_entry = {
+                "timestamp": datetime.now().isoformat(),
+                "user": user_message,
+                "assistant": assistant_message,
+                "metadata": safe_metadata,
+            }
+
+            self._conversations[conversation_id]["messages"].append(message_entry)
+            self._conversations[conversation_id]["last_message_at"] = (
+                datetime.now().isoformat()
+            )
+
+            if len(self._conversations) > 10000:
+                # 刪除最舊的對話
+                sorted_convs = sorted(
+                    self._conversations.items(),
+                    key=lambda x: x[1].get("last_message_at", ""),
+                )
+                for old_id, _ in sorted_convs[:500]:
+                    del self._conversations[old_id]
+            self._mark_dirty_unlocked("conversations")
+
+        if force_save:
+            self._save_all(reason="force_conversation")
+
+    def _generate_conversation_id(self, agent_name: str, message: str) -> str:
+        """生成對話ID"""
+        content = f"{agent_name}:{message[:50]}"
+        return hashlib.sha256(content.encode()).hexdigest()[:24]
+
+    def get_conversation_history(
+        self, agent_name: str = None, limit: int = 50
+    ) -> List[Dict]:
+        """
+        獲取對話歷史
+
+        Args:
+            agent_name: 智能體名稱（None=所有）
+            limit: 返回數量限制
+
+        Returns:
+            對話歷史列表
+        """
+        if agent_name:
+            canonical, _, _ = self._canonical_identity(agent_name)
+            convs = [
+                c
+                for c in self._conversations.values()
+                if c.get("agent_name") == canonical
+            ]
+        else:
+            convs = list(self._conversations.values())
+
+        # 按時間排序
+        convs.sort(key=lambda x: x.get("last_message_at", ""), reverse=True)
+
+        if limit:
+            convs = convs[:limit]
+
+        return convs
+
+    def get_recent_messages(
+        self, agent_name: str = None, message_limit: int = 20
+    ) -> List[Dict]:
+        """
+        獲取最近的訊息（展平格式）
+
+        Args:
+            agent_name: 智能體名稱
+            message_limit: 訊息數量限制
+
+        Returns:
+            訊息列表
+        """
+        all_messages = []
+        canonical = self._canonical_identity(agent_name)[0] if agent_name else ""
+
+        for conv in self._conversations.values():
+            if canonical and conv.get("agent_name") != canonical:
+                continue
+            all_messages.extend(conv.get("messages", []))
+
+        # 按時間排序
+        all_messages.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+
+        if message_limit:
+            all_messages = all_messages[:message_limit]
+
+        return all_messages
+
+    def search_conversations(self, query: str, agent_name: str = None) -> List[Dict]:
+        """
+        搜索對話
+
+        Args:
+            query: 搜索關鍵詞
+            agent_name: 智能體名稱
+
+        Returns:
+            匹配的對話
+        """
+        results = []
+        query_lower = query.lower()
+        canonical = self._canonical_identity(agent_name)[0] if agent_name else ""
+
+        for conv in self._conversations.values():
+            if canonical and conv.get("agent_name") != canonical:
+                continue
+
+            for msg in conv.get("messages", []):
+                if (
+                    query_lower in msg.get("user", "").lower()
+                    or query_lower in msg.get("assistant", "").lower()
+                ):
+                    results.append(
+                        {
+                            "conversation_id": conv.get("id", ""),
+                            "agent_name": conv.get("agent_name"),
+                            "timestamp": msg.get("timestamp"),
+                            "user": msg.get("user"),
+                            "assistant": msg.get("assistant"),
+                        }
+                    )
+                    break
+
+        return results
+
+    # ==================== IDE上下文 API ====================
+
+    def save_ide_context(self, context_data: Dict[str, Any], force_save: bool = False):
+        """
+        保存IDE上下文
+
+        Args:
+            context_data: IDE上下文數據
+            force_save: 是否立即保存
+        """
+        with self._lock:
+            context_entry = {
+                "timestamp": datetime.now().isoformat(),
+                "data": context_data,
+            }
+
+            if "history" not in self._ide_context:
+                self._ide_context["history"] = []
+
+            self._ide_context["history"].append(context_entry)
+
+            # 保留最新的上下文
+            self._ide_context["latest"] = context_data
+            self._ide_context["last_updated"] = datetime.now().isoformat()
+
+            # 只保留最近50條歷史
+            if len(self._ide_context["history"]) > 50:
+                self._ide_context["history"] = self._ide_context["history"][-50:]
+            self._mark_dirty_unlocked("ide_context")
+
+        if force_save:
+            self._save_all(reason="force_ide_context")
+
+    def get_ide_context(self) -> Dict:
+        """獲取最新的IDE上下文"""
+        return self._ide_context.get("latest", {})
+
+    def get_ide_context_history(self, limit: int = 10) -> List[Dict]:
+        """獲取IDE上下文歷史"""
+        history = self._ide_context.get("history", [])
+        if limit:
+            return history[-limit:]
+        return history
+
+    def update_vscode_status(
+        self, vscode_data: Dict[str, Any], force_save: bool = False
+    ):
+        """
+        更新VSCode狀態
+
+        Args:
+            vscode_data: VSCode狀態數據
+            force_save: 是否立即保存
+        """
+        with self._lock:
+            if "vscode" not in self._ide_context:
+                self._ide_context["vscode"] = {}
+
+            self._ide_context["vscode"].update(vscode_data)
+            self._ide_context["vscode"]["last_updated"] = datetime.now().isoformat()
+            self._mark_dirty_unlocked("vscode_status")
+
+        if force_save:
+            self._save_all(reason="force_vscode_status")
+
+    def get_vscode_status(self) -> Dict:
+        """獲取VSCode狀態"""
+        return self._ide_context.get("vscode", {})
+
+    def update_workspace_state(
+        self, workspace_data: Dict[str, Any], force_save: bool = False
+    ):
+        """
+        更新工作區狀態
+
+        Args:
+            workspace_data: 工作區數據
+            force_save: 是否立即保存
+        """
+        with self._lock:
+            if "workspace" not in self._ide_context:
+                self._ide_context["workspace"] = {}
+
+            self._ide_context["workspace"].update(workspace_data)
+            self._ide_context["workspace"]["last_updated"] = datetime.now().isoformat()
+            self._mark_dirty_unlocked("workspace_state")
+
+        if force_save:
+            self._save_all(reason="force_workspace_state")
+
+    def get_workspace_state(self) -> Dict:
+        """獲取工作區狀態"""
+        return self._ide_context.get("workspace", {})
+
+    # ==================== 會話管理 API ====================
+
+    def start_session(self, agent_name: str, session_data: Dict = None) -> str:
+        """
+        開始新會話
+
+        Args:
+            agent_name: 智能體名稱
+            session_data: 初始會話數據
+
+        Returns:
+            會話ID
+        """
+        session_id = f"{agent_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+        with self._lock:
+            self._sessions[session_id] = {
+                "id": session_id,
+                "agent_name": agent_name,
+                "started_at": datetime.now().isoformat(),
+                "last_activity": datetime.now().isoformat(),
+                "data": session_data or {},
+                "message_count": 0,
+            }
+            self._mark_dirty_unlocked("sessions")
+
+        return session_id
+
+    def update_session(self, session_id: str, message: str = None, data: Dict = None):
+        """
+        更新會話
+
+        Args:
+            session_id: 會話ID
+            message: 新訊息
+            data: 更新數據
+        """
+        with self._lock:
+            if session_id in self._sessions:
+                self._sessions[session_id]["last_activity"] = datetime.now().isoformat()
+
+                if message:
+                    if "messages" not in self._sessions[session_id]:
+                        self._sessions[session_id]["messages"] = []
+                    self._sessions[session_id]["messages"].append(
+                        {"timestamp": datetime.now().isoformat(), "content": message}
+                    )
+                    self._sessions[session_id]["message_count"] += 1
+
+                if data:
+                    self._sessions[session_id]["data"].update(data)
+                self._mark_dirty_unlocked("sessions")
+
+    def end_session(self, session_id: str):
+        """結束會話"""
+        with self._lock:
+            if session_id in self._sessions:
+                self._sessions[session_id]["ended_at"] = datetime.now().isoformat()
+                self._mark_dirty_unlocked("sessions")
+
+    def get_active_sessions(self) -> List[Dict]:
+        """獲取活動會話"""
+        active = []
+        for session in self._sessions.values():
+            if "ended_at" not in session:
+                active.append(session)
+        return active
+
+    # ==================== 統一檢索 API ====================
+
+    def search_all(self, query: str) -> Dict[str, List]:
+        """
+        統一搜索（搜索所有記憶）
+
+        Args:
+            query: 搜索關鍵詞
+
+        Returns:
+            搜索結果字典
+        """
+        results = {
+            "conversations": self.search_conversations(query),
+            "agent_memories": [],
+            "ide_context": [],
+        }
+
+        # 搜索智能體記憶
+        query_lower = query.lower()
+        for agent_name, agent_data in self._agent_memories.items():
+            for memory in agent_data.get("memories", []):
+                memory_str = json.dumps(
+                    memory.get("data", {}), ensure_ascii=False
+                ).lower()
+                if query_lower in memory_str:
+                    results["agent_memories"].append(
+                        {
+                            "agent_name": agent_name,
+                            "timestamp": memory.get("timestamp"),
+                            "data": memory.get("data"),
+                        }
+                    )
+
+        # 搜索IDE上下文
+        context_str = json.dumps(self._ide_context, ensure_ascii=False).lower()
+        if query_lower in context_str:
+            results["ide_context"] = self._ide_context.get("history", [])[-5:]
+
+        return results
+
+    def get_full_context(self, agent_name: str = None) -> str:
+        """
+        獲取完整上下文文本（用於填充AI提示）
+
+        Args:
+            agent_name: 智能體名稱
+
+        Returns:
+            格式化的上下文字符串
+        """
+        context_parts = []
+
+        # 1. 添加最近的對話
+        recent_messages = self.get_recent_messages(
+            agent_name=agent_name, message_limit=10
+        )
+        if recent_messages:
+            context_parts.append("=== 最近對話 ===")
+            for msg in reversed(recent_messages):
+                context_parts.append(f"用戶: {msg.get('user', '')}")
+                context_parts.append(f"助手: {msg.get('assistant', '')}")
+                context_parts.append("")
+
+        # 2. 添加IDE上下文
+        ide_context = self.get_ide_context()
+        if ide_context:
+            context_parts.append("=== IDE上下文 ===")
+            context_parts.append(json.dumps(ide_context, ensure_ascii=False, indent=2))
+            context_parts.append("")
+
+        # 3. 添加智能體記憶
+        if agent_name:
+            memories = self.get_agent_memory(agent_name, limit=5)
+            if memories:
+                context_parts.append("=== 智能體記憶 ===")
+                for mem in reversed(memories):
+                    context_parts.append(
+                        f"[{mem.get('timestamp', '')}] {json.dumps(mem.get('data', {}), ensure_ascii=False)}"
+                    )
+                context_parts.append("")
+
+        return "\n".join(context_parts)
+
+    def force_save(self):
+        """強制保存所有數據"""
+        self._save_all()
+
+    def clear_old_data(self, days: int = 30):
+        """
+        清理舊數據
+
+        Args:
+            days: 保留天數
+        """
+        with self._lock:
+            cutoff = datetime.now() - timedelta(days=days)
+            cutoff_iso = cutoff.isoformat()
+
+            # 清理對話
+            for conv_id in list(self._conversations.keys()):
+                last_time = self._conversations[conv_id].get("last_message_at", "")
+                if last_time < cutoff_iso:
+                    del self._conversations[conv_id]
+
+            # 清理會話
+            for session_id in list(self._sessions.keys()):
+                last_activity = self._sessions[session_id].get("last_activity", "")
+                if last_activity < cutoff_iso:
+                    del self._sessions[session_id]
+
+            # 清理IDE上下文歷史
+            if "history" in self._ide_context:
+                self._ide_context["history"] = [
+                    h
+                    for h in self._ide_context["history"]
+                    if h.get("timestamp", "") >= cutoff_iso
+                ]
+
+        self._save_all()
+        print(f"✅ 已清理 {days} 天前的舊數據")
+
+
+# 便捷函數
+_default_manager = None
+
+
+def get_memory_manager(base_dir: str = None) -> AgentMemoryManager:
+    """獲取默認的記憶管理器實例"""
+    global _default_manager
+    if _default_manager is None:
+        base_dir = base_dir or str(Path(__file__).resolve().parents[1])
+        _default_manager = AgentMemoryManager(base_dir)
+    return _default_manager

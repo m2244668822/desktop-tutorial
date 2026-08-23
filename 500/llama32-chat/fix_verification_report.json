@@ -1,0 +1,13 @@
+{
+  "timestamp": "2026-04-30 08:26:51",
+  "tests": {
+    "default_limit_100": 100,
+    "custom_limit_50": 50,
+    "full_load_1324": 1324
+  },
+  "performance": {
+    "full_load_time_seconds": 1.91
+  },
+  "status": "success",
+  "fixed_issue": "完整數據庫問題已修復，用戶現在可以選擇加載全部 1,324 條對話"
+}

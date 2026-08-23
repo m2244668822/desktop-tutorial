@@ -1,0 +1,39 @@
+[Unit]
+Description=Trevor private API and frontend
+After=network-online.target tailscaled.service trevor-graphiti.service
+Wants=network-online.target trevor-graphiti.service
+
+[Service]
+Type=simple
+User=trevor
+Group=trevor
+WorkingDirectory=/opt/trevor/app
+Environment=TREVOR_DEPLOYMENT=oci
+Environment=TREVOR_DATA_DIR=/var/lib/trevor
+Environment=TREVOR_API_AUTH_REQUIRED=true
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+EnvironmentFile=-/etc/trevor/trevor.env
+LoadCredential=nvidia_api_key:/etc/trevor/credentials/nvidia_api_key
+LoadCredential=trevor_api_hmac:/etc/trevor/credentials/trevor_api_hmac
+LoadCredential=trevor_memory_key_b64:/etc/trevor/credentials/trevor_memory_key_b64
+LoadCredential=ai_horde_api_key:/etc/trevor/credentials/ai_horde_api_key
+ExecStart=/opt/trevor/app/.venv/bin/python /opt/trevor/app/system_main.py web --host 127.0.0.1 --port 5001 --energy-lite --skip-health
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths=/var/lib/trevor
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,52 @@
+name: trevor-required
+
+on:
+  push:
+    branches:
+      - main
+      - 'trevor/task/**'
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trevor-required-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  security-and-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-ci.lock
+
+      - name: Reject embedded secrets
+        run: python tools/scan_secrets.py
+
+      - name: Validate syntax and whitespace
+        run: |
+          git diff --check
+          python -m compileall -q core tools services tests system_main.py desktop_chat_app.py
+
+      - name: Run test suite
+        env:
+          TREVOR_MEMORY_ENCRYPTION: required
+          TREVOR_MEMORY_KEY_B64: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+        run: python -m unittest discover -s tests -p 'test_*.py'

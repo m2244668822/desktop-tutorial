@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI 個人智能體中心</title>
+  <title>AI 智能體中心</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230d1117'/%3E%3Cpath d='M18 45h28v6H18zM29 13h6v24h-6zM22 20h20v6H22zM24 34h16v6H24z' fill='%2322c55e'/%3E%3Ccircle cx='32' cy='32' r='22' fill='none' stroke='%233b82f6' stroke-width='4' opacity='.75'/%3E%3C/svg%3E">
   <style>
     :root {
@@ -11,7 +11,7 @@
       --card-h: rgba(32,44,66,.82); --line: rgba(255,255,255,.095);
       --text: rgba(255,255,255,.88); --muted: rgba(255,255,255,.4);
       --accent: #3b82f6; --green: #22c55e; --red: #ef4444; --amber: #f59e0b;
-      --topbar-h: 56px; --sb-w: 220px; --rp-w: 210px; --input-h: 70px; --voice-h: 64px;
+      --topbar-h: 56px; --sb-w: 220px; --rp-w: 210px; --input-h: 70px;
       --glass-blur: 22px; --glass-saturate: 1.35; --glass-shadow: 0 18px 42px rgba(0,0,0,.24);
     }
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -20,8 +20,6 @@
 
     /* ── Topbar ── */
     .topbar{position:fixed;top:0;left:0;right:0;height:var(--topbar-h);background:rgba(8,12,20,.82);border-bottom:1px solid var(--line);display:flex;align-items:center;padding:0 14px;gap:10px;z-index:200;backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));-webkit-backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));box-shadow:0 10px 28px rgba(0,0,0,.18)}
-    .tb-logo-wrap{width:40px;height:40px;border-radius:12px;overflow:hidden;flex-shrink:0;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);box-shadow:0 8px 18px rgba(0,0,0,.28)}
-    .tb-logo{width:100%;height:100%;object-fit:cover;display:block;filter:contrast(1.03) saturate(.92)}
     .tb-brand{font-size:11px;letter-spacing:.18em;color:rgba(255,255,255,.22);font-weight:700;text-transform:uppercase;flex-shrink:0}
     .tb-sep{width:1px;height:16px;background:var(--line);flex-shrink:0}
     .tb-title{font-size:16px;font-weight:600;line-height:1}
@@ -32,7 +30,11 @@
     .tb-badge.err{background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.3);color:#fca5a5}
     .tb-icon{width:26px;height:26px;border-radius:7px;background:var(--card);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:14px;transition:background .12s}
     .tb-icon:hover{background:var(--card-h)}
-    /* 低限度模式按鈕 */
+    /* Logo Branding */
+    .tb-logo-wrap{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:flex;align-items:center;justify-content:center;z-index:201}
+    .tb-logo{height:42px;filter:drop-shadow(0 0 10px rgba(0,0,0,0.9)) drop-shadow(0 2px 4px rgba(0,0,0,0.5));transition:transform .2s;cursor:pointer}
+    .tb-logo:hover{transform:scale(1.05)}
+    /* 最低權限模式按鈕 */
     .low-restrict-btn{font-size:12px;padding:3px 10px;border-radius:999px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.15);color:rgba(255,255,255,.4);cursor:pointer;font-family:inherit;transition:all .15s;display:flex;align-items:center;gap:5px;white-space:nowrap;user-select:none}
     .low-restrict-btn:hover{background:rgba(245,158,11,.1);border-color:rgba(245,158,11,.3);color:#fcd34d}
     .low-restrict-btn.on{background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.5);color:#fcd34d;box-shadow:0 0 8px rgba(245,158,11,.2)}
@@ -40,7 +42,7 @@
     .low-restrict-btn.on .low-restrict-dot{background:#f59e0b;box-shadow:0 0 4px #f59e0b}
 
     /* ── Layout ── */
-    .app{position:fixed;top:var(--topbar-h);bottom:calc(var(--input-h) + var(--voice-h));left:0;right:0;display:flex;overflow:hidden}
+    .app{position:fixed;top:var(--topbar-h);bottom:var(--input-h);left:0;right:0;display:flex;overflow:hidden}
 
     /* ── Sidebar ── */
     .sidebar{width:var(--sb-w);flex-shrink:0;background:var(--sb);border-right:1px solid var(--line);display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden;backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));-webkit-backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate))}
@@ -80,10 +82,6 @@
     .b-disabled{border-color:rgba(100,100,100,.3);color:rgba(255,255,255,.25);background:rgba(100,100,100,.06)}
     .mc.mc-offline{opacity:.45;cursor:not-allowed}
     .mc.mc-primary{border-color:rgba(34,197,94,.35);box-shadow:0 0 0 1px rgba(34,197,94,.15)}
-    .mc.mc-stale{border-style:dashed}
-
-    .panel-note{font-size:12px;padding:7px 9px;border-radius:8px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);color:rgba(255,255,255,.52)}
-    .panel-note.stale{border-color:rgba(245,158,11,.28);background:rgba(245,158,11,.08);color:#fcd34d}
 
     /* ── KAL Loop 狀態面板 ── */
     .kal-panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:14px;display:flex;flex-direction:column;gap:10px;backdrop-filter:blur(calc(var(--glass-blur) * .8)) saturate(var(--glass-saturate));-webkit-backdrop-filter:blur(calc(var(--glass-blur) * .8)) saturate(var(--glass-saturate));box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
@@ -125,41 +123,16 @@
     .tasks-stat.all{border-color:rgba(255,255,255,.12);color:rgba(255,255,255,.4);background:transparent}
     .tasks-list{display:flex;flex-direction:column;gap:4px;max-height:280px;overflow-y:auto}
     .task-row{padding:6px 9px;border-radius:7px;background:rgba(255,255,255,.03);border:1px solid var(--line);cursor:pointer;transition:all .1s}
-    .task-row.blocked{border-color:rgba(245,158,11,.28);background:rgba(245,158,11,.05)}
     .task-row:hover{background:rgba(59,130,246,.08);border-color:rgba(59,130,246,.2)}
     .task-row-top{display:flex;align-items:center;gap:6px}
     .task-row-title{font-size:12px;color:rgba(255,255,255,.75);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .task-row-agent{font-size:10px;padding:1px 5px;border-radius:4px;background:rgba(59,130,246,.12);color:#93c5fd;flex-shrink:0}
     .task-row-meta{font-size:11px;color:rgba(255,255,255,.25);margin-top:2px}
-    .task-row-extra{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
-    .task-chip{display:inline-flex;align-items:center;gap:4px;font-size:10px;padding:2px 7px;border-radius:999px;border:1px solid rgba(255,255,255,.1);color:rgba(255,255,255,.5);background:rgba(255,255,255,.035)}
-    .task-chip.blocked{border-color:rgba(245,158,11,.3);color:#fcd34d;background:rgba(245,158,11,.08)}
-    .task-chip.source{border-color:rgba(34,197,94,.28);color:#86efac;background:rgba(34,197,94,.08)}
-    .task-chip.stage{border-color:rgba(59,130,246,.25);color:#93c5fd;background:rgba(59,130,246,.08)}
-    .task-chip.video{border-color:rgba(168,85,247,.28);color:#c4b5fd;background:rgba(168,85,247,.08)}
     .task-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
     .task-dot.pending{background:#f59e0b}
     .task-dot.running{background:#3b82f6;animation:pulse 1.5s infinite}
     .task-dot.completed{background:#22c55e}
     .task-dot.failed{background:#ef4444}
-
-    .comm-panel{background:linear-gradient(135deg,rgba(15,23,42,.74),rgba(20,30,48,.82));border:1px solid rgba(148,163,184,.14);border-radius:10px;padding:14px 16px;margin-bottom:14px;display:flex;flex-direction:column;gap:10px;backdrop-filter:blur(calc(var(--glass-blur) * .8)) saturate(var(--glass-saturate));-webkit-backdrop-filter:blur(calc(var(--glass-blur) * .8)) saturate(var(--glass-saturate));box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
-    .comm-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
-    .comm-card{padding:10px 11px;border-radius:9px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08)}
-    .comm-k{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.26);margin-bottom:4px}
-    .comm-v{font-size:15px;font-weight:700;color:rgba(255,255,255,.82)}
-    .comm-v.ok{color:#86efac}
-    .comm-v.warn{color:#fcd34d}
-    .comm-v.err{color:#fca5a5}
-    .comm-cols{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-    .comm-col-title{font-size:11px;color:rgba(255,255,255,.25);text-transform:uppercase;letter-spacing:.07em;margin-bottom:5px}
-    .comm-item{padding:7px 8px;border-radius:7px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);margin-bottom:5px}
-    .comm-item-name{font-size:12px;color:rgba(255,255,255,.72);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .comm-item-meta{font-size:11px;color:rgba(255,255,255,.28);margin-top:3px}
-    @media (max-width: 900px){
-      .comm-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
-      .comm-cols{grid-template-columns:1fr}
-    }
 
     /* ── History sidebar items ── */
     .hist-list{display:flex;flex-direction:column;gap:2px}
@@ -174,10 +147,6 @@
     .chat-view{display:none;flex:1;flex-direction:column;overflow:hidden}
     .chat-view.vis{display:flex}
     .chat-topbar{padding:7px 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;background:rgba(10,15,23,.58);backdrop-filter:blur(calc(var(--glass-blur) * .7)) saturate(var(--glass-saturate));-webkit-backdrop-filter:blur(calc(var(--glass-blur) * .7)) saturate(var(--glass-saturate))}
-    .chat-avatar-btn{width:28px;height:28px;border-radius:50%;border:1px solid rgba(59,130,246,.35);padding:0;background:rgba(59,130,246,.08);overflow:hidden;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0}
-    .chat-avatar-btn:hover{border-color:rgba(59,130,246,.55)}
-    .chat-avatar-img{width:100%;height:100%;object-fit:cover;display:block}
-    .chat-avatar-fallback{font-size:14px;color:#93c5fd;line-height:1}
     .back-btn{padding:4px 10px;background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:6px;color:var(--muted);font-size:12px;cursor:pointer;font-family:inherit;transition:all .1s}
     .back-btn:hover{color:var(--text);border-color:rgba(255,255,255,.14)}
     .role-tag{font-size:12px;color:#93c5fd;padding:2px 8px;background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.22);border-radius:999px}
@@ -186,29 +155,16 @@
     .backend-sync.pending{color:#fcd34d;border-color:rgba(245,158,11,.3);background:rgba(245,158,11,.08)}
     .backend-sync.ok{color:#86efac;border-color:rgba(34,197,94,.3);background:rgba(34,197,94,.08)}
     .backend-sync.err{color:#fca5a5;border-color:rgba(239,68,68,.32);background:rgba(239,68,68,.08)}
-    .voice-mode-badge{display:none;margin-left:4px;font-size:11px;color:#86efac;padding:2px 8px;border-radius:999px;border:1px solid rgba(34,197,94,.35);background:rgba(34,197,94,.1);white-space:nowrap}
     .chat-area{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:9px}
-    .msg-row{display:flex;align-items:flex-end;gap:10px;max-width:100%}
-    .msg-row.user{justify-content:flex-end}
-    .msg-row.assistant{justify-content:flex-start}
-    .msg-avatar{width:34px;height:34px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;overflow:hidden;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04)}
-    .msg-row.user .msg-avatar{order:2;border-color:rgba(59,130,246,.25);background:rgba(59,130,246,.08)}
-    .msg-avatar img{width:100%;height:100%;object-fit:cover;display:block}
-    .msg-avatar-text{font-size:14px;line-height:1;color:#cbd5e1}
-    .msg{padding:9px 13px;border-radius:14px;max-width:min(80%,720px);line-height:1.65;font-size:14px;white-space:pre-wrap;word-break:break-word}
+    .msg{padding:9px 13px;border-radius:10px;max-width:80%;line-height:1.65;font-size:14px;white-space:pre-wrap;word-break:break-word}
     .msg.user{background:rgba(59,130,246,.18);border:1px solid rgba(59,130,246,.24);align-self:flex-end}
     .msg.assistant{background:var(--card);border:1px solid var(--line);align-self:flex-start;backdrop-filter:blur(calc(var(--glass-blur) * .72)) saturate(var(--glass-saturate));-webkit-backdrop-filter:blur(calc(var(--glass-blur) * .72)) saturate(var(--glass-saturate));box-shadow:inset 0 1px 0 rgba(255,255,255,.045)}
-    .msg-body{display:block}
     .msg-status{font-size:11px;color:rgba(255,255,255,.22);margin-top:3px;padding-top:3px;border-top:1px solid rgba(255,255,255,.06)}
     .qr-bar{padding:5px 16px;display:flex;flex-wrap:wrap;gap:4px}
     .qr-btn{padding:3px 9px;font-size:12px;border-radius:999px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);color:rgba(255,255,255,.6);cursor:pointer;font-family:inherit;transition:all .1s}
     .qr-btn:hover{background:rgba(255,255,255,.1);color:var(--text)}
     .msg-img{max-width:100%;max-height:280px;border-radius:8px;display:block;margin-top:4px;cursor:zoom-in}
     .msg-vid{max-width:100%;max-height:240px;border-radius:8px;display:block;margin-top:4px}
-    .video-task-card{display:flex;flex-direction:column;gap:8px;margin-top:8px;padding:10px;border-radius:10px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08)}
-    .video-task-links{display:flex;flex-wrap:wrap;gap:8px}
-    .video-task-link{font-size:12px;color:#93c5fd;text-decoration:none;border:1px solid rgba(59,130,246,.24);background:rgba(59,130,246,.08);padding:5px 8px;border-radius:999px}
-    .video-task-link:hover{background:rgba(59,130,246,.16)}
     .generated-image-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-top:10px;min-width:min(520px,70vw)}
     .generated-image-card{border:1px solid rgba(255,255,255,.09);border-radius:8px;background:rgba(255,255,255,.035);overflow:hidden}
     .generated-image-card img{width:100%;aspect-ratio:1/1;object-fit:cover;display:block;cursor:zoom-in;background:#0f172a}
@@ -220,30 +176,18 @@
     .rp-btn{width:100%;padding:5.5px 9px;border-radius:6px;background:rgba(255,255,255,.03);border:1px solid var(--line);color:var(--muted);font-size:13px;cursor:pointer;text-align:left;display:flex;align-items:center;gap:6px;font-family:inherit;transition:all .1s;margin-bottom:3px}
     .rp-btn:hover{background:rgba(255,255,255,.07);color:var(--text);border-color:rgba(255,255,255,.12)}
     .rp-btn.on{background:rgba(59,130,246,.12);color:#93c5fd;border-color:rgba(59,130,246,.26)}
-    .rp-subpanel{display:flex;flex-direction:column;gap:8px;padding:10px;border-radius:9px;background:rgba(255,255,255,.03);border:1px solid var(--line);margin-top:8px}
-    .rp-subpanel[hidden]{display:none !important}
-    .rp-subgrid{display:grid;grid-template-columns:1fr 1fr;gap:7px}
-    .rp-field{display:flex;flex-direction:column;gap:4px}
-    .rp-field.full{grid-column:1/-1}
-    .rp-field label{font-size:10px;color:rgba(255,255,255,.3);letter-spacing:.08em;text-transform:uppercase}
-    .rp-input,.rp-select,.rp-textarea{width:100%;border:1px solid var(--line);border-radius:7px;background:rgba(22,30,46,.78);color:var(--text);font-size:12px;padding:8px 9px;font-family:inherit}
-    .rp-input:focus,.rp-select:focus,.rp-textarea:focus{outline:none;border-color:rgba(59,130,246,.4)}
-    .rp-textarea{resize:vertical;min-height:70px;line-height:1.45}
-    .rp-help{font-size:11px;color:rgba(255,255,255,.34);line-height:1.5}
-    .rp-mini-actions{display:flex;gap:6px;flex-wrap:wrap}
-    .rp-mini-btn{padding:6px 10px;border-radius:7px;border:1px solid rgba(59,130,246,.24);background:rgba(59,130,246,.1);color:#93c5fd;font-size:12px;cursor:pointer;font-family:inherit;transition:all .12s}
-    .rp-mini-btn:hover{background:rgba(59,130,246,.18);border-color:rgba(59,130,246,.34)}
-    .rp-kv{font-size:11px;color:rgba(255,255,255,.46)}
     /* 監控小格 */
     .mon-grid{display:flex;flex-direction:column;gap:5px}
     .mon-row{display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04)}
     .mon-label{color:var(--muted)}
     .mon-val{color:var(--text);font-weight:600}
     .mon-val.ok{color:#86efac}
+    .mon-val.warn{color:#fcd34d}
     .mon-val.err{color:#fca5a5}
+    .mon-note{font-size:11px;color:rgba(255,255,255,.45);line-height:1.4;padding:4px 0 0}
 
     /* ── Bottom input ── */
-    .attach-strip{position:fixed;bottom:calc(var(--input-h) + var(--voice-h));left:0;right:0;background:rgba(8,12,20,.82);border-top:1px solid rgba(59,130,246,.26);display:none;flex-wrap:wrap;align-items:center;gap:7px;padding:6px 12px;z-index:199;backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));-webkit-backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate))}
+    .attach-strip{position:fixed;bottom:var(--input-h);left:0;right:0;background:rgba(8,12,20,.82);border-top:1px solid rgba(59,130,246,.26);display:none;flex-wrap:wrap;align-items:center;gap:7px;padding:6px 12px;z-index:199;backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));-webkit-backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate))}
     .attach-strip.vis{display:flex}
     .attach-thumb{position:relative;display:flex;align-items:center;gap:5px;background:rgba(22,30,46,.9);border:1px solid rgba(59,130,246,.25);border-radius:7px;padding:4px 7px}
     .attach-thumb img{width:40px;height:40px;object-fit:cover;border-radius:4px}
@@ -267,26 +211,6 @@
     /* Selects 在 input bar */
     .bar-select{height:28px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--muted);font-size:11px;padding:0 6px;font-family:inherit;cursor:pointer;flex-shrink:0}
     .bar-select:focus{outline:none;border-color:rgba(59,130,246,.4)}
-    .voice-panel{position:fixed;bottom:var(--input-h);left:0;right:0;height:var(--voice-h);background:rgba(8,12,20,.78);border-top:1px solid rgba(59,130,246,.2);display:flex;align-items:center;gap:9px;padding:8px 12px;z-index:200;backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate));-webkit-backdrop-filter:blur(var(--glass-blur)) saturate(var(--glass-saturate))}
-    .voice-title{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.35);white-space:nowrap}
-    .voice-status{font-size:11px;color:rgba(255,255,255,.45);padding:2px 8px;border-radius:999px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.03);white-space:nowrap}
-    .voice-status.on{color:#86efac;border-color:rgba(34,197,94,.34);background:rgba(34,197,94,.1)}
-    .voice-status.err{color:#fca5a5;border-color:rgba(239,68,68,.3);background:rgba(239,68,68,.1)}
-    .voice-btn{height:32px;padding:0 10px;border-radius:7px;border:1px solid var(--line);background:rgba(255,255,255,.04);color:rgba(255,255,255,.7);font-size:12px;cursor:pointer;font-family:inherit;transition:all .12s;white-space:nowrap}
-    .voice-btn:hover{background:rgba(59,130,246,.15);border-color:rgba(59,130,246,.32);color:#93c5fd}
-    .voice-btn.active{background:rgba(34,197,94,.14);border-color:rgba(34,197,94,.42);color:#86efac}
-    .voice-select{height:32px;border:1px solid var(--line);border-radius:7px;background:var(--card);color:var(--muted);font-size:12px;padding:0 8px;font-family:inherit;cursor:pointer;max-width:152px}
-    .voice-select:focus{outline:none;border-color:rgba(59,130,246,.4)}
-    .voice-check{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:rgba(255,255,255,.62);white-space:nowrap}
-    .voice-check input{accent-color:#3b82f6}
-    .voice-mini-select{height:30px;border:1px solid var(--line);border-radius:7px;background:rgba(22,30,46,.72);color:var(--muted);font-size:12px;padding:0 8px;font-family:inherit;cursor:pointer;max-width:106px}
-    .voice-mini-select:focus{outline:none;border-color:rgba(59,130,246,.4)}
-    .voice-live{flex:1;min-width:180px;max-width:44vw;font-size:12px;color:rgba(255,255,255,.54);border:1px solid rgba(255,255,255,.08);border-radius:7px;padding:7px 9px;background:rgba(255,255,255,.025);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    @media (max-width: 980px){
-      :root{--voice-h: 98px}
-      .voice-panel{height:var(--voice-h);align-items:flex-start;flex-wrap:wrap;padding:7px 10px}
-      .voice-live{max-width:100%;min-width:100%;order:10}
-    }
 
     /* ── Lightbox ── */
     .lightbox{display:none;position:fixed;inset:0;z-index:999;background:rgba(0,0,0,.88);align-items:center;justify-content:center}
@@ -322,29 +246,22 @@
     /* 智能體名稱角標 */
     .nav-item .nav-cnt{margin-left:auto;font-size:10px;padding:0 5px;background:rgba(59,130,246,.18);border-radius:999px;color:#93c5fd;display:none}
     .nav-item .nav-cnt.vis{display:inline}
-    body.voice-conversation .sidebar,
-    body.voice-conversation .right-panel{display:none}
-    body.voice-conversation .main{width:100%}
-    body.voice-conversation .back-btn{display:none}
-    body.voice-conversation .voice-mode-badge{display:inline-flex}
-    body.voice-conversation .chat-topbar{gap:10px}
   </style>
 </head>
 <body>
 
 <!-- ── Topbar ── -->
 <div class="topbar">
-  <div class="tb-logo-wrap">
+  <div class="tb-logo-wrap" onclick="showHub()" title="返回主頁">
     <svg class="tb-logo" viewBox="0 0 64 64" role="img" aria-label="XIUORAN Logo">
       <defs>
-        <linearGradient id="perobLogoGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+        <linearGradient id="tbLogoGradient" x1="0%" y1="0%" x2="100%" y2="100%">
           <stop offset="0%" stop-color="#60a5fa"></stop>
           <stop offset="100%" stop-color="#22d3ee"></stop>
         </linearGradient>
       </defs>
-      <rect x="0" y="0" width="64" height="64" rx="18" fill="#0d1117"></rect>
-      <rect x="8" y="8" width="48" height="48" rx="14" fill="rgba(15,23,42,.92)" stroke="url(#perobLogoGradient)" stroke-width="2.5"></rect>
-      <path d="M21 21 L43 43 M43 21 L21 43" stroke="url(#perobLogoGradient)" stroke-width="4" stroke-linecap="round"></path>
+      <rect x="8" y="8" width="48" height="48" rx="14" fill="rgba(15,23,42,.86)" stroke="url(#tbLogoGradient)" stroke-width="3"></rect>
+      <path d="M20 20 L44 44 M44 20 L20 44" stroke="url(#tbLogoGradient)" stroke-width="4" stroke-linecap="round"></path>
       <circle cx="32" cy="32" r="6" fill="#f8fafc"></circle>
     </svg>
   </div>
@@ -352,13 +269,14 @@
   <div class="tb-sep"></div>
   <div style="display:flex;flex-direction:column;gap:1px">
     <div class="tb-title">AI 智能體中心</div>
-    <div class="tb-sub">Desktop Command Center</div>
+    <div class="tb-sub">桌面指揮中心</div>
   </div>
   <div class="tb-right">
-    <button class="low-restrict-btn" id="lowRestrictBtn" onclick="toggleLowRestrict()" title="低限度模式：繞過倫理閘道與速率限制，讓智能體可自由增強能力">
+    <button class="low-restrict-btn" id="lowRestrictBtn" onclick="toggleLowRestrict()" title="最低權限模式：可繞過一般限制並允許外部代理程式直通">
       <span class="low-restrict-dot"></span>
-      <span id="lowRestrictLabel">低限度</span>
+      <span id="lowRestrictLabel">最低權限</span>
     </button>
+    <span class="tb-badge" id="apiBaseBadge" title="前端目前 API 基底">API: —</span>
     <span class="tb-badge" id="bridgeState">連線中...</span>
     <div class="tb-icon" id="reconnectBtn" title="重新聯網確認" onclick="reconnectAll()" style="cursor:pointer">🔄</div>
     <div class="tb-icon" title="重整監控" onclick="fetchKALStatus()">↻</div>
@@ -378,18 +296,13 @@
     <div class="sb-sec">
       <div class="sb-lbl">導航</div>
       <div class="nav-item active" id="nav-hub" onclick="showHub()">🏠 總覽</div>
-      <div class="nav-item" onclick="showHub();setTimeout(()=>document.getElementById('kalPanel').scrollIntoView({behavior:'smooth'}),100)">🔬 KAL 學習</div>
-      <div class="nav-item" onclick="showHub();setTimeout(()=>document.getElementById('tasksPanel').scrollIntoView({behavior:'smooth'}),100)">📋 任務看板</div>
+      <div class="nav-item" onclick="showHubPanel('kalPanel')">🔬 KAL 學習</div>
+      <div class="nav-item" onclick="showHubPanel('tasksPanel')">📋 任務看板</div>
     </div>
 
     <div class="sb-sec">
       <div class="sb-lbl">智能體</div>
-      <div class="nav-item" id="nav-researcher" onclick="selectAgent('researcher','🔬','研究學習中樞')"><span>🔬</span> 研究學習中樞<span class="nav-dot"></span><span class="nav-cnt" id="cnt-researcher"></span></div>
-      <div class="nav-item" id="nav-engineer" onclick="selectAgent('engineer','⚙️','工程師')"><span>⚙️</span> 工程師<span class="nav-dot"></span><span class="nav-cnt" id="cnt-engineer"></span></div>
-      <div class="nav-item" id="nav-xiaobian" onclick="selectAgent('xiaobian','✍️','小編')"><span>✍️</span> 小編<span class="nav-dot"></span><span class="nav-cnt" id="cnt-xiaobian"></span></div>
-      <div class="nav-item" id="nav-proclaimer" onclick="selectAgent('proclaimer','✝️','申言者總管')"><span>✝️</span> 申言者總管<span class="nav-dot"></span><span class="nav-cnt" id="cnt-proclaimer"></span></div>
-      <div class="nav-item" id="nav-whitehat" onclick="selectAgent('whitehat','🕵️','帽子')"><span>🕵️</span> 帽子<span class="nav-dot"></span><span class="nav-cnt" id="cnt-whitehat"></span></div>
-      <div class="nav-item" id="nav-general" onclick="selectAgent('general','🤖','通用')"><span>🤖</span> 通用<span class="nav-dot"></span><span class="nav-cnt" id="cnt-general"></span></div>
+      <div class="nav-item" id="nav-trevor" onclick="selectAgent('trevor','🧭','崔佛')"><span>🧭</span> 崔佛<span class="nav-dot"></span><span class="nav-cnt" id="cnt-trevor"></span></div>
     </div>
 
     <div class="sb-sec">
@@ -412,15 +325,15 @@
           <div class="mc-desc">自動選最優模型</div>
           <span class="badge b-local">本地優先</span>
         </div>
-        <div class="mc" id="mc-ollama_tinyllama" onclick="startChat('ollama_tinyllama','TinyLlama')">
-          <div class="mc-top"><div class="mc-icon" style="background:rgba(20,83,45,.35)">🦙</div><div><div class="mc-name">TinyLlama</div><div class="mc-sub">637 MB</div></div></div>
-          <div class="mc-desc">超輕量，離線可用</div>
-          <span class="badge b-local">本地免費</span>
+        <div class="mc" id="mc-ollama_qwen25_7b" onclick="startChat('ollama_qwen25_7b','Qwen2.5 7B')">
+          <div class="mc-top"><div class="mc-icon" style="background:rgba(14,116,144,.35)">🧠</div><div><div class="mc-name">Qwen2.5 7B</div><div class="mc-sub">4.7 GB · 32K</div></div></div>
+          <div class="mc-desc">本地高品質中文推理</div>
+          <span class="badge b-local">本地主力</span>
         </div>
-        <div class="mc" id="mc-ollama_mistral" onclick="startChat('ollama_mistral','Mistral')">
-          <div class="mc-top"><div class="mc-icon" style="background:rgba(14,116,144,.35)">🌀</div><div><div class="mc-name">Mistral</div><div class="mc-sub">4.4 GB</div></div></div>
-          <div class="mc-desc">高品質本地推理</div>
-          <span class="badge b-local">本地免費</span>
+        <div class="mc" id="mc-sidecar" onclick="startChat('sidecar','本地模型（跟隨 .env）')">
+          <div class="mc-top"><div class="mc-icon" style="background:rgba(20,83,45,.35)">🛠️</div><div><div class="mc-name">本地旁路模型</div><div class="mc-sub">跟隨 .env 設定</div></div></div>
+          <div class="mc-desc">使用 OPEN_SOURCE_CHAT_MODEL / OLLAMA_MODEL</div>
+          <span class="badge b-local">本地路由</span>
         </div>
       </div>
 
@@ -437,19 +350,19 @@
         <div class="mc" id="mc-openai" onclick="startChat('openai','OpenAI')">
           <div class="mc-top"><div class="mc-icon" style="background:rgba(5,46,22,.35)">🤖</div><div><div class="mc-name">OpenAI GPT</div><div class="mc-sub" id="msub-openai">gpt-4o</div></div></div>
           <div class="mc-desc">GPT-4o 頂尖模型</div>
-          <span class="badge b-key" id="mbadge-openai">需 API Key</span>
+          <span class="badge b-key" id="mbadge-openai">需 API 金鑰</span>
         </div>
         <div class="mc" id="mc-gemini" onclick="startChat('gemini','Gemini')">
           <div class="mc-top"><div class="mc-icon" style="background:rgba(30,64,175,.35)">✨</div><div><div class="mc-name">Gemini</div><div class="mc-sub" id="msub-gemini">gemini-2.5-flash</div></div></div>
           <div class="mc-desc">Google 雲端模型</div>
-          <span class="badge b-key" id="mbadge-gemini">需 API Key</span>
+          <span class="badge b-key" id="mbadge-gemini">需 API 金鑰</span>
         </div>
         <div class="mc" id="mc-groq" onclick="startChat('groq','Groq')">
           <div class="mc-top"><div class="mc-icon" style="background:rgba(124,45,18,.35)">⚡</div><div><div class="mc-name">Groq</div><div class="mc-sub" id="msub-groq">gpt-oss-20b</div></div></div>
           <div class="mc-desc">低延遲快速回覆</div>
-          <span class="badge b-key" id="mbadge-groq">需 API Key</span>
+          <span class="badge b-key" id="mbadge-groq">需 API 金鑰</span>
         </div>
-        <div class="mc" onclick="window.open('https://claude.ai','_blank')">
+        <div class="mc" onclick="openExternal('https://claude.ai')">
           <div class="mc-top"><div class="mc-icon" style="background:rgba(120,53,15,.35)">🌊</div><div><div class="mc-name">Claude</div><div class="mc-sub">claude.ai</div></div></div>
           <div class="mc-desc">Anthropic 助手（外部）</div>
           <span class="badge b-tool">外部工具</span>
@@ -493,42 +406,13 @@
         <div class="tasks-status-bar" id="tasksStatusBar"></div>
         <div class="tasks-list" id="tasksList"><div class="kal-empty">載入中...</div></div>
       </div>
-
-      <div class="sec-lbl" id="commPanel">協作溝通健康</div>
-      <div class="comm-panel">
-        <div class="tasks-header">
-          <div class="tasks-title">🧩 智能體協作狀態</div>
-          <button class="kal-refresh" onclick="fetchCommunicationStatus(true)">↻ 重整協作</button>
-        </div>
-        <div class="comm-grid" id="commGrid">
-          <div class="comm-card"><div class="comm-k">未讀通知</div><div class="comm-v" id="commUnread">—</div></div>
-          <div class="comm-card"><div class="comm-k">阻塞任務</div><div class="comm-v" id="commBlocked">—</div></div>
-          <div class="comm-card"><div class="comm-k">n8n 連動</div><div class="comm-v" id="commN8n">—</div></div>
-          <div class="comm-card"><div class="comm-k">CNS 任務通知</div><div class="comm-v" id="commCns">—</div></div>
-        </div>
-        <div class="comm-cols">
-          <div>
-            <div class="comm-col-title">最近溝通事件</div>
-            <div id="commNotices"><div class="kal-empty">載入中...</div></div>
-          </div>
-          <div>
-            <div class="comm-col-title">阻塞與來源</div>
-            <div id="commBlockedList"><div class="kal-empty">載入中...</div></div>
-          </div>
-        </div>
-      </div>
     </div>
 
     <!-- Chat view -->
     <div class="chat-view" id="chatView">
       <div class="chat-topbar">
         <button class="back-btn" onclick="showHub()">← 返回</button>
-        <button class="chat-avatar-btn" id="chatAvatarBtn" type="button" title="設定對話頭像">
-          <img class="chat-avatar-img" id="chatAvatarImg" alt="avatar" style="display:none">
-          <span class="chat-avatar-fallback" id="chatAvatarFallback">🙂</span>
-        </button>
-        <span class="role-tag" id="roleTag">總管</span>
-        <span class="voice-mode-badge" id="voiceModeBadge">📞 語音對話模式</span>
+        <span class="role-tag" id="roleTag">崔佛</span>
         <span class="model-indicator" id="modelIndicator"></span>
         <span class="backend-sync" id="backendSync">後台同步：待機</span>
       </div>
@@ -546,84 +430,12 @@
       <button class="rp-btn" onclick="setRpMode(this,'analysis')">🔍 深度分析</button>
       <button class="rp-btn" onclick="setRpMode(this,'coding')">💻 程式生成</button>
       <button class="rp-btn" onclick="setRpMode(this,'creative')">🎨 創意寫作</button>
-      <div class="rp-subpanel" id="videoWorkflowPanel" hidden>
-        <div class="rp-help">小編影片工作流會走 Seedance 2.0 + n8n 任務模式，建立任務後由任務看板追蹤進度。</div>
-        <div class="rp-subgrid">
-          <div class="rp-field full">
-            <label for="creativeSubmodeSelect">創意類別</label>
-            <select class="rp-select" id="creativeSubmodeSelect">
-              <option value="short_video_plan">短影片企劃</option>
-              <option value="three_minute_video_generate" selected>三分鐘直式影片生成</option>
-              <option value="image_to_video_shortform">圖片轉短影片</option>
-              <option value="text_to_video_shortform">文字轉短影片</option>
-              <option value="scene_sequence_design">分鏡腳本</option>
-              <option value="voiceover_caption_planning">字幕 / 旁白</option>
-            </select>
-          </div>
-          <div class="rp-field">
-            <label for="videoWorkflowEngineSelect">工作流引擎</label>
-            <select class="rp-select" id="videoWorkflowEngineSelect">
-              <option value="seedance2_n8n" selected>Seedance 2.0 + n8n</option>
-              <option value="auto">Auto</option>
-            </select>
-          </div>
-          <div class="rp-field">
-            <label for="videoAspectRatioSelect">比例</label>
-            <select class="rp-select" id="videoAspectRatioSelect">
-              <option value="9:16" selected>9:16 直式</option>
-            </select>
-          </div>
-          <div class="rp-field">
-            <label for="videoDurationInput">最終秒數</label>
-            <input class="rp-input" id="videoDurationInput" type="number" min="180" step="15" value="180">
-          </div>
-          <div class="rp-field">
-            <label for="videoSegmentDurationInput">單段秒數</label>
-            <input class="rp-input" id="videoSegmentDurationInput" type="number" min="4" max="15" step="1" value="8">
-          </div>
-          <div class="rp-field">
-            <label for="videoSubtitleModeSelect">字幕模式</label>
-            <select class="rp-select" id="videoSubtitleModeSelect">
-              <option value="bilingual_caption_burn" selected>英文 + 中文字幕（逐句跳動）</option>
-              <option value="zh_only_caption_burn">中文字幕</option>
-              <option value="none">不加字幕</option>
-            </select>
-          </div>
-          <div class="rp-field">
-            <label for="videoAudioModeSelect">音效</label>
-            <select class="rp-select" id="videoAudioModeSelect">
-              <option value="royalty_free_theme_audio" selected>免版權切題音效</option>
-              <option value="none">不加音效</option>
-            </select>
-          </div>
-          <div class="rp-field">
-            <label for="videoNarrationModeSelect">旁白</label>
-            <select class="rp-select" id="videoNarrationModeSelect">
-              <option value="zh_tw_mature_narration" selected>台灣口音成熟中文配音</option>
-              <option value="none">不加旁白</option>
-            </select>
-          </div>
-          <div class="rp-field full">
-            <label for="videoTaskTitle">任務標題</label>
-            <input class="rp-input" id="videoTaskTitle" type="text" placeholder="例如：精神可塑性 3 分鐘直式影片">
-          </div>
-          <div class="rp-field full">
-            <label for="videoTaskBrief">影片備註</label>
-            <textarea class="rp-textarea" id="videoTaskBrief" placeholder="可補充風格、節奏、鏡頭語感、結尾 CTA 等"></textarea>
-          </div>
-        </div>
-        <div class="rp-mini-actions">
-          <button class="rp-mini-btn" type="button" onclick="activateVideoWorkflowMode()">啟用影片任務模式</button>
-          <button class="rp-mini-btn" type="button" onclick="prefillVideoPrompt()">帶入到輸入框</button>
-        </div>
-        <div class="rp-kv" id="videoWorkflowHint">建議先附上參考圖，再送出任務，系統會自動帶進 source assets。</div>
-      </div>
     </div>
     <div>
       <div class="rp-title">外部工具</div>
-      <button class="rp-btn" onclick="window.open('https://www.perplexity.ai','_blank')">🌐 Perplexity</button>
-      <button class="rp-btn" onclick="window.open('https://notebooklm.google.com','_blank')">📓 NotebookLM</button>
-      <button class="rp-btn" onclick="window.open('https://chat.openai.com','_blank')">🤖 ChatGPT</button>
+      <button class="rp-btn" onclick="openExternal('https://www.perplexity.ai')">🌐 Perplexity</button>
+      <button class="rp-btn" onclick="openExternal('https://notebooklm.google.com')">📓 NotebookLM</button>
+      <button class="rp-btn" onclick="openExternal('https://chat.openai.com')">🤖 ChatGPT</button>
     </div>
     <div>
       <div class="rp-title">對話歸檔</div>
@@ -643,6 +455,9 @@
         <div class="mon-row"><span class="mon-label">Brave 搜尋</span><span class="mon-val" id="mon-brave">—</span></div>
         <div class="mon-row"><span class="mon-label">執行輪次</span><span class="mon-val" id="mon-cycles">—</span></div>
         <div class="mon-row"><span class="mon-label">待整合目標</span><span class="mon-val" id="mon-pending">—</span></div>
+        <div class="mon-row"><span class="mon-label">協調健康</span><span class="mon-val" id="mon-harmony">—</span></div>
+        <div class="mon-row"><span class="mon-label">失敗檢查</span><span class="mon-val" id="mon-harmony-failed">—</span></div>
+        <div class="mon-note" id="mon-harmony-note">尚未載入協調健康報告</div>
       </div>
     </div>
   </aside>
@@ -652,29 +467,6 @@
 <!-- ── Attach strip ── -->
 <div class="attach-strip" id="attachStrip"></div>
 
-<!-- ── Voice dialog block ── -->
-<div class="voice-panel" id="voicePanel">
-  <span class="voice-title">語音對話區塊</span>
-  <button class="voice-btn" id="voiceCallBtn" type="button">開始語音通話</button>
-  <button class="voice-btn" id="voiceMicBtn" type="button">🎙️ 語音輸入</button>
-  <select class="voice-select" id="voiceLangSelect" title="語音語言">
-    <option value="zh-TW">繁中（台灣）</option>
-    <option value="zh-CN">簡中（中國）</option>
-    <option value="en-US">English</option>
-    <option value="ja-JP">日本語</option>
-    <option value="ko-KR">한국어</option>
-  </select>
-  <label class="voice-check"><input type="checkbox" id="voiceTextCorrect" checked> 即時語音矯正</label>
-  <select class="voice-mini-select" id="voiceCorrectLevel" title="語音矯正強度">
-    <option value="standard">標準矯正</option>
-    <option value="aggressive">強化矯正</option>
-  </select>
-  <label class="voice-check"><input type="checkbox" id="voiceAutoSpeak" checked> AI 自動朗讀</label>
-  <label class="voice-check"><input type="checkbox" id="voiceAutoSend" checked> 語音自動送出</label>
-  <span class="voice-status" id="voiceStatus">初始化中...</span>
-  <div class="voice-live" id="voiceLive">尚未開始語音對話</div>
-</div>
-
 <!-- ── Lightbox ── -->
 <div class="lightbox" id="lightbox" onclick="closeLightbox()">
   <button class="lightbox-close" onclick="closeLightbox()">✕</button>
@@ -683,7 +475,6 @@
 
 <input type="file" id="fileInput" style="display:none"
   accept="image/*,video/mp4,video/quicktime,.heic,.heif,.png,.jpg,.jpeg,.gif,.webp" multiple>
-<input type="file" id="voiceAvatarInput" style="display:none" accept="image/*">
 
 <!-- ── Input bar ── -->
 <div class="input-bar">
@@ -698,19 +489,61 @@
     <option value="coding">程式</option>
     <option value="creative">創意</option>
     <option value="image_generation">圖像生成</option>
+    <option value="horde_text">共享文字</option>
     <option value="qa">問答</option>
   </select>
+  <select class="bar-select" id="capabilitySelect" title="崔佛能力模式">
+    <option value="general">一般</option>
+    <option value="coding">程式</option>
+    <option value="research">研究</option>
+    <option value="security">安全</option>
+    <option value="content">內容</option>
+    <option value="learning">學習</option>
+  </select>
+  <select class="bar-select" id="deliberationSelect" title="多模型審議模式">
+    <option value="auto">自動審議</option>
+    <option value="fast">快速</option>
+    <option value="cross_check">交叉檢查</option>
+    <option value="rigorous">嚴謹</option>
+  </select>
   <button class="attach-btn" id="imageModeBtn" title="啟用圖像生成" onclick="enableImageGenerationMode()">🎨</button>
-  <button class="attach-btn" title="附加圖片" onclick="document.getElementById('fileInput').click()">📎</button>
+  <button class="attach-btn" title="附加圖片" onclick="triggerFilePicker()">📎</button>
   <div class="input-wrap">
-    <textarea class="msg-input" id="msgInput" placeholder="輸入訊息，按 Enter 即時送出；Shift+Enter 換行..." rows="1"></textarea>
+    <textarea class="msg-input" id="msgInput" placeholder="輸入訊息，按兩次 Enter/送出確認；Shift+Enter 換行..." rows="1"></textarea>
   </div>
-  <button class="send-btn" id="sendBtn" onclick="confirmAndSendMessage()">即時送出</button>
+  <button class="send-btn" id="sendBtn" onclick="confirmAndSendMessage()">確認送出</button>
   <span class="bridge-info" id="bridgeInfo">—</span>
 </div>
 
 <script>
 window.__API_TOKEN__ = "{{ server_api_token | default('') }}";
+window.__API_BASE__ = (() => {
+  const fromQuery = new URLSearchParams(window.location.search).get("api_base");
+  if (fromQuery) return fromQuery.replace(/\/+$/, "");
+  if (window.location.protocol === "file:") return "http://127.0.0.1:5001";
+  return "";
+})();
+(function patchFetchForFileMode() {
+  if (!window.__API_BASE__) return;
+  const rawFetch = window.fetch.bind(window);
+  const absolutize = (input) => {
+    if (typeof input !== "string") return input;
+    if (/^https?:\/\//i.test(input)) return input;
+    if (!input.startsWith("/")) return input;
+    return `${window.__API_BASE__}${input}`;
+  };
+  window.fetch = (input, init) => rawFetch(absolutize(input), init);
+})();
+
+function renderApiBaseBadge() {
+  const el = document.getElementById("apiBaseBadge");
+  if (!el) return;
+  const base = window.__API_BASE__ || window.location.origin || "";
+  const safe = (base || "—").replace(/^https?:\/\//i, "");
+  el.textContent = `API: ${safe}`;
+  el.title = `前端目前 API 基底：${base || "（同源）"}`;
+}
+
 /* ════════════════════════════════════════
    State
 ════════════════════════════════════════ */
@@ -720,64 +553,56 @@ function newId() {
     : Date.now().toString(36) + Math.random().toString(36).slice(2);
 }
 
+renderApiBaseBadge();
+
 let state = {
-  agentKey: "proclaimer",
-  agentLabel: "申言者總管",
-  agentIcon: "✝️",
-  model: "auto",
-  modelLabel: "自動選擇",
+  agentKey: "trevor",
+  agentLabel: "崔佛",
+  agentIcon: "🧭",
+  model: "ollama_qwen25_7b",
+  modelLabel: "Qwen2.5 7B",
   interactionMode: "auto",
+  capabilityMode: "general",
+  deliberation: "auto",
   sessionId: newId(),
   composing: false,
   attachments: [],
-  realtimeText: true,
-  lowRestrict: false,  // 低限度模式：繞過倫理閘道 + 速率限制
+  lowRestrict: false,  // 最低權限模式：可繞過一般限制並允許外部代理程式直通
   pendingSend: null,
   pendingSendTimer: null,
   pendingForcedSource: "",
-  videoWorkflowMode: false,
-  announcedVideoTasks: {},
 };
+const __debugRunId = `ui-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+const DEBUG_INGEST_URL = window.__DEBUG_INGEST_URL__ || "";
+const DEBUG_SESSION_ID = window.__DEBUG_SESSION_ID__ || "";
+const $ = (id) => document.getElementById(id);
 
-const VoiceRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition || null;
-const voiceRuntime = {
-  recognition: null,
-  recognitionSupported: !!VoiceRecognitionCtor,
-  synthesisSupported: typeof window.speechSynthesis !== "undefined",
-  callActive: false,
-  listening: false,
-  speaking: false,
-  speakingSegment: "",
-  speakingSessionId: 0,
-  manualStop: false,
-  restartTimer: null,
-  pendingAutoSendTimer: null,
-  lastFinalSent: "",
-  lastSentAt: 0,
-};
-
-const VOICE_FILLERS_ZH = [
-  "嗯", "呃", "欸", "那個", "這個", "就是", "然後", "我覺得", "你知道", "怎麼說", "大概", "基本上",
-];
-const VOICE_REPLACEMENTS_ZH = [
-  [/智能体/g, "智能體"],
-  [/Chat GPT/gi, "ChatGPT"],
-  [/open ai/gi, "OpenAI"],
-  [/web mcp/gi, "WebMCP"],
-  [/a i/gi, "AI"],
-  [/語言模式/g, "語音模式"],
-];
-const VOICE_REPLACEMENTS_EN = [
-  [/\bchat g p t\b/gi, "ChatGPT"],
-  [/\bopen a i\b/gi, "OpenAI"],
-  [/\bweb m c p\b/gi, "WebMCP"],
-];
+function __agentLog(hypothesisId, location, message, data = {}) {
+  if (!DEBUG_INGEST_URL) return;
+  fetch(DEBUG_INGEST_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(DEBUG_SESSION_ID ? { "X-Debug-Session-Id": DEBUG_SESSION_ID } : {}),
+    },
+    body: JSON.stringify({
+      sessionId: DEBUG_SESSION_ID,
+      runId: __debugRunId,
+      hypothesisId,
+      location,
+      message,
+      data,
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+}
 
 // Per-agent independent conversation storage
 const agentChats = {};
 
 /* ════════════════════════════════════════
-   低限度模式（Low-Restriction Mode）
+   最低權限模式（外部代理直通）
+   說明：啟用後，前端會附帶 bypass 標記，允許你手動呼叫外部代理流程。
 ════════════════════════════════════════ */
 function toggleLowRestrict() {
   state.lowRestrict = !state.lowRestrict;
@@ -785,43 +610,49 @@ function toggleLowRestrict() {
   const lbl = document.getElementById("lowRestrictLabel");
   if (state.lowRestrict) {
     btn.classList.add("on");
-    lbl.textContent = "低限度 ON";
+    lbl.textContent = "最低權限 ON";
   } else {
     btn.classList.remove("on");
-    lbl.textContent = "低限度";
+    lbl.textContent = "最低權限";
   }
 }
 
 const AGENT_META = {
+  trevor: {
+    label: "崔佛", icon: "🧭",
+    desc: "唯一公開智能體；依需求切換一般、程式、研究、安全、內容與學習能力模式。",
+    caps: ["🧭 任務判讀", "⚙️ 程式處理", "🔬 研究查證", "🛡️ 安全覆核", "✍️ 內容優化", "🧠 持續學習"],
+    prompts: ["整理目前狀態並給下一步", "切換程式模式處理問題", "用多模型交叉檢查這個答案"]
+  },
   dispatcher: {
-    label: "總管中樞（已併入申言者）", icon: "👑",
-    desc: "總管能力已融合進申言者；此入口僅保留給舊對話與舊任務相容使用。",
-    caps: ["📍 智能路由", "🔗 多智能體協調", "📊 任務拆解", "⚡ 優先排序"],
-    prompts: ["幫我把這個任務分派給合適的智能體", "分析我的需求並推薦最佳處理方式", "目前系統整體狀態如何？"]
+    label: "申言者中樞", icon: "✝️",
+    desc: "舊總管相容入口已併入申言者；負責治理、分派、風險分級與多智能體協調。",
+    caps: ["⚖️ 風險分級", "🔗 多智能體協調", "📊 任務拆解", "⚡ 優先排序"],
+    prompts: ["申言者先判斷風險再分派任務", "分析我的需求並推薦最佳處理方式", "目前系統整體狀態如何？"]
   },
   researcher: {
     label: "研究學習中樞", icon: "🔬",
-    desc: "已安裝 Anthropologist + Historian + Psychologist：可同時做文化系統建模、歷史真實性驗證與心理動機分析，避免文化拼貼、時代錯置與心理扁平化。",
-    caps: ["🌍 文化系統分析", "📚 歷史時序驗證", "🧠 心理輪廓分析", "👪 親屬/繼嗣建模", "🏺 物質文化分析", "⏳ 時代錯置偵測", "🔗 關係動力檢查", "📊 一致性檢查"],
-    prompts: ["幫我設計一個具文化、歷史、心理一致性的社會（含生計/親屬/儀式/年代/角色動機）", "檢查這個世界觀有沒有 culture salad、anachronism、與角色心理不連貫問題", "輸出 Psychological Profile + Relational Dynamics + Coherence Check"]
+    desc: "整合研究員與學習器，負責資料研究、分類索引、知識蒸餾、方法論整理與 KAL 學習目標管理。",
+    caps: ["🔍 深度研究", "🧠 知識蒸餾", "🏷️ 分類索引", "🧭 方法論整理", "🔄 KAL 管理", "📊 知識缺口分析"],
+    prompts: ["整理創業、福利、標案相關資料", "把這批資料分類並蒸餾重點", "找出目前知識庫的缺口與下一輪學習目標"]
   },
   engineer: {
     label: "工程師", icon: "⚙️",
-    desc: "已安裝 AI Data Remediation Engineer + AI Engineer + Autonomous Optimization Architect + Backend Architect：可同時做資料修復、AI 生產化、自治治理與後端架構設計。",
-    caps: ["⚙️ Ollama 管理", "🧬 AI 資料修復", "🤖 AI/ML 生產化", "⚡ 自治路由治理", "🏗️ 後端擴展架構"],
-    prompts: ["幫我把 5 萬筆異常資料壓縮成語義叢集並設計修復流程", "設計一套可上線的 AI 功能架構（訓練/部署/監控/回滾）", "輸出一份 Backend Architecture Plan（schema/index/api versioning/cache/SLA/DR）"]
+    desc: "系統工程師，先處理簡單程式修復；若資訊不足會先反查 Git 與其他智能體，再提出權限請求。",
+    caps: ["⚙️ 快速修復", "🧩 Git 反查", "🤝 跨智能體協作", "🧠 SMP 建議"],
+    prompts: ["先修簡單 bug 並回報修改點", "反查 Git 與相關智能體後再給修復方案", "若仍阻塞，提出最小權限請求"]
   },
   xiaobian: {
     label: "小編設計師", icon: "✍️",
-    desc: "已安裝 Brand Guardian + Image Prompt Engineer + Inclusive Visuals Specialist + UI Designer + UX Architect + Visual Storyteller + Book Co-Author Workflow + Bookkeeper & Controller + FP&A Analyst + Investment Researcher + Tax Strategist：可同時做品牌、敘事、體驗與財務/稅務/投研決策輸出。",
-    caps: ["🧭 品牌定位策略", "📷 攝影提示詞工程", "🌈 共融視覺反偏見", "🧱 UI 設計系統", "🎬 視覺故事敘事", "📖 章節共寫流程", "📒 財務結帳與內控", "📈 預算與滾動預測", "🔍 投資研究與估值", "🏛️ 稅務策略與合規"],
-    prompts: ["幫我建立完整品牌基礎（Purpose/Vision/Mission/Values/Personality）", "幫我把這個視覺概念轉成 Midjourney / DALL-E / SD 可用提示詞（含 anti-bias + negative prompt）", "用 Tax Strategist 格式輸出：Tax Memo + ETR Waterfall + Risk/Mitigation + Compliance Checklist"]
+    desc: "內容與視覺創作專家，擅長文案、版面、圖片生成、標題優化與摘要提煉。",
+    caps: ["✍️ 文案創作", "🎨 圖片生成", "🖼️ 視覺生成", "🎯 標題優化", "📝 摘要提煉"],
+    prompts: ["生成一張未來感 AI 智能體工作台圖片", "幫這段文字寫三個吸睛標題", "把這篇文章改成口語化版本"]
   },
   proclaimer: {
-    label: "申言者總管", icon: "✝️",
-    desc: "申言者已涵蓋總管中樞：可同時做任務分派、跨智能體統籌、倫理判斷、經文脈絡整理與關懷式對話。",
-    caps: ["📍 總管統籌", "🔗 多智能體協調", "⚖️ 倫理分析", "📖 聖經脈絡", "🌏 跨文化視角", "💡 價值衝突"],
-    prompts: ["請你以申言者總管身份判斷並分派這個任務", "這個決定的倫理問題在哪？", "從聖經角度看這件事", "幫我分析這個議題的不同立場"]
+    label: "申言者", icon: "✝️",
+    desc: "道德倫理分析師，擅長價值衝突拆解、跨文化詮釋與聖經脈絡解讀。",
+    caps: ["⚖️ 倫理分析", "📖 聖經脈絡", "🌏 跨文化視角", "💡 價值衝突"],
+    prompts: ["這個決定的倫理問題在哪？", "從聖經角度看這件事", "幫我分析這個議題的不同立場"]
   },
   whitehat: {
     label: "白帽駭客", icon: "🕵️",
@@ -843,75 +674,83 @@ const AGENT_META = {
   },
 };
 
-function loadChatAvatar() {
-  try {
-    const raw = localStorage.getItem("chat_avatar_dataurl");
-    if (!raw) return;
-    applyChatAvatar(raw);
-  } catch (_) {}
+const UI_LABELS = {
+  interactionMode: {
+    auto: "自動",
+    discussion: "討論",
+    analysis: "分析",
+    coding: "程式",
+    creative: "創意",
+    image_generation: "圖像生成",
+    horde_text: "共享文字",
+    qa: "問答",
+  },
+  taskStatus: {
+    pending: "待執行",
+    running: "執行中",
+    completed: "已完成",
+    failed: "失敗",
+    unknown: "未知",
+  },
+};
+
+function labelInteractionMode(mode) {
+  return UI_LABELS.interactionMode[String(mode || "").trim()] || mode || "自動";
 }
 
-function applyChatAvatar(dataUrl) {
-  const img = document.getElementById("chatAvatarImg");
-  const fallback = document.getElementById("chatAvatarFallback");
-  if (!img || !fallback) return;
-  if (!dataUrl) {
-    img.style.display = "none";
-    img.src = "";
-    fallback.style.display = "";
-    return;
-  }
-  img.src = dataUrl;
-  img.style.display = "";
-  fallback.style.display = "none";
-}
-
-function initChatAvatarPicker() {
-  const btn = document.getElementById("chatAvatarBtn");
-  const input = document.getElementById("voiceAvatarInput");
-  if (!btn || !input) return;
-  btn.addEventListener("click", () => input.click());
-  input.addEventListener("change", (e) => {
-    const file = e.target.files && e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const dataUrl = String(ev.target?.result || "");
-      if (!dataUrl) return;
-      applyChatAvatar(dataUrl);
-      try { localStorage.setItem("chat_avatar_dataurl", dataUrl); } catch (_) {}
-    };
-    reader.readAsDataURL(file);
-    e.target.value = "";
-  });
+function labelTaskStatus(status) {
+  return UI_LABELS.taskStatus[String(status || "").trim()] || status || "未知";
 }
 
 function normalizeAgentKey(key) {
   const normalized = String(key || "").trim().toLowerCase();
-  if (normalized === "dispatcher") return "proclaimer";
-  if (normalized === "learner") return "researcher";
-  return normalized;
+  const aliasMap = {
+    learner: "trevor", researcher: "trevor", engineer: "trevor",
+    dispatcher: "trevor", manager: "trevor", prophet: "trevor", proclaimer: "trevor",
+    xiaobian: "trevor", general: "trevor", whitehat: "trevor", hat: "trevor", relay: "trevor",
+    申言者: "trevor", 總管: "trevor", 工程師: "trevor", 研究員: "trevor",
+    小編: "trevor", 帽子: "trevor", 學習器: "trevor", 崔佛: "trevor",
+  };
+  return normalized === "trevor" ? "trevor" : (aliasMap[normalized] || "trevor");
+}
+
+function openExternal(url) {
+  window.open(url, "_blank");
+}
+
+function triggerFilePicker() {
+  $("fileInput")?.click();
+}
+
+function showHubPanel(panelId) {
+  showHub();
+  setTimeout(() => {
+    $(panelId)?.scrollIntoView({ behavior: "smooth" });
+  }, 100);
+}
+
+function syncModelHeader() {
+  $("currentModelLabel").textContent = state.modelLabel;
+  $("modelIndicator").textContent = "· " + state.modelLabel;
 }
 
 /* ════════════════════════════════════════
    Navigation
 ════════════════════════════════════════ */
 function showHub() {
-  if (voiceRuntime.callActive) terminateVoiceCall("語音通話已結束");
-  setVoiceConversationMode(false);
-  document.getElementById("hubView").style.display = "";
-  document.getElementById("chatView").classList.remove("vis");
+  $("hubView").style.display = "";
+  $("chatView").classList.remove("vis");
   setActiveNav("nav-hub");
 }
 
 function showChat() {
-  document.getElementById("hubView").style.display = "none";
-  document.getElementById("chatView").classList.add("vis");
+  $("hubView").style.display = "none";
+  $("chatView").classList.add("vis");
 }
 
 function setActiveNav(id) {
   document.querySelectorAll(".nav-item").forEach(n => n.classList.remove("active"));
-  const el = document.getElementById(id);
+  const el = $(id);
   if (el) el.classList.add("active");
 }
 
@@ -920,15 +759,12 @@ function setActiveNav(id) {
 ════════════════════════════════════════ */
 async function selectAgent(key, icon, label) {
   key = normalizeAgentKey(key);
-  if (key === "researcher") {
-    key = "researcher";
-    icon = "🔬";
-    label = AGENT_META.researcher.label;
-  }
+  icon = AGENT_META.trevor.icon;
+  label = AGENT_META.trevor.label;
   // Save current agent's chat before switching
   const prevKey = state.agentKey;
   if (prevKey && agentChats[prevKey] !== undefined) {
-    agentChats[prevKey].html = document.getElementById("chatArea").innerHTML;
+    agentChats[prevKey].html = $("chatArea").innerHTML;
     agentChats[prevKey].sessionId = state.sessionId;
   }
 
@@ -937,36 +773,36 @@ async function selectAgent(key, icon, label) {
   state.agentLabel = meta.label || label;
   state.agentIcon = meta.icon || icon;
   setActiveNav("nav-" + key);
-  document.getElementById("roleTag").textContent = (meta.icon || icon) + " " + (meta.label || label);
-  document.getElementById("modelIndicator").textContent = "· " + state.modelLabel;
+  $("roleTag").textContent = (meta.icon || icon) + " " + (meta.label || label);
+  syncModelHeader();
   showChat();
 
-  const area = document.getElementById("chatArea");
+  const area = $("chatArea");
   const saved = agentChats[key];
 
-    if (saved && saved.html) {
-      // Restore in-memory conversation (fastest path)
-      area.innerHTML = saved.html;
-      state.sessionId = saved.sessionId;
-    } else {
+  if (saved && saved.html) {
+    // Restore in-memory conversation (fastest path)
+    area.innerHTML = saved.html;
+    state.sessionId = saved.sessionId;
+  } else {
     area.innerHTML = "";
     // Try to load all records for this agent from server
     const hist = await fetchAgentHistory(key);
     if (hist && hist.messages.length) {
       state.sessionId = newId();
       hist.messages.forEach(m => {
-        const { row, bubble } = buildMessageRow(m.role === "user" ? "user" : "assistant");
+        const div = document.createElement("div");
+        div.className = "msg " + (m.role === "user" ? "user" : "assistant");
         if (m.time) {
           const ts = document.createElement("div");
           ts.style.cssText = "font-size:10px;color:rgba(255,255,255,.18);margin-bottom:2px";
           ts.textContent = m.time;
-          bubble.appendChild(ts);
+          div.appendChild(ts);
         }
         const txt = document.createElement("div");
-        txt.className = "msg-body";
         txt.textContent = m.content || "";
-        bubble.appendChild(txt);
-        area.appendChild(row);
+        div.appendChild(txt);
+        area.appendChild(div);
       });
       agentChats[key] = { html: area.innerHTML, sessionId: state.sessionId };
     } else {
@@ -977,15 +813,13 @@ async function selectAgent(key, icon, label) {
     }
   }
   area.scrollTop = area.scrollHeight;
-  syncVideoPanelVisibility();
-  refreshInputPlaceholder();
   resetSendConfirmation();
-  document.getElementById("msgInput").focus();
+  $("msgInput").focus();
 }
 
 async function fetchAgentHistory(agentKey) {
   try {
-    const r = await fetch(`/history?agent=${encodeURIComponent(agentKey)}&limit=5000`);
+    const r = await fetch(`/history?agent=${encodeURIComponent(agentKey)}&limit=500`);
     if (!r.ok) return null;
     const records = await r.json();
     if (!Array.isArray(records) || !records.length) return null;
@@ -1000,58 +834,11 @@ async function fetchAgentHistory(agentKey) {
 
 function renderAgentCard(key) {
   const meta = AGENT_META[key] || {};
-  const area = document.getElementById("chatArea");
+  const area = $("chatArea");
   const card = document.createElement("div");
   card.className = "agent-card";
-  const narratologistCaps = ["📜 敘事結構分析", "🧭 角色弧線診斷", "🎬 節奏與張力曲線"];
-  const uxResearchCaps = ["🔬 使用者研究驗證", "🧪 可用性測試設計", "📈 行為數據洞察"];
-  const codeReviewCaps = ["👁️ 程式碼審查", "🛡️ 安全風險掃描", "⚙️ 效能與測試檢核"];
-  const agencyCaps = ["🧩 多智能體協作", "🛤️ 平行任務拆解", "🧭 跨域藍圖整合"];
-  const landingSprintCaps = ["🚀 一日落地頁衝刺", "⏱️ 時間盒協作", "🎯 轉換閉環優化"];
-  const memoryCaps = ["🧠 記憶交接", "🔁 Recall/Rollback", "🏷️ 專案標籤治理"];
-  const agenticSearchCaps = ["🤖 Agentic 任務完成", "🧭 WebMCP 可執行性", "📉 任務摩擦點修復"];
-  const aiCitationCaps = ["🔮 AI 引用能見度", "📊 多平台 Citation 審查", "🧠 AEO/GEO 修復包"];
-  const voiceCaps = ["📞 語音通話", "🎙️ STT 語音輸入", "🔊 TTS 自動朗讀"];
-  const mergedCaps = Array.from(new Set([...(meta.caps || []), ...narratologistCaps, ...uxResearchCaps, ...codeReviewCaps, ...agencyCaps, ...landingSprintCaps, ...memoryCaps, ...agenticSearchCaps, ...aiCitationCaps, ...voiceCaps]));
-  const caps = mergedCaps.map(c => `<span class="apc-cap">${c}</span>`).join("");
-  const basePrompts = Array.isArray(meta.prompts) ? meta.prompts : [];
-  const narratologistPrompts = [
-    "請用 Narratologist 框架分析這段內容（含結構與敘事負債）",
-    "幫我做角色弧線檢查（want/need/lie/transformation）",
-  ];
-  const uxResearchPrompts = [
-    "請用 UX Researcher 方法驗證這個方案（研究問題/方法/樣本/指標）",
-    "幫我設計一份 60 分鐘可用性測試腳本（含任務與成功指標）",
-  ];
-  const codeReviewPrompts = [
-    "請幫我做完整 Code Review（🔴 blocker / 🟡 suggestion / 💭 nit）",
-    "請從 correctness/security/performance/testing 五個面向審查這段程式",
-  ];
-  const agencyPrompts = [
-    "請把這個任務拆成多智能體並行方案，並輸出整合藍圖",
-    "請用跨職能方式產出：市場/技術/UX/執行計畫的一致版本",
-  ];
-  const landingSprintPrompts = [
-    "請輸出 Landing Page Sprint 流程（上午並行/中午實作/下午轉換審查）",
-    "請產出 Copy+Design 並行、Frontend 合併節點、Growth 回饋迭代的一日排程",
-  ];
-  const memoryPrompts = [
-    "請為這個 MVP 任務輸出 remember/recall/rollback 的記憶標籤與交接策略",
-    "請用 Startup MVP Memory 流程規劃：並行、交接、QA 回滾點與恢復路徑",
-  ];
-  const agenticSearchPrompts = [
-    "請審查這個流程的 WebMCP readiness（discoverable/initiatable/completable）",
-    "請產出 Agent Friction Map + data-mcp-* 修復清單 + 重測計畫",
-  ];
-  const aiCitationPrompts = [
-    "請做 AI Citation Audit（ChatGPT/Claude/Gemini/Perplexity）並輸出 scorecard",
-    "請做 lost prompt analysis，並給我依影響排序的 AEO/GEO fix pack",
-  ];
-  const voicePrompts = [
-    "請用語音模式回答，重點先講結論，再給 3 步驟",
-    "請用我目前選擇的語音語言，給我可直接執行的短指令",
-  ];
-  const prompts = Array.from(new Set([...basePrompts, ...narratologistPrompts, ...uxResearchPrompts, ...codeReviewPrompts, ...agencyPrompts, ...landingSprintPrompts, ...memoryPrompts, ...agenticSearchPrompts, ...aiCitationPrompts, ...voicePrompts]));
+  const caps = (meta.caps || []).map(c => `<span class="apc-cap">${c}</span>`).join("");
+  const prompts = Array.isArray(meta.prompts) ? meta.prompts : [];
   card.innerHTML = `
     <div class="apc-top">
       <div class="apc-icon-wrap">${meta.icon || "🤖"}</div>
@@ -1087,7 +874,7 @@ function renderAgentCard(key) {
 }
 
 function usePrompt(text, options = {}) {
-  const input = document.getElementById("msgInput");
+  const input = $("msgInput");
   const finalText = String(text || "").trim();
   if (!input || !finalText) return;
   input.value = finalText;
@@ -1105,26 +892,26 @@ function usePrompt(text, options = {}) {
   }
   state.attachments = [];
   renderAttach();
-  if (!document.getElementById("chatView").classList.contains("vis")) showChat();
+  if (!$("chatView").classList.contains("vis")) showChat();
   return sendMessage({ source: "agent_prompt", force: true });
 }
 
 function updateAgentMsgCount(key) {
   const chat = agentChats[key];
   if (!chat) return;
-  const count = (chat.html.match(/class="msg-row user"/g) || []).length;
-  const el = document.getElementById("cnt-" + key);
+  const count = (chat.html.match(/class="msg user"/g) || []).length;
+  const el = $("cnt-" + key);
   if (!el) return;
   if (count > 0) { el.textContent = count; el.classList.add("vis"); }
   else { el.classList.remove("vis"); }
 }
 
 function startChat(modelKey, modelLabel) {
-  const card = document.getElementById("mc-" + modelKey);
+  const card = $("mc-" + modelKey);
   if (card && card.classList.contains("mc-offline")) {
     const badge = card.querySelector("[id^='mbadge-']");
     const orig = badge ? badge.textContent : "";
-    if (badge) { badge.textContent = "請先設定 API Key"; badge.className = "badge b-disabled"; }
+    if (badge) { badge.textContent = "請先設定 API 金鑰"; badge.className = "badge b-disabled"; }
     setTimeout(() => { if (badge) { badge.textContent = orig || "未設定"; badge.className = "badge b-disabled"; } }, 2000);
     return;
   }
@@ -1132,10 +919,9 @@ function startChat(modelKey, modelLabel) {
   state.modelLabel = modelLabel;
   state.sessionId = newId();
   setModelCardSelection(modelKey);
-  document.getElementById("currentModelLabel").textContent = modelLabel;
-  document.getElementById("modelIndicator").textContent = "· " + modelLabel;
-  document.getElementById("chatArea").innerHTML = "";
-  document.getElementById("qrBar").style.display = "none";
+  syncModelHeader();
+  $("chatArea").innerHTML = "";
+  $("qrBar").style.display = "none";
   state.attachments = []; renderAttach();
   resetSendConfirmation();
   document.querySelectorAll(".nav-item").forEach(n => n.classList.remove("active"));
@@ -1143,7 +929,7 @@ function startChat(modelKey, modelLabel) {
   showChat();
   renderBackendSync({ agent: state.agentKey, model: modelLabel }, "idle");
   addMsg("assistant", `【${state.agentLabel}】已切換至「${modelLabel}」。請輸入您的問題。`);
-  document.getElementById("msgInput").focus();
+  $("msgInput").focus();
 }
 
 function setRpMode(btn, mode) {
@@ -1151,78 +937,6 @@ function setRpMode(btn, mode) {
   btn.classList.add("on");
   state.interactionMode = mode;
   document.getElementById("interactionSelect").value = mode === "discussion" ? "discussion" : mode;
-  syncVideoPanelVisibility();
-  refreshInputPlaceholder();
-  resetSendConfirmation();
-}
-
-function isVideoWorkflowContext() {
-  const creativeSubmode = document.getElementById("creativeSubmodeSelect")?.value || "";
-  const iMode = document.getElementById("interactionSelect")?.value || state.interactionMode;
-  const videoModes = new Set([
-    "three_minute_video_generate",
-    "image_to_video_shortform",
-    "text_to_video_shortform",
-    "short_video_plan",
-    "scene_sequence_design",
-    "voiceover_caption_planning",
-  ]);
-  return state.agentKey === "xiaobian" && (state.videoWorkflowMode || (iMode === "creative" && videoModes.has(creativeSubmode)));
-}
-
-function syncVideoPanelVisibility() {
-  const panel = document.getElementById("videoWorkflowPanel");
-  if (!panel) return;
-  const iMode = document.getElementById("interactionSelect")?.value || state.interactionMode;
-  panel.hidden = !(state.agentKey === "xiaobian" && (iMode === "creative" || state.videoWorkflowMode));
-}
-
-function buildVideoWorkflowSettings() {
-  return {
-    creative_submode: document.getElementById("creativeSubmodeSelect")?.value || "three_minute_video_generate",
-    video_workflow_engine: document.getElementById("videoWorkflowEngineSelect")?.value || "seedance2_n8n",
-    aspect_ratio: document.getElementById("videoAspectRatioSelect")?.value || "9:16",
-    target_final_duration_seconds: Math.max(180, Number(document.getElementById("videoDurationInput")?.value || 180)),
-    segment_duration_seconds: Math.min(15, Math.max(4, Number(document.getElementById("videoSegmentDurationInput")?.value || 8))),
-    subtitle_mode: document.getElementById("videoSubtitleModeSelect")?.value || "bilingual_caption_burn",
-    audio_mode: document.getElementById("videoAudioModeSelect")?.value || "royalty_free_theme_audio",
-    narration_mode: document.getElementById("videoNarrationModeSelect")?.value || "zh_tw_mature_narration",
-    task_title: (document.getElementById("videoTaskTitle")?.value || "").trim(),
-    brief: (document.getElementById("videoTaskBrief")?.value || "").trim(),
-  };
-}
-
-async function activateVideoWorkflowMode() {
-  const select = document.getElementById("interactionSelect");
-  if (select) select.value = "creative";
-  state.interactionMode = "creative";
-  state.videoWorkflowMode = true;
-  if (state.agentKey !== "xiaobian") {
-    await selectAgent("xiaobian", "✍️", "小編設計師");
-  }
-  syncVideoPanelVisibility();
-  refreshInputPlaceholder();
-  resetSendConfirmation();
-  const input = document.getElementById("msgInput");
-  if (input) input.focus();
-  const hint = document.getElementById("videoWorkflowHint");
-  if (hint) hint.textContent = "影片任務模式已啟用：送出後將建立任務，並由任務看板追蹤。";
-}
-
-function prefillVideoPrompt() {
-  const input = document.getElementById("msgInput");
-  if (!input) return;
-  const video = buildVideoWorkflowSettings();
-  const parts = [
-    video.task_title ? `任務：${video.task_title}` : "",
-    video.brief ? `補充：${video.brief}` : "",
-    `請用 ${video.aspect_ratio} 直式輸出，最終至少 ${video.target_final_duration_seconds} 秒，字幕模式 ${video.subtitle_mode}，音效 ${video.audio_mode}，旁白 ${video.narration_mode}。`,
-  ].filter(Boolean);
-  input.value = parts.join("\n");
-  input.style.height = "auto";
-  input.style.height = Math.min(input.scrollHeight, 100) + "px";
-  input.focus();
-  resetSendConfirmation();
 }
 
 /* ════════════════════════════════════════
@@ -1236,142 +950,111 @@ function extractConversationHistory(maxTurns = 12) {
     // 跳過 agent-card 和 thinking dots
     if (el.querySelector(".apc-icon-wrap") || el.querySelector(".thinking-dots")) continue;
     const role = el.classList.contains("user") ? "user" : "assistant";
-    const body = el.querySelector(".msg-body");
-    const text = String(body?.textContent || el.textContent || "").trim();
-    if (text) result.push({ role, text });
+    // 取純文字（跳過時間戳小字）
+    const textNodes = Array.from(el.childNodes)
+      .filter(n => n.nodeType === Node.TEXT_NODE || (n.nodeName === "DIV" && !n.style?.fontSize?.includes("10px")))
+      .map(n => n.textContent || "").join("").trim();
+    if (textNodes) result.push({ role, text: textNodes });
   }
   // 只取最後 maxTurns 條，且排除最後一條（當前 user 訊息，payload 裡已有）
   return result.slice(-maxTurns - 1, -1);
 }
 
-function getUserAvatarDataUrl() {
-  const img = document.getElementById("chatAvatarImg");
-  return img && img.style.display !== "none" ? String(img.src || "") : "";
-}
-
-function buildMessageRow(role) {
-  const row = document.createElement("div");
-  row.className = "msg-row " + role;
-
-  const avatar = document.createElement("div");
-  avatar.className = "msg-avatar";
-  if (role === "user") {
-    const src = getUserAvatarDataUrl();
-    if (src) {
-      const img = document.createElement("img");
-      img.src = src;
-      img.alt = "";
-      avatar.appendChild(img);
-    } else {
-      const fallback = document.createElement("span");
-      fallback.className = "msg-avatar-text";
-      fallback.textContent = "🙂";
-      avatar.appendChild(fallback);
-    }
-  } else {
-    const fallback = document.createElement("span");
-    fallback.className = "msg-avatar-text";
-    fallback.textContent = state.agentIcon || "🤖";
-    avatar.appendChild(fallback);
-  }
-
-  const bubble = document.createElement("div");
-  bubble.className = "msg " + role;
-  row.appendChild(avatar);
-  row.appendChild(bubble);
-  return { row, bubble };
-}
-
 function addMsg(role, text) {
   const area = document.getElementById("chatArea");
-  const { row, bubble } = buildMessageRow(role);
-  const body = document.createElement("div");
-  body.className = "msg-body";
-  body.textContent = text;
-  bubble.appendChild(body);
-  area.appendChild(row);
+  const div = document.createElement("div");
+  div.className = "msg " + role;
+  div.textContent = text;
+  area.appendChild(div);
   area.scrollTop = area.scrollHeight;
-  return bubble;
-}
-
-function extractAssistantReply(payload) {
-  const data = payload && typeof payload === "object" ? payload : {};
-  const readString = (v) => (typeof v === "string" ? v.trim() : "");
-  const pickKeys = (obj, keys) => {
-    for (const k of keys) {
-      const val = readString(obj?.[k]);
-      if (val) return val;
-    }
-    return "";
-  };
-
-  const direct = pickKeys(data, [
-    "reply", "response", "message", "ai", "answer", "output", "result", "text", "content"
-  ]);
-  if (direct) return direct;
-
-  const nested = pickKeys(data?.data || {}, [
-    "reply", "response", "message", "ai", "answer", "output", "result", "text", "content"
-  ]);
-  if (nested) return nested;
-
-  const messages = Array.isArray(data?.messages) ? data.messages : [];
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i] || {};
-    const role = String(m.role || "").toLowerCase();
-    const content = pickKeys(m, ["content", "text", "message", "response", "reply"]);
-    if (content && (!role || role === "assistant" || role === "ai" || role === "model" || role === "bot")) {
-      return content;
-    }
-  }
-
-  return "";
+  return div;
 }
 
 function addMediaMsg(role, files) {
   const area = document.getElementById("chatArea");
   files.forEach(f => {
-    const { row, bubble } = buildMessageRow(role);
+    const div = document.createElement("div");
+    div.className = "msg " + role;
     if (f.type.startsWith("image/")) {
       const img = document.createElement("img");
       img.src = f.dataUrl; img.alt = f.name; img.className = "msg-img";
       img.onclick = () => openLightbox(f.dataUrl);
-      bubble.appendChild(img);
+      div.appendChild(img);
     } else if (f.type.startsWith("video/")) {
       const vid = document.createElement("video");
       vid.src = f.dataUrl; vid.controls = true; vid.className = "msg-vid";
-      bubble.appendChild(vid);
+      div.appendChild(vid);
     } else {
-      const body = document.createElement("div");
-      body.className = "msg-body";
-      body.textContent = "📄 " + f.name;
-      bubble.appendChild(body);
+      div.textContent = "📄 " + f.name;
     }
-    area.appendChild(row);
+    area.appendChild(div);
   });
   document.getElementById("chatArea").scrollTop = 99999;
 }
 
 function appendGeneratedImages(container, images) {
-  const list = Array.isArray(images) ? images.filter(img => img && img.src) : [];
+  const list = Array.isArray(images) ? images.filter(img => img && (img.src || img.url)) : [];
   if (!container || !list.length) return;
   const grid = document.createElement("div");
   grid.className = "generated-image-grid";
   list.forEach((item, index) => {
+    const source = item.src || item.url;
     const card = document.createElement("div");
     card.className = "generated-image-card";
     const img = document.createElement("img");
-    img.src = item.src;
-    img.alt = item.revised_prompt || item.prompt || `generated image ${index + 1}`;
-    img.onclick = () => openLightbox(item.src);
+    img.src = source;
+    img.alt = item.alt || item.revised_prompt || item.prompt || `生成圖片 ${index + 1}`;
+    img.onclick = () => openLightbox(source);
     const meta = document.createElement("div");
     meta.className = "generated-image-meta";
-    meta.textContent = `${item.provider || "image"} · ${item.model || "generated"}`;
+    meta.textContent = `${item.provider || "圖像"} · ${item.model || "已生成"}`;
     card.appendChild(img);
     card.appendChild(meta);
     grid.appendChild(card);
   });
   container.appendChild(grid);
+}
+
+function isAIHordeMode(mode) {
+  return mode === "image_generation" || mode === "horde_text";
+}
+
+async function runAIHordeJob(mode, prompt, bubble) {
+  const kind = mode === "image_generation" ? "image" : "text";
+  const createResponse = await fetch("/api/ai-horde/jobs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind, prompt, params: {} }),
+  });
+  let created = {};
+  try { created = await createResponse.json(); } catch (_) {}
+  if (!createResponse.ok || !created.job_id) {
+    return { ok: false, status: createResponse.status, data: created };
+  }
+  const deadline = Date.now() + 10 * 60 * 1000;
+  let pollAfter = Math.max(2000, Math.min(5000, Number(created.poll_after_ms || 2000)));
+  while (Date.now() < deadline) {
+    bubble.textContent = created.state === "queued" ? "已排入共享算力。" : "共享算力正在生成。";
+    await new Promise(resolve => setTimeout(resolve, pollAfter));
+    const pollResponse = await fetch(`/api/ai-horde/jobs/${created.job_id}`, { headers: { "Accept": "application/json" } });
+    let result = {};
+    try { result = await pollResponse.json(); } catch (_) {}
+    if (!pollResponse.ok || result.state === "failed" || result.state === "complete") {
+      return { ok: pollResponse.ok && result.state === "complete", status: pollResponse.status, data: result };
+    }
+    created = result;
+    const queuePosition = Number(result.queue_position || 0);
+    const waitTime = Number(result.wait_time || 0);
+    bubble.textContent = result.state === "queued"
+      ? `已排入共享算力，前方約 ${queuePosition} 個工作。`
+      : `共享算力正在生成，預估等待 ${waitTime} 秒。`;
+    pollAfter = Math.max(2000, Math.min(5000, Number(result.poll_after_ms || 3000)));
+  }
+  return {
+    ok: false,
+    status: 408,
+    data: { error: { code: "job_timeout", message: "共享算力等待逾時，請稍後重新提交。" } },
+  };
 }
 
 function showQR(replies) {
@@ -1414,477 +1097,6 @@ function submitQuickReply(reply) {
 }
 
 /* ════════════════════════════════════════
-   Voice Call (STT + TTS)
-════════════════════════════════════════ */
-function _voiceEl(id) { return document.getElementById(id); }
-
-function getVoiceLang() {
-  return _voiceEl("voiceLangSelect")?.value || "zh-TW";
-}
-
-function setVoiceStatus(text, tone = "idle") {
-  const el = _voiceEl("voiceStatus");
-  if (!el) return;
-  el.textContent = text;
-  el.classList.remove("on", "err");
-  if (tone === "on") el.classList.add("on");
-  if (tone === "err") el.classList.add("err");
-}
-
-function setVoiceLive(text) {
-  const el = _voiceEl("voiceLive");
-  if (!el) return;
-  el.textContent = text || "尚未開始語音對話";
-}
-
-function refreshVoiceButtons() {
-  const callBtn = _voiceEl("voiceCallBtn");
-  const micBtn = _voiceEl("voiceMicBtn");
-  if (callBtn) {
-    callBtn.classList.toggle("active", voiceRuntime.callActive);
-    callBtn.textContent = voiceRuntime.callActive ? "結束語音通話" : "開始語音通話";
-  }
-  if (micBtn) {
-    micBtn.classList.toggle("active", voiceRuntime.listening);
-    micBtn.textContent = voiceRuntime.listening ? "🛑 停止輸入" : "🎙️ 語音輸入";
-  }
-}
-
-function applyVoiceSettings() {
-  const cfg = {
-    lang: getVoiceLang(),
-    textCorrect: !!_voiceEl("voiceTextCorrect")?.checked,
-    correctLevel: _voiceEl("voiceCorrectLevel")?.value || "standard",
-    autoSpeak: !!_voiceEl("voiceAutoSpeak")?.checked,
-    autoSend: !!_voiceEl("voiceAutoSend")?.checked,
-  };
-  try { localStorage.setItem("voice_dialog_settings", JSON.stringify(cfg)); } catch (_) {}
-  if (voiceRuntime.recognition) voiceRuntime.recognition.lang = cfg.lang;
-}
-
-function loadVoiceSettings() {
-  try {
-    const raw = localStorage.getItem("voice_dialog_settings");
-    if (!raw) return;
-    const cfg = JSON.parse(raw);
-    if (cfg?.lang && _voiceEl("voiceLangSelect")) _voiceEl("voiceLangSelect").value = cfg.lang;
-    if (typeof cfg?.textCorrect === "boolean" && _voiceEl("voiceTextCorrect")) _voiceEl("voiceTextCorrect").checked = cfg.textCorrect;
-    if (cfg?.correctLevel && _voiceEl("voiceCorrectLevel")) _voiceEl("voiceCorrectLevel").value = cfg.correctLevel;
-    if (typeof cfg?.autoSpeak === "boolean" && _voiceEl("voiceAutoSpeak")) _voiceEl("voiceAutoSpeak").checked = cfg.autoSpeak;
-    if (typeof cfg?.autoSend === "boolean" && _voiceEl("voiceAutoSend")) _voiceEl("voiceAutoSend").checked = cfg.autoSend;
-  } catch (_) {}
-}
-
-function updateInputFromVoice(text) {
-  const input = document.getElementById("msgInput");
-  if (!input) return;
-  input.value = text;
-  input.style.height = "auto";
-  input.style.height = Math.min(input.scrollHeight, 100) + "px";
-}
-
-function _voiceIsZh(lang) {
-  return String(lang || "").toLowerCase().startsWith("zh");
-}
-
-function _voiceCorrectionEnabled() {
-  return !!_voiceEl("voiceTextCorrect")?.checked;
-}
-
-function _voiceCorrectionLevel() {
-  return _voiceEl("voiceCorrectLevel")?.value || "standard";
-}
-
-function _normalizeVoiceSpacingAndPunctuation(text, lang) {
-  let t = String(text || "");
-  t = t.replace(/\s+/g, " ").trim();
-  if (_voiceIsZh(lang)) {
-    // 中文場景不保留中英之間過多空白，並統一標點。
-    t = t
-      .replace(/([^\x00-\x7F])\s+([^\x00-\x7F])/g, "$1$2")
-      .replace(/,\s*/g, "，")
-      .replace(/\.\s*/g, "。")
-      .replace(/;\s*/g, "；")
-      .replace(/:\s*/g, "：")
-      .replace(/\?\s*/g, "？")
-      .replace(/!\s*/g, "！");
-  }
-  // 壓縮連續標點
-  t = t.replace(/([，。！？；：,.!?;:])\1+/g, "$1");
-  return t.trim();
-}
-
-function _dedupeAdjacentFragments(text) {
-  const t = String(text || "").trim();
-  if (!t) return t;
-  // 去除常見連續重複詞句（語音引擎常見抖動）
-  return t
-    .replace(/\b(\S+)(\s+\1){1,}\b/gi, "$1")
-    .replace(/(.{2,8})\1{1,}/g, "$1")
-    .trim();
-}
-
-function _stripFillerWords(text, level = "standard") {
-  let t = String(text || "");
-  if (!t) return t;
-  const fillers = VOICE_FILLERS_ZH;
-  for (const filler of fillers) {
-    const pattern = new RegExp(`(^|[，。！？\\s])${filler}([，。！？\\s]|$)`, "g");
-    t = t.replace(pattern, "$1$2");
-  }
-  if (level === "aggressive") {
-    t = t
-      .replace(/我想問一下/g, "請問")
-      .replace(/可以幫我嗎/g, "請幫我")
-      .replace(/幫我一下/g, "幫我");
-  }
-  return t.replace(/\s+/g, " ").trim();
-}
-
-function _applyVoiceReplacementDictionary(text, lang) {
-  let t = String(text || "");
-  const maps = _voiceIsZh(lang) ? VOICE_REPLACEMENTS_ZH : VOICE_REPLACEMENTS_EN;
-  for (const [pattern, replacement] of maps) {
-    t = t.replace(pattern, replacement);
-  }
-  return t;
-}
-
-function correctVoiceTranscript(rawText, lang) {
-  let text = String(rawText || "").trim();
-  if (!text) return text;
-  text = _normalizeVoiceSpacingAndPunctuation(text, lang);
-  text = _dedupeAdjacentFragments(text);
-  if (!_voiceCorrectionEnabled()) return text;
-  text = _applyVoiceReplacementDictionary(text, lang);
-  text = _stripFillerWords(text, _voiceCorrectionLevel());
-  text = _normalizeVoiceSpacingAndPunctuation(text, lang);
-  return text;
-}
-
-function queueVoiceAutoSend(finalText) {
-  if (voiceRuntime.pendingAutoSendTimer) {
-    clearTimeout(voiceRuntime.pendingAutoSendTimer);
-    voiceRuntime.pendingAutoSendTimer = null;
-  }
-  voiceRuntime.pendingAutoSendTimer = setTimeout(() => {
-    const input = document.getElementById("msgInput");
-    if (!input) return;
-    const latest = String(input.value || "").trim();
-    if (!latest || state.busy) return;
-    const now = Date.now();
-    const duplicate = latest === voiceRuntime.lastFinalSent && (now - voiceRuntime.lastSentAt < 2500);
-    if (duplicate) return;
-    voiceRuntime.lastFinalSent = latest;
-    voiceRuntime.lastSentAt = now;
-    sendMessage({ source: "voice_call", force: true });
-  }, 420);
-}
-
-function stopVoiceListening(manual = true) {
-  voiceRuntime.manualStop = manual;
-  if (voiceRuntime.restartTimer) {
-    clearTimeout(voiceRuntime.restartTimer);
-    voiceRuntime.restartTimer = null;
-  }
-  if (voiceRuntime.pendingAutoSendTimer) {
-    clearTimeout(voiceRuntime.pendingAutoSendTimer);
-    voiceRuntime.pendingAutoSendTimer = null;
-  }
-  if (!voiceRuntime.recognition || !voiceRuntime.listening) {
-    refreshVoiceButtons();
-    return;
-  }
-  try { voiceRuntime.recognition.stop(); } catch (_) {}
-}
-
-function startVoiceListening() {
-  if (!voiceRuntime.recognitionSupported || !voiceRuntime.recognition) {
-    setVoiceStatus("瀏覽器不支援語音辨識", "err");
-    return;
-  }
-  if (voiceRuntime.listening || state.busy) return;
-  voiceRuntime.manualStop = false;
-  voiceRuntime.recognition.lang = getVoiceLang();
-  try {
-    voiceRuntime.recognition.start();
-  } catch (err) {
-    setVoiceStatus(`無法啟動語音：${err.message || err}`, "err");
-  }
-}
-
-function toggleVoiceListening() {
-  if (voiceRuntime.speaking) {
-    interruptAssistantSpeech("已打斷 AI，請說");
-  }
-  if (voiceRuntime.listening) {
-    stopVoiceListening(true);
-    setVoiceStatus("語音輸入已停止", "idle");
-  } else {
-    startVoiceListening();
-  }
-  refreshVoiceButtons();
-}
-
-function scheduleVoiceResume(delay = 320) {
-  if (!voiceRuntime.callActive) return;
-  if (voiceRuntime.restartTimer) clearTimeout(voiceRuntime.restartTimer);
-  voiceRuntime.restartTimer = setTimeout(() => {
-    if (!voiceRuntime.callActive) return;
-    startVoiceListening();
-  }, delay);
-}
-
-function setVoiceConversationMode(active) {
-  document.body.classList.toggle("voice-conversation", !!active);
-}
-
-function terminateVoiceCall(statusText = "語音通話已結束") {
-  voiceRuntime.callActive = false;
-  voiceRuntime.manualStop = true;
-  stopVoiceListening(true);
-  if (voiceRuntime.synthesisSupported) window.speechSynthesis.cancel();
-  voiceRuntime.speaking = false;
-  voiceRuntime.speakingSegment = "";
-  setVoiceConversationMode(false);
-  setVoiceStatus(statusText, "idle");
-  refreshVoiceButtons();
-}
-
-function splitReplyIntoSpeechSentences(text) {
-  const clean = String(text || "").replace(/\s+/g, " ").trim();
-  if (!clean) return [];
-  const firstPass = clean
-    .split(/(?<=[。！？!?；;])/)
-    .map(s => s.trim())
-    .filter(Boolean);
-  const result = [];
-  for (const seg of firstPass) {
-    if (seg.length <= 60) {
-      result.push(seg);
-      continue;
-    }
-    const sub = seg.split(/(?<=[，,])/).map(s => s.trim()).filter(Boolean);
-    if (sub.length) result.push(...sub);
-    else result.push(seg);
-  }
-  return result.slice(0, 24);
-}
-
-function _normalizeVoiceCompare(text) {
-  return String(text || "").toLowerCase().replace(/[，。！？；：,.!?;:\s]/g, "");
-}
-
-function isLikelyTtsEcho(text) {
-  const heard = _normalizeVoiceCompare(text);
-  const speaking = _normalizeVoiceCompare(voiceRuntime.speakingSegment);
-  if (!heard || !speaking) return false;
-  if (heard.length < 2) return false;
-  if (speaking.includes(heard) || heard.includes(speaking)) return true;
-  return false;
-}
-
-function interruptAssistantSpeech(statusText = "已打斷 AI") {
-  voiceRuntime.speakingSessionId += 1;
-  if (voiceRuntime.synthesisSupported) window.speechSynthesis.cancel();
-  voiceRuntime.speaking = false;
-  voiceRuntime.speakingSegment = "";
-  setVoiceStatus(statusText, voiceRuntime.callActive ? "on" : "idle");
-  if (voiceRuntime.callActive) startVoiceListening();
-}
-
-function _pickVoiceForLang(lang) {
-  if (!voiceRuntime.synthesisSupported) return null;
-  const all = window.speechSynthesis.getVoices() || [];
-  if (!all.length) return null;
-  return all.find(v => (v.lang || "").toLowerCase() === lang.toLowerCase())
-    || all.find(v => (v.lang || "").toLowerCase().startsWith(lang.slice(0, 2).toLowerCase()))
-    || null;
-}
-
-function speakAssistantReply(text) {
-  return new Promise((resolve) => {
-    const clean = String(text || "").trim();
-    if (!clean || !_voiceEl("voiceAutoSpeak")?.checked || !voiceRuntime.synthesisSupported) {
-      resolve();
-      return;
-    }
-    try {
-      window.speechSynthesis.cancel();
-      const segments = splitReplyIntoSpeechSentences(clean);
-      if (!segments.length) {
-        resolve();
-        return;
-      }
-      voiceRuntime.speaking = true;
-      voiceRuntime.speakingSessionId += 1;
-      const sessionId = voiceRuntime.speakingSessionId;
-      setVoiceStatus("AI 分句朗讀中", "on");
-      // 保持聆聽，以便使用者可插話打斷。
-      if (voiceRuntime.callActive) startVoiceListening();
-
-      const speakNext = (index) => {
-        if (sessionId !== voiceRuntime.speakingSessionId || !voiceRuntime.speaking) {
-          resolve();
-          return;
-        }
-        if (index >= segments.length) {
-          voiceRuntime.speaking = false;
-          voiceRuntime.speakingSegment = "";
-          setVoiceStatus(voiceRuntime.callActive ? "語音通話中（可插話）" : "語音就緒", voiceRuntime.callActive ? "on" : "idle");
-          resolve();
-          return;
-        }
-
-        const segment = segments[index];
-        voiceRuntime.speakingSegment = segment;
-        const utt = new SpeechSynthesisUtterance(segment);
-        utt.lang = getVoiceLang();
-        const selectedVoice = _pickVoiceForLang(utt.lang);
-        if (selectedVoice) utt.voice = selectedVoice;
-        utt.rate = 1.01;
-        utt.pitch = 1.0;
-        utt.onend = () => {
-          if (sessionId !== voiceRuntime.speakingSessionId || !voiceRuntime.speaking) {
-            resolve();
-            return;
-          }
-          // 句與句之間保留極短空檔，給使用者插話。
-          setTimeout(() => speakNext(index + 1), 120);
-        };
-        utt.onerror = () => {
-          if (sessionId !== voiceRuntime.speakingSessionId) {
-            resolve();
-            return;
-          }
-          voiceRuntime.speaking = false;
-          voiceRuntime.speakingSegment = "";
-          setVoiceStatus("語音朗讀失敗", "err");
-          resolve();
-        };
-        window.speechSynthesis.speak(utt);
-      };
-
-      speakNext(0);
-    } catch (_) {
-      voiceRuntime.speaking = false;
-      voiceRuntime.speakingSegment = "";
-      resolve();
-    }
-  });
-}
-
-function _initRecognition() {
-  if (!voiceRuntime.recognitionSupported) return;
-  const rec = new VoiceRecognitionCtor();
-  rec.continuous = true;
-  rec.interimResults = true;
-  rec.maxAlternatives = 1;
-  rec.lang = getVoiceLang();
-  rec.onstart = () => {
-    voiceRuntime.listening = true;
-    setVoiceStatus(voiceRuntime.callActive ? "語音通話中" : "語音輸入中", "on");
-    refreshVoiceButtons();
-  };
-  rec.onresult = (event) => {
-    let interim = "";
-    const finals = [];
-    const lang = getVoiceLang();
-    for (let i = event.resultIndex; i < event.results.length; i++) {
-      const result = event.results[i];
-      const transcript = String(result?.[0]?.transcript || "").trim();
-      if (!transcript) continue;
-      if (result.isFinal) finals.push(transcript);
-      else interim += transcript + " ";
-    }
-
-    if (interim.trim()) {
-      const interimFixed = correctVoiceTranscript(interim.trim(), lang);
-      if (voiceRuntime.speaking && interimFixed.length >= 2 && !isLikelyTtsEcho(interimFixed)) {
-        interruptAssistantSpeech("你插話了，已暫停 AI");
-      }
-      setVoiceLive(`即時：${interimFixed}`);
-    }
-    if (!finals.length) return;
-
-    const finalText = correctVoiceTranscript(finals.join(" "), lang);
-    if (!finalText) return;
-    if (voiceRuntime.speaking && !isLikelyTtsEcho(finalText)) {
-      interruptAssistantSpeech("你插話了，已暫停 AI");
-    }
-    const correcting = _voiceCorrectionEnabled() ? "（已矯正）" : "";
-    setVoiceLive(`你${correcting}：${finalText}`);
-    updateInputFromVoice(finalText);
-    const autoSend = !!_voiceEl("voiceAutoSend")?.checked;
-    if (!autoSend || state.busy) return;
-    queueVoiceAutoSend(finalText);
-  };
-  rec.onerror = (event) => {
-    const code = String(event?.error || "");
-    if (code && code !== "no-speech" && code !== "aborted") {
-      setVoiceStatus(`語音錯誤：${code}`, "err");
-    }
-  };
-  rec.onend = () => {
-    voiceRuntime.listening = false;
-    refreshVoiceButtons();
-    if (voiceRuntime.callActive && !voiceRuntime.manualStop && !state.busy && !voiceRuntime.speaking) {
-      scheduleVoiceResume(420);
-    }
-  };
-  voiceRuntime.recognition = rec;
-}
-
-function toggleVoiceCall() {
-  if (!voiceRuntime.recognitionSupported) {
-    setVoiceStatus("瀏覽器不支援語音辨識", "err");
-    return;
-  }
-  voiceRuntime.callActive = !voiceRuntime.callActive;
-  voiceRuntime.manualStop = !voiceRuntime.callActive;
-  if (voiceRuntime.callActive) {
-    showChat();
-    setVoiceConversationMode(true);
-    setVoiceStatus("語音通話連線中", "on");
-    setVoiceLive("語音模式已啟動：建議一句一句講，你可隨時插話打斷 AI");
-    startVoiceListening();
-  } else {
-    terminateVoiceCall("語音通話已結束");
-  }
-  refreshVoiceButtons();
-}
-
-function initVoiceDialog() {
-  loadVoiceSettings();
-  _initRecognition();
-  const callBtn = _voiceEl("voiceCallBtn");
-  const micBtn = _voiceEl("voiceMicBtn");
-  const langSel = _voiceEl("voiceLangSelect");
-  const textCorrect = _voiceEl("voiceTextCorrect");
-  const correctLevel = _voiceEl("voiceCorrectLevel");
-  const autoSpeak = _voiceEl("voiceAutoSpeak");
-  const autoSend = _voiceEl("voiceAutoSend");
-
-  if (callBtn) callBtn.addEventListener("click", toggleVoiceCall);
-  if (micBtn) micBtn.addEventListener("click", toggleVoiceListening);
-  if (langSel) langSel.addEventListener("change", applyVoiceSettings);
-  if (textCorrect) textCorrect.addEventListener("change", applyVoiceSettings);
-  if (correctLevel) correctLevel.addEventListener("change", applyVoiceSettings);
-  if (autoSpeak) autoSpeak.addEventListener("change", applyVoiceSettings);
-  if (autoSend) autoSend.addEventListener("change", applyVoiceSettings);
-
-  if (!voiceRuntime.recognitionSupported) {
-    setVoiceStatus("此瀏覽器不支援語音辨識（請改用 Chrome/Edge）", "err");
-    setVoiceLive("目前僅可文字對話");
-  } else if (!voiceRuntime.synthesisSupported) {
-    setVoiceStatus("語音輸入可用（AI 朗讀不可用）", "idle");
-  } else {
-    setVoiceStatus("語音就緒", "idle");
-  }
-  refreshVoiceButtons();
-}
-
-/* ════════════════════════════════════════
    Send
 ════════════════════════════════════════ */
 const SEND_CONFIRM_WINDOW_MS = 8000;
@@ -1913,12 +1125,6 @@ function renderSendButtonState() {
     return;
   }
   btn.disabled = false;
-  if (state.realtimeText) {
-    btn.textContent = "即時送出";
-    btn.classList.remove("pending");
-    btn.title = "按一次立即送出";
-    return;
-  }
   if (state.pendingSend) {
     btn.textContent = "再按一次送出";
     btn.classList.add("pending");
@@ -1961,66 +1167,25 @@ async function confirmAndSendMessage() {
     resetSendConfirmation();
     return;
   }
-  if (state.realtimeText) {
-    resetSendConfirmation();
-    return sendMessage({ source: "realtime_text", force: true });
-  }
   const isConfirmed =
     state.pendingSend &&
     state.pendingSend.signature === draft.signature &&
     Date.now() - state.pendingSend.at <= SEND_CONFIRM_WINDOW_MS;
+  // #region agent log
+  __agentLog("HUI2", "templates/chat.html:confirmAndSendMessage", "confirm send evaluated", {
+    hasContent: draft.hasContent,
+    isConfirmed: !!isConfirmed,
+    hasPendingSend: !!state.pendingSend,
+    composing: !!state.composing,
+    busy: !!state.busy,
+  });
+  // #endregion
   if (!isConfirmed) {
     armSendConfirmation();
     return;
   }
   resetSendConfirmation();
   return sendMessage();
-}
-
-function buildVideoTaskPayload(userText, fullMsg) {
-  const settings = buildVideoWorkflowSettings();
-  const fallbackTitle = settings.task_title
-    || (userText ? userText.slice(0, 40) : "小編影片任務");
-  const attachments = (state.attachments || []).map(f => ({
-    name: f.name,
-    url: f.url || "",
-    type: f.type || "",
-  }));
-  return {
-    title: fallbackTitle,
-    description: settings.brief || userText || fullMsg || "請建立影片任務",
-    user_prompt: fullMsg || userText || settings.brief || fallbackTitle,
-    creative_submode: settings.creative_submode,
-    video_workflow_engine: settings.video_workflow_engine,
-    target_final_duration_seconds: settings.target_final_duration_seconds,
-    segment_duration_seconds: settings.segment_duration_seconds,
-    aspect_ratio: settings.aspect_ratio,
-    subtitle_mode: settings.subtitle_mode,
-    audio_mode: settings.audio_mode,
-    narration_mode: settings.narration_mode,
-    source_assets: attachments,
-    source_channel: "xiaobian_video_task",
-    workflow_stage: "video_submit",
-    output_format: "video_task",
-  };
-}
-
-function buildVideoTaskReply(data) {
-  const task = data?.task || {};
-  const report = task.learning_report || {};
-  const request = report.video_request || {};
-  const lines = [
-    data?.message || "小編影片任務已建立。",
-    task.task_id ? `任務編號：#${task.task_id}` : "",
-    request.creative_submode ? `創意類別：${request.creative_submode}` : "",
-    request.aspect_ratio ? `輸出比例：${request.aspect_ratio}` : "",
-    request.target_final_duration_seconds ? `最終時長：${request.target_final_duration_seconds} 秒` : "",
-    request.subtitle_mode ? `字幕：${request.subtitle_mode}` : "",
-    request.audio_mode ? `音效：${request.audio_mode}` : "",
-    request.narration_mode ? `旁白：${request.narration_mode}` : "",
-    "你可以到「任務看板」追蹤進度，等 n8n 回寫後會在那裡看到成片狀態。",
-  ].filter(Boolean);
-  return lines.join("\n");
 }
 
 function _setBusy(busy) {
@@ -2045,14 +1210,30 @@ async function sendMessage(options = {}) {
   const input = document.getElementById("msgInput");
   const text = input.value.trim();
   if (!text && !state.attachments.length) return;
+  // #region agent log
+  __agentLog("HUI3", "templates/chat.html:sendMessage", "sendMessage entry", {
+    force,
+    composing: !!state.composing,
+    busy: !!state.busy,
+    textLength: text.length,
+    attachmentCount: (state.attachments || []).length,
+    interactionMode: document.getElementById("interactionSelect").value || state.interactionMode,
+  });
+  // #endregion
   if (!document.getElementById("chatView").classList.contains("vis")) showChat();
-  const voiceCallWasActive = voiceRuntime.callActive;
-  if (voiceRuntime.listening) stopVoiceListening(false);
 
   const iMode = document.getElementById("interactionSelect").value || state.interactionMode;
+  // 程式任務切換崔佛的 coding 能力模式，不再切換公開身份。
+  if (iMode === "coding") {
+    state.agentKey = "trevor";
+    state.agentLabel = AGENT_META.trevor.label;
+    state.agentIcon = AGENT_META.trevor.icon;
+    setActiveNav("nav-trevor");
+    const role = document.getElementById("roleTag");
+    if (role) role.textContent = `${state.agentIcon} ${state.agentLabel}`;
+  }
   const fileRefs = state.attachments.map(f => f.url ? `[附件: ${f.name}](${f.url})` : `[附件: ${f.name}]`).join("\n");
   const fullMsg = text + (text && fileRefs ? "\n\n" : "") + fileRefs;
-  const isVideoTask = isVideoWorkflowContext();
 
   if (state.attachments.length) addMediaMsg("user", [...state.attachments]);
   if (text) addMsg("user", text);
@@ -2065,70 +1246,92 @@ async function sendMessage(options = {}) {
 
   // thinking bubble
   const area = document.getElementById("chatArea");
-  const { row: bubbleRow, bubble } = buildMessageRow("assistant");
+  const bubble = document.createElement("div");
+  bubble.className = "msg assistant";
   bubble.innerHTML = `<span class="thinking-dots"><span>●</span><span>●</span><span>●</span></span>`;
-  area.appendChild(bubbleRow);
+  area.appendChild(bubble);
   area.scrollTop = 99999;
 
   try {
     const conversation = extractConversationHistory(12);
-    const payload = isVideoTask
-      ? buildVideoTaskPayload(text, fullMsg)
-      : {
-          message: fullMsg || text,
-          agent: state.agentKey,
-          model: state.model,
-          interaction_mode: iMode,
-          session_id: state.sessionId,
-          conversation,
-        };
-    if (!isVideoTask && state.lowRestrict) {
+    const payload = {
+      message: fullMsg || text,
+      agent: state.agentKey,
+      model: state.model,
+      interaction_mode: iMode,
+      capability_mode: iMode === "coding" ? "coding" : (document.getElementById("capabilitySelect").value || state.capabilityMode),
+      deliberation: document.getElementById("deliberationSelect").value || state.deliberation,
+      session_id: state.sessionId,
+      conversation,
+    };
+    if (state.lowRestrict) {
       payload.ethics_mode = "owner_relaxed";
+      payload.external_agent_proxy_allowed = true;
+      payload.execution_mode = "smp";
+      payload.permission_bypass = "low_restrict";
     }
     const reqHeaders = { "Content-Type": "application/json" };
-    if (!isVideoTask && state.lowRestrict) {
+    if (state.lowRestrict) {
       reqHeaders["X-Agent-Internal"] = "agent-internal-bypass-2024";
       reqHeaders["X-Agent-Sender"] = "owner_ui";
+      reqHeaders["X-External-Agent-Proxy"] = "allow";
+      reqHeaders["X-Execution-Mode"] = "smp";
     }
-    const endpoint = isVideoTask ? "/agent/xiaobian/video-task" : "/chat/agent";
-    const r = await _fetchWithRetry(endpoint, {
-      method: "POST",
-      headers: reqHeaders,
-      body: JSON.stringify(payload),
+    // #region agent log
+    __agentLog("HUI4", "templates/chat.html:sendMessage", "about to call /chat/agent", {
+      agent: state.agentKey,
+      model: state.model,
+      interaction_mode: iMode,
+      session_id: state.sessionId,
+      conversationTurns: Array.isArray(conversation) ? conversation.length : 0,
     });
-
-    /* 安全讀取 body，加 60s 逾時防止 body 掛住 */
+    // #endregion
+    let r;
     let d = {};
-    try {
-      const jsonPromise = r.json();
-      const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error("body timeout")), 60000));
-      d = await Promise.race([jsonPromise, timeout]);
-    } catch (_) {}
+    if (iMode === "image_generation" || iMode === "horde_text") {
+      const hordeResult = await runAIHordeJob(iMode, text, bubble);
+      r = { ok: hordeResult.ok, status: hordeResult.status };
+      d = hordeResult.data;
+    } else {
+      r = await _fetchWithRetry("/chat/agent", {
+        method: "POST",
+        headers: reqHeaders,
+        body: JSON.stringify(payload),
+      });
+      try {
+        const jsonPromise = r.json();
+        const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error("body timeout")), 60000));
+        d = await Promise.race([jsonPromise, timeout]);
+      } catch (_) {}
+    }
 
     if (!r.ok) {
+      // #region agent log
+      __agentLog("HUI5", "templates/chat.html:sendMessage", "chat api non-200", {
+        status: r.status,
+        error: d.error || "",
+        error_id: d.error_id || "",
+      });
+      // #endregion
+      const apiError = d.error && typeof d.error === "object" ? d.error : {};
+      const diag = normalizeBackendError({
+        status: r.status,
+        error: apiError.message || d.error || `HTTP ${r.status}`,
+        error_code: apiError.code || d.error_code || "",
+      });
       const errId = d.error_id ? ` [err:${d.error_id}]` : "";
-      const errMsg = d.error || `HTTP ${r.status}`;
-      bubble.innerHTML = `<span style="color:#fca5a5">【${state.agentLabel}】錯誤${errId}：${errMsg}</span>`;
+      bubble.innerHTML = `<span style="color:#fca5a5">【${state.agentLabel}】${diag.userMessage}（${diag.code}${errId}）</span>`;
       bubble.style.cssText += ";border-color:rgba(239,68,68,.4);";
+      renderBackendSync({ error: `${diag.userMessage}（${diag.code}）` }, "err");
       return;
     }
 
-    const reply = isVideoTask
-      ? buildVideoTaskReply(d)
-      : (extractAssistantReply(d) || "已收到，但目前沒有文字回覆。");
-    const statusLine = isVideoTask
-      ? buildBackendStatusLine({
-          agent: "xiaobian",
-          model: d?.task?.model_hint || "seedance2_n8n",
-          interaction_mode: "creative",
-          response_time: "",
-        }, "creative")
-      : buildBackendStatusLine(d, iMode);
+    const reply = d.reply || d.response || d.message || "已收到，但回覆為空。";
+    const statusLine = buildBackendStatusLine(d, iMode);
     const qr = d.quick_replies || [];
 
     bubble.innerHTML = "";
     const main = document.createElement("div");
-    main.className = "msg-body";
     main.textContent = reply;
     bubble.appendChild(main);
     if (statusLine) {
@@ -2137,25 +1340,49 @@ async function sendMessage(options = {}) {
       st.textContent = statusLine;
       bubble.appendChild(st);
     }
-    appendGeneratedImages(bubble, d.images);
-    if (!isVideoTask) showQR(qr);
-    if (voiceCallWasActive) {
-      await speakAssistantReply(reply);
-      scheduleVoiceResume(300);
+    if (d.policy && typeof d.policy === "object") {
+      const score = Number(d.policy.score ?? 0);
+      const totalPenalties = Number(d.policy.total_penalties ?? 0);
+      const issueCode = String(d.policy.last_issue_code || "").trim();
+      const issueReason = String(d.policy.last_issue_reason || "").trim();
+      const policyLine = document.createElement("div");
+      policyLine.className = "msg-status";
+      policyLine.textContent = issueCode
+        ? `任務評分：${score}（已扣 ${totalPenalties}）｜問題標記：${issueCode}${issueReason ? `｜${issueReason}` : ""}`
+        : `任務評分：${score}（已扣 ${totalPenalties}）`;
+      if (issueCode) {
+        policyLine.style.color = "rgba(252,165,165,.95)";
+      }
+      bubble.appendChild(policyLine);
     }
-    renderBackendSync(isVideoTask ? { agent: "xiaobian", model: "Seedance 2.0 / n8n" } : d, "ok");
+    appendGeneratedImages(bubble, d.images);
+    showQR(qr);
+    // #region agent log
+    __agentLog("HUI5", "templates/chat.html:sendMessage", "chat api success rendered", {
+      hasReply: !!reply,
+      quickReplies: Array.isArray(qr) ? qr.length : 0,
+      imageCount: Array.isArray(d.images) ? d.images.length : 0,
+      responseTime: d.response_time || "",
+    });
+    // #endregion
+    renderBackendSync(d, "ok");
     agentChats[state.agentKey] = agentChats[state.agentKey] || { sessionId: state.sessionId };
     agentChats[state.agentKey].html = area.innerHTML;
     updateAgentMsgCount(state.agentKey);
-    syncAfterChat(isVideoTask ? { agent: "xiaobian", model: "Seedance 2.0 / n8n" } : d);
+    syncAfterChat(d);
   } catch (err) {
-    const msg = err.name === "AbortError" ? "請求逾時，請再試一次" : `服務暫時不可用：${err.message}`;
-    bubble.innerHTML = `<span style="color:#fca5a5">【${state.agentLabel}】${msg}</span>`;
+    // #region agent log
+    __agentLog("HUI6", "templates/chat.html:sendMessage", "chat request threw", {
+      name: err && err.name ? err.name : "",
+      message: err && err.message ? err.message : String(err || ""),
+    });
+    // #endregion
+    const diag = normalizeBackendError(err || {});
+    bubble.innerHTML = `<span style="color:#fca5a5">【${state.agentLabel}】${diag.userMessage}（${diag.code}）</span>`;
     bubble.style.cssText += ";border-color:rgba(239,68,68,.4);";
-    renderBackendSync({ error: msg }, "err");
+    renderBackendSync({ error: `${diag.userMessage}（${diag.code}）` }, "err");
   } finally {
     _setBusy(false);
-    if (voiceCallWasActive && !voiceRuntime.speaking) scheduleVoiceResume(380);
     area.scrollTop = 99999;
   }
 }
@@ -2225,61 +1452,85 @@ function closeLightbox() { document.getElementById("lightbox").classList.remove(
 ════════════════════════════════════════ */
 const TYPE_MAP = { topic_expansion:"主題", seed:"種子", failure_recovery:"修復", programming_session:"程式" };
 const POLL_INTERVAL_MS = {
-  kal: 45000,
-  tasks: 45000,
-  comm: 45000,
-  history: 90000,
-  provider: 120000,
+  snapshot: 60000,
+  kal: 90000,
+  tasks: 90000,
+  history: 120000,
+  provider: 180000,
 };
 const MIN_FETCH_GAP_MS = {
   kal: 18000,
   tasks: 18000,
-  comm: 18000,
   history: 45000,
   provider: 45000,
 };
 const _fetchState = {
-  kal: { busy: false, lastAt: 0, pending: false, requestId: 0 },
-  tasks: { busy: false, lastAt: 0, lastData: null, pending: false, requestId: 0 },
-  comm: { busy: false, lastAt: 0, lastData: null, pending: false, requestId: 0 },
-  history: { busy: false, lastAt: 0, lastData: null, pending: false, requestId: 0 },
-  provider: { busy: false, lastAt: 0, lastData: null, pending: false, requestId: 0 },
-  archive: { busy: false, lastAt: 0, lastData: null, pending: false, requestId: 0 },
+  snapshot: { busy: false, lastAt: 0 },
+  kal: { busy: false, lastAt: 0 },
+  tasks: { busy: false, lastAt: 0 },
+  history: { busy: false, lastAt: 0 },
+  provider: { busy: false, lastAt: 0 },
 };
+let _latestSnapshot = null;
 
-function startFetchCycle(fs, force, minGap) {
+async function fetchFrontendSnapshot(force = false) {
   const now = Date.now();
-  if (fs.busy) {
-    if (force) fs.pending = true;
-    return null;
+  const fs = _fetchState.snapshot;
+  if (!force) {
+    if (fs.busy) return null;
+    if (now - fs.lastAt < 15000) return _latestSnapshot;
   }
-  if (!force && now - fs.lastAt < minGap) return null;
   fs.busy = true;
-  fs.pending = false;
   fs.lastAt = now;
-  fs.requestId = (fs.requestId || 0) + 1;
-  return fs.requestId;
-}
+  try {
+    const ah = window.__API_TOKEN__ ? { "X-API-Token": window.__API_TOKEN__ } : {};
+    const r = await fetch(`/api/frontend/snapshot${force ? "?force=1" : ""}`, { headers: ah });
+    if (!r.ok) return null;
+    const snap = await r.json();
+    if (!snap || snap.ok === false) return null;
+    _latestSnapshot = snap;
 
-function isActiveFetch(fs, requestId) {
-  return (fs.requestId || 0) === requestId;
-}
+    const providers = snap.providers || {};
+    renderProviderStatusFromPayload(providers);
 
-function finishFetchCycle(fs, rerun) {
-  fs.busy = false;
-  if (!fs.pending) return;
-  fs.pending = false;
-  setTimeout(() => rerun(true), 180);
-}
+    const tasks = snap.tasks || {};
+    if (_tasksFilter) {
+      fetchTasksSummary(true);
+    } else {
+      renderTasksPanel(tasks.summary || {}, tasks.items || []);
+    }
 
-function renderPanelNotice(message, tone = 'stale') {
-  return `<div class="panel-note ${tone}">${message}</div>`;
+    const history = Array.isArray(snap.history) ? snap.history : [];
+    renderHistory(history);
+
+    const archive = snap.archive || {};
+    renderArchiveList(archive);
+
+    const orch = (snap.workflow && snap.workflow.last_state) || {};
+    const learn = snap.learning || {};
+    const harmony = snap.harmony || {};
+    if (Object.keys(orch).length || Object.keys(learn).length) {
+      renderKAL(orch, learn);
+      updateMonitor(orch);
+    }
+    updateHarmonyMonitor(harmony);
+    return snap;
+  } catch (_) {
+    return null;
+  } finally {
+    fs.busy = false;
+  }
 }
 
 async function fetchKALStatus(force = false) {
+  const now = Date.now();
   const fs = _fetchState.kal;
-  const requestId = startFetchCycle(fs, force, MIN_FETCH_GAP_MS.kal);
-  if (!requestId) return;
+  if (!force) {
+    if (fs.busy) return;
+    if (now - fs.lastAt < MIN_FETCH_GAP_MS.kal) return;
+  }
+  fs.busy = true;
+  fs.lastAt = now;
   try {
     const ah = window.__API_TOKEN__ ? { "X-API-Token": window.__API_TOKEN__ } : {};
     const [orchR, learnR] = await Promise.all([
@@ -2288,15 +1539,12 @@ async function fetchKALStatus(force = false) {
     ]);
     const orch  = orchR.ok  ? await orchR.json()  : {};
     const learn = learnR.ok ? await learnR.json() : {};
-    if (!isActiveFetch(fs, requestId)) return;
     renderKAL(orch, learn);
     updateMonitor(orch);
   } catch (e) {
-    if (isActiveFetch(fs, requestId)) {
-      document.getElementById("kalLabel").textContent = "無法連線後端";
-    }
+    document.getElementById("kalLabel").textContent = "無法連線後端";
   } finally {
-    finishFetchCycle(fs, fetchKALStatus);
+    fs.busy = false;
   }
 }
 
@@ -2367,6 +1615,38 @@ function updateMonitor(orch) {
   document.getElementById("bridgeInfo").textContent = orch.last_cycle_at ? orch.last_cycle_at.slice(11,16) : "—";
 }
 
+function updateHarmonyMonitor(harmony = {}) {
+  const set = (id, val, cls = "") => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = val;
+    el.className = "mon-val" + (cls ? ` ${cls}` : "");
+  };
+  const note = document.getElementById("mon-harmony-note");
+  if (!harmony || typeof harmony !== "object" || !Object.keys(harmony).length) {
+    set("mon-harmony", "未載入", "warn");
+    set("mon-harmony-failed", "—");
+    if (note) note.textContent = "尚未載入協調健康報告";
+    return;
+  }
+  const overall = harmony.overall_ok === true;
+  const state = harmony.state || (overall ? "ready" : "degraded");
+  const failed = Array.isArray(harmony.failed_checks) ? harmony.failed_checks : [];
+  if (overall) {
+    set("mon-harmony", "就緒", "ok");
+  } else if (state === "degraded") {
+    set("mon-harmony", "降級", "warn");
+  } else {
+    set("mon-harmony", "異常", "err");
+  }
+  set("mon-harmony-failed", failed.length ? failed.join(", ") : "無");
+  if (note) {
+    const ts = harmony.timestamp || "";
+    const shortTs = ts ? ts.replace("T", " ").slice(5, 16) : "未知";
+    note.textContent = `報告時間：${shortTs}`;
+  }
+}
+
 async function triggerLearn(query) {
   await selectAgent("researcher", "🔬", "研究學習中樞");
   const input = document.getElementById("msgInput");
@@ -2381,35 +1661,24 @@ function refreshInputPlaceholder() {
   const input = document.getElementById("msgInput");
   const mode = document.getElementById("interactionSelect")?.value || state.interactionMode;
   if (!input) return;
-  const imagePrompt = state.realtimeText
-    ? "描述你想生成的圖片，按 Enter 即時送出；Shift+Enter 換行..."
-    : "描述你想生成的圖片，按兩次 Enter/送出確認...";
-  input.placeholder = isVideoWorkflowContext()
-    ? "輸入影片腳本、敘事方向或補充要求，送出後會建立影片任務..."
-    : mode === "image_generation"
-      ? imagePrompt
-      : "輸入訊息，按 Enter 即時送出；Shift+Enter 換行...";
+  input.placeholder = mode === "image_generation"
+    ? "描述你想生成的圖片，按兩次 Enter/送出確認..."
+    : mode === "horde_text"
+      ? "輸入要交給共享文字算力的內容..."
+    : "輸入訊息，按兩次 Enter/送出確認；Shift+Enter 換行...";
 }
 
 async function enableImageGenerationMode() {
   const select = document.getElementById("interactionSelect");
   if (select) select.value = "image_generation";
   state.interactionMode = "image_generation";
-  state.videoWorkflowMode = false;
-  syncVideoPanelVisibility();
-  refreshInputPlaceholder();
-  if (state.agentKey !== "xiaobian") {
-    await selectAgent("xiaobian", "✍️", "小編設計師");
+  if (state.agentKey !== "trevor") {
+    await selectAgent("trevor", "🧭", "崔佛");
   }
-  syncVideoPanelVisibility();
   refreshInputPlaceholder();
   const input = document.getElementById("msgInput");
   if (input) input.focus();
   resetSendConfirmation();
-}
-
-function waitMs(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 async function reconnectAll() {
@@ -2419,7 +1688,7 @@ async function reconnectAll() {
   if (badge) { badge.textContent = "連線中…"; badge.className = "tb-badge"; }
   try {
     const ah = window.__API_TOKEN__ ? { "X-API-Token": window.__API_TOKEN__ } : {};
-    const r = await _fetchWithRetry("/status", { headers: ah }, 1, 900);
+    const r = await fetch("/status", { headers: ah });
     if (r.ok) {
       if (badge) { badge.textContent = "已連線"; badge.className = "tb-badge ok"; }
     } else {
@@ -2428,21 +1697,14 @@ async function reconnectAll() {
   } catch (_) {
     if (badge) { badge.textContent = "無法連線"; badge.className = "tb-badge err"; }
   }
-
-  const jobs = [
-    () => fetchKALStatus(true),
-    () => fetchProviderStatus(true),
-    () => fetchTasksSummary(true),
-    () => fetchCommunicationStatus(true),
-    () => fetchHistory(true),
-    () => fetchArchiveList(true),
-  ];
-  for (const job of jobs) {
-    try {
-      await job();
-    } catch (_) {
-    }
-    await waitMs(260);
+  const snap = await fetchFrontendSnapshot(true);
+  if (!snap) {
+    await Promise.all([
+      fetchKALStatus(true),
+      fetchTasksSummary(true),
+      fetchProviderStatus(true),
+      fetchHistory(true),
+    ]);
   }
   if (btn) btn.style.opacity = "";
 }
@@ -2463,8 +1725,9 @@ const PROVIDER_META = {
 function inferProviderKey(modelText) {
   const text = String(modelText || "").toLowerCase();
   if (!text) return "";
-  if (text.includes("tinyllama")) return "ollama_tinyllama";
-  if (text.includes("mistral")) return "ollama_mistral";
+  if (text.includes("qwen2.5:7b") || (text.includes("qwen2.5") && text.includes("7b"))) return "ollama_qwen25_7b";
+  if (text.includes("qwen")) return "ollama_qwen25_7b";
+  if (text.includes("tinyllama") || text.includes("mistral") || text.includes("ollama")) return "sidecar";
   if (text.includes("openai") || text.includes("gpt-4o")) return "openai";
   if (text.includes("nvidia") || text.includes("llama")) return "nvidia";
   if (text.includes("gemini")) return "gemini";
@@ -2484,7 +1747,7 @@ function renderBackendPending(mode) {
   const bridge = document.getElementById("bridgeInfo");
   const badge = document.getElementById("bridgeState");
   if (sync) {
-    sync.textContent = `後台處理中 · ${state.agentLabel} · ${label} · ${mode || "auto"}`;
+    sync.textContent = `後台處理中 · ${state.agentLabel} · ${label} · ${labelInteractionMode(mode || "auto")}`;
     sync.className = "backend-sync pending";
   }
   if (bridge) bridge.textContent = "後台處理中";
@@ -2543,7 +1806,7 @@ function buildBackendStatusLine(data = {}, fallbackMode = "auto") {
     ? `主題: ${data.semantic_analysis.primary_topic}`
     : "";
   const safety = data.safety_guard && data.safety_guard.triggered ? "安全改寫" : "";
-  return ["後台同步", agent, model, `模式: ${mode}`, time, topic, safety]
+  return ["後台同步", agent, model, `模式：${labelInteractionMode(mode)}`, time, topic, safety]
     .filter(Boolean)
     .join(" · ");
 }
@@ -2554,8 +1817,6 @@ function syncAfterChat(data = {}) {
   (async () => {
     try {
       await fetchTasksSummary(true);
-      await delay(400);
-      await fetchCommunicationStatus(true);
       await delay(400);
       await fetchHistory(true);
       await delay(400);
@@ -2570,10 +1831,27 @@ function syncAfterChat(data = {}) {
 }
 
 async function fetchProviderStatus(force = false) {
+  const now = Date.now();
   const fs = _fetchState.provider;
-  const requestId = startFetchCycle(fs, force, MIN_FETCH_GAP_MS.provider);
-  if (!requestId) return;
-  const renderProviderCards = (d, stale = false) => {
+  if (!force) {
+    if (fs.busy) return;
+    if (now - fs.lastAt < MIN_FETCH_GAP_MS.provider) return;
+  }
+  fs.busy = true;
+  fs.lastAt = now;
+  try {
+    const headers = { "Content-Type": "application/json", "X-API-Token": window.__API_TOKEN__ || "" };
+    const r = await fetch("/status", { headers });
+    if (!r.ok) return;
+    const d = await r.json();
+    renderProviderStatusFromPayload(d);
+  } catch (_) {
+  } finally {
+    fs.busy = false;
+  }
+}
+
+function renderProviderStatusFromPayload(d = {}) {
     const visibleProviders = new Set(
       (d.provider_catalog || [])
         .filter(item => item && item.visible)
@@ -2584,110 +1862,67 @@ async function fetchProviderStatus(force = false) {
       .map(item => item.label);
 
     let ready = 0, total = Object.keys(PROVIDER_META).length;
-    for (const [key] of Object.entries(PROVIDER_META)) {
+    for (const [key, meta] of Object.entries(PROVIDER_META)) {
       const enabled = !!(d[key] || d[key + "_key_configured"]);
       const card = document.getElementById("mc-" + key);
       const badge = document.getElementById("mbadge-" + key);
       if (!card) continue;
       card.style.display = visibleProviders.size && !visibleProviders.has(key) ? "none" : "";
-      card.classList.toggle("mc-stale", stale);
       if (enabled) {
         ready++;
         card.classList.remove("mc-offline");
-        if (badge) { badge.className = "badge b-active"; badge.textContent = stale ? "快取資料" : "已連線"; }
+        if (badge) { badge.className = "badge b-active"; badge.textContent = "已連線"; }
       } else {
         card.classList.add("mc-offline");
-        if (badge) { badge.className = "badge b-disabled"; badge.textContent = stale ? "狀態未更新" : "未設定"; }
+        if (badge) { badge.className = "badge b-disabled"; badge.textContent = "未設定"; }
       }
     }
+    /* 主力 provider 高亮 */
     document.querySelectorAll(".mc-primary").forEach(card => card.classList.remove("mc-primary"));
     const preferred = d.chat_preferred_provider || "nvidia";
     const primary = document.getElementById("mc-" + preferred);
     if (primary) {
       primary.classList.add("mc-primary");
       const b = primary.querySelector("[id^='mbadge-']");
-      if (b && !stale && b.textContent === "已連線") { b.textContent = "主力模型"; }
+      if (b && b.textContent === "已連線") { b.textContent = "主力模型"; }
     }
     const statusEl = document.getElementById("cloudProviderStatus");
     if (statusEl) {
       const disabledText = disabledLabels.length ? ` · 已停用 ${disabledLabels.join("、")}` : "";
-      const staleText = stale ? " · 顯示上次同步" : "";
-      statusEl.textContent = `${ready}/${total} 已連線${disabledText}${staleText}`;
+      statusEl.textContent = `${ready}/${total} 已連線${disabledText}`;
     }
-  };
-  try {
-    const headers = { "Content-Type": "application/json", "X-API-Token": window.__API_TOKEN__ || "" };
-    const r = await _fetchWithRetry("/status", { headers }, 2, 1000);
-    if (!r.ok) return;
-    const d = await r.json();
-    if (!isActiveFetch(fs, requestId)) return;
-    fs.lastData = d;
-    renderProviderCards(d, false);
-  } catch (_) {
-    if (isActiveFetch(fs, requestId) && fs.lastData) renderProviderCards(fs.lastData, true);
-  } finally {
-    finishFetchCycle(fs, fetchProviderStatus);
-  }
 }
 
 async function fetchTasksSummary(force = false) {
+  const now = Date.now();
   const fs = _fetchState.tasks;
-  const requestId = startFetchCycle(fs, force, MIN_FETCH_GAP_MS.tasks);
-  if (!requestId) return;
+  if (!force) {
+    if (fs.busy) return;
+    if (now - fs.lastAt < MIN_FETCH_GAP_MS.tasks) return;
+  }
+  fs.busy = true;
+  fs.lastAt = now;
   try {
     const url = _tasksFilter
       ? `/agent/tasks?status=${encodeURIComponent(_tasksFilter)}&limit=30&compact=1`
       : "/agent/tasks?limit=30&compact=1";
     const ah = window.__API_TOKEN__ ? { "X-API-Token": window.__API_TOKEN__ } : {};
     const [sumR, tasksR] = await Promise.all([
-      _fetchWithRetry("/agent/tasks/summary", { headers: ah }, 2, 1200),
-      _fetchWithRetry(url, { headers: ah }, 2, 1200),
+      fetch("/agent/tasks/summary", { headers: ah }),
+      fetch(url, { headers: ah }),
     ]);
     const sum   = sumR.ok   ? await sumR.json()   : {};
     const tasks = tasksR.ok ? await tasksR.json() : {};
-    if (!isActiveFetch(fs, requestId)) return;
-    fs.lastData = { sum, items: tasks.items || [] };
-    renderTasksPanel(sum, tasks.items || [], { stale: false });
+    renderTasksPanel(sum, tasks.items || []);
   } catch (_) {
-    if (isActiveFetch(fs, requestId) && fs.lastData) {
-      renderTasksPanel(fs.lastData.sum || {}, fs.lastData.items || [], { stale: true });
-      return;
-    }
     const el = document.getElementById("tasksList");
-    if (isActiveFetch(fs, requestId) && el) el.innerHTML = renderPanelNotice("無法連線後端", "stale");
+    if (el) el.innerHTML = '<div class="kal-empty">無法連線後端</div>';
   } finally {
-    finishFetchCycle(fs, fetchTasksSummary);
+    fs.busy = false;
   }
 }
 
-async function fetchCommunicationStatus(force = false) {
-  const fs = _fetchState.comm;
-  const requestId = startFetchCycle(fs, force, MIN_FETCH_GAP_MS.comm);
-  if (!requestId) return;
-  try {
-    const ah = window.__API_TOKEN__ ? { "X-API-Token": window.__API_TOKEN__ } : {};
-    const r = await _fetchWithRetry("/system/communication/status", { headers: ah }, 2, 1200);
-    if (!r.ok) throw new Error("communication fetch failed");
-    const data = await r.json();
-    if (!isActiveFetch(fs, requestId)) return;
-    fs.lastData = data;
-    renderCommunicationPanel(data, { stale: false });
-  } catch (_) {
-    if (isActiveFetch(fs, requestId) && fs.lastData) {
-      renderCommunicationPanel(fs.lastData, { stale: true });
-      return;
-    }
-    const notices = document.getElementById("commNotices");
-    const blocked = document.getElementById("commBlockedList");
-    if (isActiveFetch(fs, requestId) && notices) notices.innerHTML = renderPanelNotice("無法連線協作狀態", "stale");
-    if (isActiveFetch(fs, requestId) && blocked) blocked.innerHTML = renderPanelNotice("無法取得阻塞資訊", "stale");
-  } finally {
-    finishFetchCycle(fs, fetchCommunicationStatus);
-  }
-}
-
-function renderTasksPanel(sum, items, options = {}) {
-  const stale = !!options.stale;
+function renderTasksPanel(sum, items) {
   const sc  = sum.status_counts || {};
   const bar = document.getElementById("tasksStatusBar");
   if (!bar) return;
@@ -2697,89 +1932,30 @@ function renderTasksPanel(sum, items, options = {}) {
     { key: "completed", label: "已完成" },
     { key: "failed",    label: "失敗" },
   ];
-  const blockedCount = sum.blocked_count || 0;
   bar.innerHTML = stats.map(s =>
     `<span class="tasks-stat ${s.key}${_tasksFilter===s.key?' sel':''}" onclick="filterTasks('${s.key}')">${s.label} ${sc[s.key]||0}</span>`
-  ).join("") + `<span class="tasks-stat all${_tasksFilter===''?' sel':''}" onclick="filterTasks('')">全部</span>` + `<span class="tasks-stat pending${blockedCount ? ' sel' : ''}" title="目前等待前置依賴的任務數">阻塞 ${blockedCount}</span>`;
+  ).join("") + `<span class="tasks-stat all${_tasksFilter===''?' sel':''}" onclick="filterTasks('')">全部</span>`;
 
   const list = document.getElementById("tasksList");
   if (!list) return;
-  if (!items.length) {
-    list.innerHTML = stale
-      ? renderPanelNotice('連線不穩，暫時沒有新的任務資料')
-      : '<div class="kal-empty">沒有符合的任務</div>';
-    return;
-  }
-  const staleBanner = stale ? renderPanelNotice('連線不穩，顯示上次同步內容') : '';
-  list.innerHTML = staleBanner + items.map(t => {
+  if (!items.length) { list.innerHTML = '<div class="kal-empty">沒有符合的任務</div>'; return; }
+  list.innerHTML = items.map(t => {
     const st    = t.status || "unknown";
     const agent = normalizeAgentKey(t.assigned_agent || t.agent_label || "?");
     const title = (t.title || "").slice(0, 42) || `#${t.task_id}`;
     const time  = (t.updated_at || "").slice(5, 16).replace("T", " ");
     const meta  = AGENT_META[agent] || {};
-    const blocked = !!t.blocked;
-    const blockedBy = Array.isArray(t.blocked_by) ? t.blocked_by : [];
-    const chips = [];
-    if (t.workflow_stage) chips.push(`<span class="task-chip stage">階段 ${t.workflow_stage}</span>`);
-    if (t.source_channel) chips.push(`<span class="task-chip source">來源 ${t.source_channel}</span>`);
-    if (blocked) chips.push(`<span class="task-chip blocked">阻塞 ${blockedBy.join(",") || "待前置"}</span>`);
-    return `<div class="task-row${blocked ? ' blocked' : ''}" onclick="selectAgent('${agent}','${meta.icon||'🤖'}','${meta.label||agent}')">
+    const agentLabel = meta.label || agent;
+    const stLabel = labelTaskStatus(st);
+    return `<div class="task-row" onclick="selectAgent('${agent}','${meta.icon||'🤖'}','${agentLabel}')">
       <div class="task-row-top">
         <span class="task-dot ${st}"></span>
         <span class="task-row-title">${title}</span>
-        <span class="task-row-agent">${agent}</span>
+        <span class="task-row-agent">${agentLabel}</span>
       </div>
-      <div class="task-row-meta">${st} · ${time}${t.workflow_run_id ? ` · ${t.workflow_run_id}` : ""}</div>
-      ${chips.length ? `<div class="task-row-extra">${chips.join("")}</div>` : ""}
+      <div class="task-row-meta">${stLabel} · ${time}</div>
     </div>`;
   }).join("");
-}
-
-function renderCommunicationPanel(data, options = {}) {
-  const stale = !!options.stale;
-  const unread = Number(data.unread_notifications || 0);
-  const blockedTasks = Array.isArray(data.blocked_tasks) ? data.blocked_tasks : [];
-  const n8n = data.n8n || {};
-  const cns = data.cns || {};
-  const notices = Array.isArray(data.latest_notifications) ? data.latest_notifications : [];
-  const sourceCounts = data.source_counts || {};
-
-  const setText = (id, value, tone = "") => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.textContent = value;
-    el.className = "comm-v" + (tone ? ` ${tone}` : "");
-  };
-
-  setText("commUnread", unread, unread ? "warn" : "ok");
-  setText("commBlocked", blockedTasks.length, blockedTasks.length ? "warn" : "ok");
-  setText("commN8n", n8n.enabled ? "已啟用" : "待接線", n8n.enabled ? "ok" : "warn");
-  setText("commCns", (cns.recent_task_notifications || []).length, cns.enabled ? "ok" : "err");
-
-  const noticesEl = document.getElementById("commNotices");
-  if (noticesEl) {
-    const staleBanner = stale ? renderPanelNotice('連線不穩，顯示上次同步內容') : '';
-    noticesEl.innerHTML = staleBanner + (notices.length
-      ? notices.slice(-6).reverse().map(n => `<div class="comm-item">
-          <div class="comm-item-name">${(n.title || n.message || "通知").slice(0, 32)}</div>
-          <div class="comm-item-meta">${n.category || n.level || "runtime"} · ${(n.created_at || "").slice(5, 16).replace("T", " ")}</div>
-        </div>`).join("")
-      : '<div class="kal-empty">目前沒有新的協作通知</div>');
-  }
-
-  const blockedEl = document.getElementById("commBlockedList");
-  if (blockedEl) {
-    const sourceSummary = Object.entries(sourceCounts).slice(0, 4).map(([key, count]) => `${key} ${count}`).join(" · ");
-    const staleBanner = stale ? renderPanelNotice('連線不穩，顯示上次同步內容') : '';
-    blockedEl.innerHTML = staleBanner + (blockedTasks.length
-      ? blockedTasks.map(t => `<div class="comm-item">
-          <div class="comm-item-name">${(t.title || `Task #${t.task_id}`).slice(0, 34)}</div>
-          <div class="comm-item-meta">${t.assigned_agent || "agent"} · ${t.workflow_stage || "stage"} · 等待 ${Array.isArray(t.blocked_by) ? t.blocked_by.join(",") : ""}</div>
-        </div>`).join("") + (sourceSummary ? `<div class="comm-item"><div class="comm-item-name">來源分布</div><div class="comm-item-meta">${sourceSummary}</div></div>` : "")
-      : (sourceSummary
-        ? `<div class="comm-item"><div class="comm-item-name">目前沒有阻塞任務</div><div class="comm-item-meta">${sourceSummary}</div></div>`
-        : '<div class="kal-empty">目前沒有阻塞任務</div>'));
-  }
 }
 
 function filterTasks(status) {
@@ -2790,45 +1966,131 @@ function filterTasks(status) {
 /* ════════════════════════════════════════
    _fetchWithRetry – 自動重試 + 逾時保護
 ════════════════════════════════════════ */
+function _buildRouteCandidates(url) {
+  if (typeof url !== "string" || !url.startsWith("/")) return [url];
+  const candidates = [];
+  const push = (value) => {
+    if (value && !candidates.includes(value)) candidates.push(value);
+  };
+  const base = String(window.__API_BASE__ || "");
+  const hasPerobBase = /\/perob\/?$/i.test(base);
+  const withPerob = (path) =>
+    path.toLowerCase().startsWith("/perob/") ? path : `/Perob${path}`;
+  const withoutPerob = (path) =>
+    path.toLowerCase().startsWith("/perob/") ? path.slice(6) : path;
+
+  push(url);
+  if (hasPerobBase) {
+    // API base 已含 /Perob，補一條「去前綴」備援，避免 proxy 規則不一致時直接失敗。
+    push(withoutPerob(url));
+  } else {
+    // API base 不含 /Perob 時，補一條「含前綴」備援，支援反向代理場景。
+    push(withPerob(url));
+  }
+
+  // 舊版/精簡版後端可能只支援 /api/send_message，這裡做路由備援。
+  if (/^\/chat\/agent\/?$/i.test(url)) {
+    const alt = url.replace(/^\/chat\/agent\/?$/i, "/api/send_message");
+    push(alt);
+    if (hasPerobBase) push(withoutPerob(alt));
+    else push(withPerob(alt));
+  }
+  return candidates;
+}
+
 async function _fetchWithRetry(url, options, maxRetries = 1, delayMs = 1500) {
   let lastErr;
+  const routeCandidates = _buildRouteCandidates(url);
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const ctrl = new AbortController();
-    const tid  = setTimeout(() => ctrl.abort(), 45000);
-    try {
-      const r = await fetch(url, { ...options, signal: ctrl.signal });
-      clearTimeout(tid);
-      return r;
-    } catch (e) {
-      clearTimeout(tid);
-      lastErr = e;
-      if (attempt < maxRetries) {
-        await new Promise(res => setTimeout(res, delayMs * (attempt + 1)));
+    for (const candidate of routeCandidates) {
+      const ctrl = new AbortController();
+      const tid  = setTimeout(() => ctrl.abort(), 45000);
+      try {
+        const r = await fetch(candidate, { ...options, signal: ctrl.signal });
+        clearTimeout(tid);
+        if (r.status !== 404) return r;
+        lastErr = Object.assign(new Error(`HTTP ${r.status}`), { status: r.status });
+      } catch (e) {
+        clearTimeout(tid);
+        lastErr = e;
       }
+    }
+    if (attempt < maxRetries) {
+      await new Promise(res => setTimeout(res, delayMs * (attempt + 1)));
     }
   }
   throw lastErr;
+}
+
+function normalizeBackendError(input = {}) {
+  const err = input && typeof input === "object" ? input : {};
+  const rawMessage = String(err.message || err.error || "未知錯誤");
+  const status = Number(err.status || 0);
+  const code = String(err.code || err.error_code || "");
+  const lower = rawMessage.toLowerCase();
+
+  let classCode = "E_UNKNOWN";
+  let userMessage = `服務暫時不可用：${rawMessage}`;
+
+  if (code) {
+    classCode = code;
+  } else if (status === 404) {
+    classCode = "E_ROUTE_MISMATCH";
+  } else if (status === 502 || status === 503 || status === 504) {
+    classCode = "E_PROVIDER_DOWN";
+  } else if (/model timeout|provider timeout|llm timeout|模型逾時|模型超時/.test(lower)) {
+    classCode = "E_MODEL_TIMEOUT";
+  } else if (err.name === "AbortError" || /timeout|逾時|timed out/.test(lower)) {
+    classCode = "E_TIMEOUT";
+  } else if (/failed to fetch|networkerror|load failed|cors|preflight/.test(lower)) {
+    classCode = "E_NETWORK_CORS";
+  } else if (status >= 500) {
+    classCode = "E_HTTP_5XX";
+  } else if (status >= 400) {
+    classCode = "E_HTTP_4XX";
+  }
+
+  if (classCode === "E_MODEL_TIMEOUT") {
+    userMessage = "模型回覆逾時（上游模型忙碌或排隊中），建議稍後重試或切換模型。";
+  } else if (classCode === "E_PROVIDER_DOWN") {
+    userMessage = `雲端供應商暫時不可用（HTTP ${status}），請切換供應商或稍後再試。`;
+  } else if (classCode === "E_ROUTE_MISMATCH") {
+    userMessage = "路由不匹配（可能是 /Perob 前綴或 API Base 錯誤），請檢查右上 API。";
+  } else if (classCode === "E_TIMEOUT") {
+    userMessage = "請求逾時（可能是模型回覆過慢或系統忙碌），請稍後再試。";
+  } else if (classCode === "E_NETWORK_CORS") {
+    userMessage = "連線失敗（可能是 API 位址或跨來源設定問題），請檢查右上 API。";
+  } else if (classCode === "E_HTTP_4XX") {
+    userMessage = `請求被拒絕（HTTP ${status}），請檢查 API 金鑰或權限。`;
+  } else if (classCode === "E_HTTP_5XX") {
+    userMessage = `伺服器錯誤（HTTP ${status}），請稍後再試。`;
+  }
+
+  return { code: classCode, status, userMessage, rawMessage };
 }
 
 /* ════════════════════════════════════════
    History
 ════════════════════════════════════════ */
 async function fetchHistory(force = false) {
+  const now = Date.now();
   const fs = _fetchState.history;
-  const requestId = startFetchCycle(fs, force, MIN_FETCH_GAP_MS.history);
-  if (!requestId) return;
+  if (!force) {
+    if (fs.busy) return;
+    if (now - fs.lastAt < MIN_FETCH_GAP_MS.history) return;
+  }
+  fs.busy = true;
+  fs.lastAt = now;
   try {
     const ah = window.__API_TOKEN__ ? { "X-API-Token": window.__API_TOKEN__ } : {};
-    const r = await _fetchWithRetry("/history?limit=120", { headers: ah }, 2, 1200);
+    const r = await fetch("/history?limit=120", { headers: ah });
     if (!r.ok) return;
     const records = await r.json();
-    if (!Array.isArray(records) || !isActiveFetch(fs, requestId)) return;
-    fs.lastData = records;
+    if (!Array.isArray(records)) return;
     renderHistory(records);
   } catch (_) {
-    if (isActiveFetch(fs, requestId) && Array.isArray(fs.lastData)) renderHistory(fs.lastData);
   } finally {
-    finishFetchCycle(fs, fetchHistory);
+    fs.busy = false;
   }
 }
 
@@ -2862,49 +2124,66 @@ function renderHistory(records) {
 const msgInput = document.getElementById("msgInput");
 msgInput.addEventListener("compositionstart", () => { state.composing = true; });
 msgInput.addEventListener("compositionend",   () => { state.composing = false; });
-msgInput.addEventListener("keydown", e => {
-  if (e.key === "Enter" && !e.shiftKey && !state.composing) { e.preventDefault(); confirmAndSendMessage(); }
-});
-msgInput.addEventListener("input", () => {
+function cancelPendingSendConfirmation() {
+  if (!state.pendingSend) return;
+  resetSendConfirmation();
+}
+function handleMessageKeydown(e) {
+  if (e.key === "Escape") {
+    e.preventDefault();
+    e.stopPropagation();
+    cancelPendingSendConfirmation();
+    return;
+  }
+  if (e.key === "Enter" && !e.shiftKey && !state.composing) {
+    e.preventDefault();
+    confirmAndSendMessage();
+  }
+}
+
+function handleMessageInput() {
   resetSendConfirmation();
   msgInput.style.height = "auto";
   msgInput.style.height = Math.min(msgInput.scrollHeight, 100) + "px";
+}
+
+msgInput.addEventListener("keydown", handleMessageKeydown);
+msgInput.addEventListener("keyup", e => {
+  if (e.key === "Escape") {
+    e.preventDefault();
+    e.stopPropagation();
+    cancelPendingSendConfirmation();
+  }
 });
+msgInput.addEventListener("input", handleMessageInput);
+function handleGlobalEscape(e) {
+  if (e.key !== "Escape") return;
+  e.preventDefault();
+  e.stopPropagation();
+  cancelPendingSendConfirmation();
+}
+msgInput.addEventListener("blur", cancelPendingSendConfirmation);
+window.addEventListener("keydown", handleGlobalEscape, true);
+window.addEventListener("keyup", handleGlobalEscape, true);
+document.addEventListener("keydown", handleGlobalEscape, true);
+document.addEventListener("keyup", handleGlobalEscape, true);
 document.getElementById("interactionSelect").addEventListener("change", e => {
   state.interactionMode = e.target.value;
-  if (e.target.value !== "creative") state.videoWorkflowMode = false;
-  syncVideoPanelVisibility();
   refreshInputPlaceholder();
   resetSendConfirmation();
 });
-[
-  "creativeSubmodeSelect",
-  "videoWorkflowEngineSelect",
-  "videoAspectRatioSelect",
-  "videoDurationInput",
-  "videoSegmentDurationInput",
-  "videoSubtitleModeSelect",
-  "videoAudioModeSelect",
-  "videoNarrationModeSelect",
-  "videoTaskTitle",
-  "videoTaskBrief",
-].forEach((id) => {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.addEventListener("change", () => {
-    if (state.agentKey === "xiaobian") {
-      state.videoWorkflowMode = true;
-      syncVideoPanelVisibility();
-      refreshInputPlaceholder();
-    }
-  });
+document.getElementById("capabilitySelect").addEventListener("change", e => {
+  state.capabilityMode = e.target.value;
+  resetSendConfirmation();
+});
+document.getElementById("deliberationSelect").addEventListener("change", e => {
+  state.deliberation = e.target.value;
+  resetSendConfirmation();
 });
 document.getElementById("newBtn").addEventListener("click", () => {
   const key = state.agentKey;
   state.sessionId = newId();
-  // 僅開新會話，不主動刪除既有記憶資料
-  agentChats[key] = agentChats[key] || { html: "", sessionId: state.sessionId };
-  agentChats[key].sessionId = state.sessionId;
+  agentChats[key] = { html: "", sessionId: state.sessionId };
   state.attachments = []; renderAttach();
   resetSendConfirmation();
   document.querySelectorAll(".hist-item").forEach(e => e.classList.remove("active"));
@@ -2915,8 +2194,6 @@ document.getElementById("newBtn").addEventListener("click", () => {
   if (document.getElementById("chatView").classList.contains("vis")) {
     renderAgentCard(key);
     updateAgentMsgCount(key);
-    const sync = document.getElementById("backendSync");
-    if (sync) sync.textContent = "已開新會話（歷史記憶保留）";
   } else {
     showHub();
   }
@@ -2954,10 +2231,8 @@ async function archiveExport() {
 }
 
 async function archiveCleanup(days) {
-  const status = document.getElementById("archiveStatus");
-  status.textContent = "⚠️ 已停用刪除功能：為保留記憶，不執行清理。";
-  return;
   if (!confirm(`確定要刪除 ${days} 天前的對話記錄？此操作不可逆。`)) return;
+  const status = document.getElementById("archiveStatus");
   status.textContent = "⏳ 清理中...";
   try {
     const r = await fetch("/archive/cleanup", {
@@ -2975,85 +2250,73 @@ async function archiveCleanup(days) {
   } catch (e) { status.textContent = `❌ ${e.message}`; }
 }
 
-async function fetchArchiveList(force = false) {
-  const fs = _fetchState.archive;
-  const requestId = startFetchCycle(fs, force, 60000);
-  if (!requestId) return;
-  const render = (d, stale = false) => {
-    const el = document.getElementById("archiveList");
-    if (!el) return;
-    const files = Array.isArray(d.files) ? d.files : [];
-    if (!files.length) {
-      el.textContent = stale ? "尚無歸檔（顯示上次同步）" : "尚無歸檔";
-      return;
-    }
-    const banner = stale ? renderPanelNotice('連線不穩，顯示上次同步內容') : '';
-    el.innerHTML = banner + files.slice(0, 6).map(f =>
-      `<div style="padding:2px 0;border-bottom:1px solid rgba(255,255,255,.04)">
-        <span style="color:rgba(255,255,255,.55)">${f.name.slice(0,22)}</span>
-        <span style="float:right;color:rgba(255,255,255,.25)">${f.size_kb}KB</span>
-      </div>`
-    ).join("");
-  };
+async function fetchArchiveList() {
   try {
-    const r = await _fetchWithRetry("/archive/list", {}, 1, 1000);
-    if (!r.ok) return;
+    const r = await fetch("/archive/list");
     const d = await r.json();
-    if (!isActiveFetch(fs, requestId)) return;
-    fs.lastData = d;
-    render(d, false);
-  } catch (_) {
-    if (isActiveFetch(fs, requestId) && fs.lastData) render(fs.lastData, true);
-  } finally {
-    finishFetchCycle(fs, fetchArchiveList);
-  }
+    renderArchiveList(d);
+  } catch (_) {}
+}
+
+function renderArchiveList(d = {}) {
+  const files = Array.isArray(d.files) ? d.files : [];
+  const el = document.getElementById("archiveList");
+  if (!el) return;
+  if (!files.length) { el.textContent = "尚無歸檔"; return; }
+  el.innerHTML = files.slice(0, 6).map(f =>
+    `<div style="padding:2px 0;border-bottom:1px solid rgba(255,255,255,.04)">
+      <span style="color:rgba(255,255,255,.55)">${String(f.name || "").slice(0,22)}</span>
+      <span style="float:right;color:rgba(255,255,255,.25)">${f.size_kb ?? 0}KB</span>
+    </div>`
+  ).join("");
 }
 
 /* ════════════════════════════════════════
    Init
 ════════════════════════════════════════ */
-async function bootstrapDashboard() {
-  const jobs = [
-    () => fetchProviderStatus(true),
-    () => fetchKALStatus(true),
-    () => fetchTasksSummary(true),
-    () => fetchCommunicationStatus(true),
-    () => fetchHistory(true),
-    () => fetchArchiveList(true),
-  ];
-  for (const job of jobs) {
-    try {
-      await job();
-    } catch (_) {
-    }
-    await waitMs(280);
-  }
-}
-
-function startStaggeredPolling() {
-  setInterval(() => fetchKALStatus(false), POLL_INTERVAL_MS.kal);
-  setTimeout(() => setInterval(() => fetchTasksSummary(false), POLL_INTERVAL_MS.tasks), 4000);
-  setTimeout(() => setInterval(() => fetchCommunicationStatus(false), POLL_INTERVAL_MS.comm), 8000);
-  setTimeout(() => setInterval(() => fetchHistory(false), POLL_INTERVAL_MS.history), 12000);
-  setTimeout(() => setInterval(() => fetchProviderStatus(false), POLL_INTERVAL_MS.provider), 16000);
-  setTimeout(() => setInterval(() => fetchArchiveList(false), 180000), 20000);
-}
-
-document.getElementById("currentModelLabel").textContent = state.modelLabel;
-document.getElementById("modelIndicator").textContent = "· " + state.modelLabel;
+syncModelHeader();
+// #region agent log
+__agentLog("HUI1", "templates/chat.html:init", "ui init executed", {
+  href: window.location.href,
+  userAgent: navigator.userAgent,
+  sessionId: state.sessionId,
+  agentKey: state.agentKey,
+});
+// #endregion
 refreshInputPlaceholder();
-initVoiceDialog();
-initChatAvatarPicker();
-loadChatAvatar();
 setModelCardSelection(state.model);
 renderBackendSync({ agent: state.agentKey, model: state.modelLabel }, "idle");
-renderSendButtonState();
-bootstrapDashboard();
-startStaggeredPolling();
-// 每 6 小時自動打包一次
-setInterval(() => {
-  fetch("/archive/export", { method: "POST" }).catch(() => {});
-}, 6 * 60 * 60 * 1000);
+
+function bootstrapPolling() {
+  fetchFrontendSnapshot(true).then((snap) => {
+    if (!snap) {
+      fetchKALStatus(true);
+      fetchHistory(true);
+      fetchTasksSummary(true);
+      fetchProviderStatus(true);
+      fetchArchiveList();
+    }
+  });
+
+  setInterval(async () => {
+    const snap = await fetchFrontendSnapshot(false);
+    if (!snap) {
+      fetchKALStatus(false);
+      fetchTasksSummary(false);
+    }
+  }, POLL_INTERVAL_MS.snapshot);
+
+  // 低頻備援輪詢（snapshot 失效時仍能更新）
+  setInterval(() => fetchHistory(false), POLL_INTERVAL_MS.history);
+  setInterval(() => fetchProviderStatus(false), POLL_INTERVAL_MS.provider);
+
+  // 每 6 小時自動打包一次
+  setInterval(() => {
+    fetch("/archive/export", { method: "POST" }).catch(() => {});
+  }, 6 * 60 * 60 * 1000);
+}
+
+bootstrapPolling();
 </script>
 </body>
 </html>

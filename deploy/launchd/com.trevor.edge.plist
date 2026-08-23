@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.trevor.edge</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__TREVOR_PYTHON__</string>
+    <string>__TREVOR_ROOT__/tools/trevor_edge_client.py</string>
+    <string>daemon</string>
+    <string>--interval</string>
+    <string>60</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>__TREVOR_ROOT__</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>TREVOR_DEPLOYMENT</key>
+    <string>mac</string>
+    <key>TREVOR_DATA_DIR</key>
+    <string>__TREVOR_DATA_DIR__</string>
+    <key>TREVOR_EDGE_REMOTE_URL</key>
+    <string>__TREVOR_REMOTE_URL__</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>NetworkState</key>
+    <true/>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>StandardOutPath</key>
+  <string>__TREVOR_LOG_DIR__/edge.log</string>
+  <key>StandardErrorPath</key>
+  <string>__TREVOR_LOG_DIR__/edge.error.log</string>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+</dict>
+</plist>

@@ -1,0 +1,7 @@
+[Unit]
+Description=Trevor private cloud stack
+Wants=trevor-graphiti.service trevor-api.service trevor-autonomy.service trevor-worker.service
+After=network-online.target
+
+[Install]
+WantedBy=multi-user.target

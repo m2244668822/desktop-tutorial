@@ -1,0 +1,8 @@
+# AirLLM isolated runtime for Intel macOS / Python 3.12.
+# Keep this separate from the main Perob runtime to avoid Python 3.14 + ML stack conflicts.
+airllm==2.11.0
+torch==2.2.2
+transformers==4.48.3
+optimum==1.17.1
+numpy<2
+huggingface-hub<1.0

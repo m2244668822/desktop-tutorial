@@ -1,0 +1,17 @@
+# Dedicated Python 3.12 AI / agent runtime
+python-dotenv==1.2.1
+httpx==0.28.1
+tenacity==9.1.4
+pydantic==2.12.5
+cryptography>=46,<47
+langgraph
+langchain
+faiss-cpu
+chromadb
+transformers==4.48.3
+sentence-transformers==3.3.1
+autogen-agentchat
+autogen-ext
+orjson
+pathvalidate==3.3.1
+universal-pathlib==0.3.10

@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <title>智能體網狀圖</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #060a10;
+      color: #e6edf6;
+      font-family: "Noto Sans TC", "PingFang TC", "SF Pro Text", sans-serif;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      padding: 12px 18px 8px;
+      border-bottom: 1px solid rgba(148,163,184,0.2);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(11,21,35,0.9);
+    }
+    header h1 { font-size: 15px; font-weight: 700; letter-spacing: 0.06em; color: #7dd3fc; }
+    .legend { display: flex; gap: 12px; font-size: 11px; color: #94a3b8; align-items: center; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+    .dot.running { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
+    .dot.pending  { background: #f59e0b; }
+    .dot.failed   { background: #ef4444; }
+    .dot.idle     { background: #475569; }
+    #refresh-info { font-size: 11px; color: #475569; }
+    #canvas-wrap {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+    svg#net {
+      width: 100%;
+      height: 100%;
+    }
+    @keyframes pulse-running {
+      0%,100% { opacity: 1; }
+      50%      { opacity: 0.3; }
+    }
+    @keyframes pulse-pending {
+      0%,100% { opacity: 0.9; }
+      50%      { opacity: 0.25; }
+    }
+    .pulse-running { animation: pulse-running 1.6s ease-in-out infinite; }
+    .pulse-pending { animation: pulse-pending 2s ease-in-out infinite; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>⬡ 智能體網狀圖</h1>
+    <div class="legend">
+      <span><span class="dot running"></span>運作中</span>
+      <span><span class="dot pending"></span>待處理</span>
+      <span><span class="dot failed"></span>阻塞</span>
+      <span><span class="dot idle"></span>待命</span>
+    </div>
+    <span id="refresh-info">每 5 秒更新</span>
+  </header>
+  <div id="canvas-wrap">
+    <svg id="net" viewBox="0 0 600 500" preserveAspectRatio="xMidYMid meet">
+      <defs id="svgDefs"></defs>
+      <g id="edges"></g>
+      <g id="nodes"></g>
+    </svg>
+  </div>
+
+  <script>
+    const API_BASE = "http://127.0.0.1:5001";
+    const POLL_MS  = 5000;
+
+    const AGENTS = [
+      { key: "dispatcher", label: "申言者中樞", x: 300, y: 250, r: 36 },
+      { key: "engineer",   label: "工程師", x: 300, y: 110, r: 26 },
+      { key: "researcher", label: "研究學習中樞", x: 460, y: 155, r: 26 },
+      { key: "xiaobian",   label: "小編",   x: 460, y: 340, r: 24 },
+      { key: "general",    label: "通用",   x: 300, y: 400, r: 24 },
+      { key: "proclaimer", label: "申言者", x: 140, y: 340, r: 24 },
+      { key: "whitehat",   label: "白帽駭客", x: 140, y: 155, r: 26 },
+    ];
+
+    const EDGES = [
+      [0,1],[0,2],[0,3],[0,4],[0,5],[0,6],
+      [1,2],[2,3],[3,4],[4,5],[5,6],[6,1],
+    ];
+
+    const STATE_COLOR = {
+      running: "#22c55e",
+      pending: "#f59e0b",
+      failed:  "#ef4444",
+      idle:    "#475569",
+    };
+
+    let stateMap = {};
+
+    function bezierMid(a, b, bend) {
+      const mx = (a.x + b.x) / 2;
+      const my = (a.y + b.y) / 2;
+      const dx = b.x - a.x, dy = b.y - a.y;
+      return { x: mx - dy * bend, y: my + dx * bend };
+    }
+
+    function render() {
+      const svgDefs = document.getElementById("svgDefs");
+      const edgesG  = document.getElementById("edges");
+      const nodesG  = document.getElementById("nodes");
+
+      // Build glow filters
+      let defsHtml = `<marker id="arr" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+        <path d="M0,0 L0,7 L7,3.5 z" fill="rgba(148,163,184,0.4)"/>
+      </marker>`;
+      AGENTS.forEach(a => {
+        const col = STATE_COLOR[stateMap[a.key]] || STATE_COLOR.idle;
+        defsHtml += `<filter id="glow-${a.key}" x="-80%" y="-80%" width="260%" height="260%">
+          <feGaussianBlur stdDeviation="7" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>`;
+      });
+      svgDefs.innerHTML = defsHtml;
+
+      // Edges
+      let edgesHtml = "";
+      EDGES.forEach(([ai, bi]) => {
+        const a = AGENTS[ai], b = AGENTS[bi];
+        const isHub = ai === 0 || bi === 0;
+        const bend  = isHub ? 0 : 0.22;
+        const m = bezierMid(a, b, bend);
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        const nx = dx/dist, ny = dy/dist;
+        const x1 = a.x + nx * a.r, y1 = a.y + ny * a.r;
+        const x2 = b.x - nx * b.r, y2 = b.y - ny * b.r;
+        edgesHtml += `<path d="M${x1},${y1} Q${m.x},${m.y} ${x2},${y2}"
+          fill="none"
+          stroke="rgba(148,163,184,${isHub ? 0.35 : 0.15})"
+          stroke-width="${isHub ? 1.8 : 1}"
+          marker-end="url(#arr)" />`;
+      });
+      edgesG.innerHTML = edgesHtml;
+
+      // Nodes
+      let nodesHtml = "";
+      AGENTS.forEach(a => {
+        const state = stateMap[a.key] || "idle";
+        const col   = STATE_COLOR[state] || STATE_COLOR.idle;
+        const cls   = state === "running" ? "pulse-running" : state === "pending" ? "pulse-pending" : "";
+        nodesHtml += `
+          <circle cx="${a.x}" cy="${a.y}" r="${a.r}"
+            fill="${col}" fill-opacity="0.18"
+            stroke="${col}" stroke-width="2.5"
+            filter="url(#glow-${a.key})"
+            class="${cls}" />
+          <circle cx="${a.x}" cy="${a.y}" r="6" fill="${col}" />
+          <text x="${a.x}" y="${a.y + a.r + 16}"
+            text-anchor="middle" fill="rgba(230,237,246,0.88)"
+            font-size="13" font-family="'Noto Sans TC','PingFang TC',sans-serif"
+            font-weight="600">${a.label}</text>
+          <text x="${a.x}" y="${a.y + 5}"
+            text-anchor="middle" fill="${col}"
+            font-size="10" font-family="monospace">${state}</text>`;
+      });
+      nodesG.innerHTML = nodesHtml;
+    }
+
+    async function fetchStatus() {
+      try {
+        const res = await fetch(API_BASE + "/reality/board", { signal: AbortSignal.timeout(4000) });
+        if (!res.ok) return;
+        const data = await res.json();
+        const rows = Array.isArray(data) ? data : (data.agents || data.data || []);
+        rows.forEach(row => {
+          if (row.agentKey) stateMap[row.agentKey] = row.state || "idle";
+        });
+      } catch (_) {}
+      render();
+      document.getElementById("refresh-info").textContent = "更新：" + new Date().toLocaleTimeString("zh-Hant");
+    }
+
+    render();
+    fetchStatus();
+    setInterval(fetchStatus, POLL_MS);
+  </script>
+</body>
+</html>

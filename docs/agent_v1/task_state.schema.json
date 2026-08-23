@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.agent/docs/agent_v1/task_state.schema.json",
+  "title": "Workflow TaskState V1",
+  "type": "object",
+  "required": [
+    "task_id",
+    "trace_id",
+    "route",
+    "overall_status",
+    "completed_steps",
+    "failed_steps",
+    "steps",
+    "observability"
+  ],
+  "properties": {
+    "task_id": {"type": "string"},
+    "trace_id": {"type": "string"},
+    "parent_task_id": {"type": "string"},
+    "rerun_from": {"type": "string"},
+    "route": {"type": "string"},
+    "overall_status": {"type": "string", "enum": ["success", "partial", "failed"]},
+    "started_at": {"type": "string"},
+    "finished_at": {"type": "string"},
+    "duration_ms": {"type": "integer", "minimum": 0},
+    "completed_steps": {"type": "integer", "minimum": 0},
+    "failed_steps": {"type": "integer", "minimum": 0},
+    "retries_used": {"type": "integer", "minimum": 0},
+    "memory_write_allowed": {"type": "boolean"},
+    "memory_write_block_reason": {"type": "string"},
+    "memory_layers": {
+      "type": "object",
+      "properties": {
+        "l0": {"type": "integer", "minimum": 0},
+        "l1": {"type": "integer", "minimum": 0},
+        "l2": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "action_write_executed": {"type": "boolean"},
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["tool_name", "status", "attempts", "duration_ms"],
+        "properties": {
+          "tool_name": {"type": "string"},
+          "description": {"type": "string"},
+          "status": {"type": "string"},
+          "attempts": {"type": "integer", "minimum": 0},
+          "verified": {"type": "boolean"},
+          "verification_notes": {"type": "string"},
+          "error": {"type": "string"},
+          "error_class": {"type": "string"},
+          "duration_ms": {"type": "integer", "minimum": 0}
+        },
+        "additionalProperties": true
+      }
+    },
+    "observability": {
+      "type": "object",
+      "required": ["step_count", "duration_ms", "error_breakdown", "step_latencies_ms"],
+      "properties": {
+        "step_count": {"type": "integer", "minimum": 0},
+        "completed_steps": {"type": "integer", "minimum": 0},
+        "failed_steps": {"type": "integer", "minimum": 0},
+        "retry_steps": {"type": "array", "items": {"type": "string"}},
+        "error_breakdown": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+        "step_latencies_ms": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+        "duration_ms": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

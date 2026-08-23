@@ -397,6 +397,12 @@ app.config['RATELIMIT_STORAGE_URI'] = effective_ratelimit_uri
 db = SQLAlchemy(app)
 
 
+def _remove_db_session_safely():
+    """Release scoped sessions inside a Flask application context."""
+    with app.app_context():
+        db.session.remove()
+
+
 @event.listens_for(Engine, "connect")
 def _configure_sqlite_connection(dbapi_connection, connection_record):
     if not IS_SQLITE_DB:
@@ -1495,7 +1501,7 @@ def _dispatch_n8n_event_async(webhook_url: str, event_type: str, payload: dict):
             with app.app_context():
                 _dispatch_n8n_event(webhook_url, event_type, payload)
         finally:
-            db.session.remove()
+            _remove_db_session_safely()
 
     threading.Thread(target=_run, daemon=True).start()
 
@@ -4492,7 +4498,7 @@ def trigger_autonomous_learning_async(source: str = 'chat_runtime'):
         except Exception as exc:
             logging.warning('Async learning failed: %s', exc)
         finally:
-            db.session.remove()
+            _remove_db_session_safely()
 
     threading.Thread(target=_worker, name='chat-learning-worker', daemon=True).start()
 
@@ -5693,7 +5699,7 @@ def cns_background_loop():
                 record_cns_heartbeat('scheduled', 'failed', 'CNS 巡檢失敗', {'error': str(exc)})
                 logging.error("CNS background cycle failed: %s", exc)
         finally:
-            db.session.remove()
+            _remove_db_session_safely()
         time.sleep(PROACTIVE_INTERVAL_SECONDS)
 
 
@@ -6146,6 +6152,13 @@ def chat():
         return jsonify({'error': error_msg}), 500
 
 @app.route('/chat/agent', methods=['POST'])
+@app.route('/chat/agent/', methods=['POST'])
+@app.route('/Perob/chat/agent', methods=['POST'])
+@app.route('/Perob/chat/agent/', methods=['POST'])
+@app.route('/api/send_message', methods=['POST'])
+@app.route('/api/send_message/', methods=['POST'])
+@app.route('/Perob/api/send_message', methods=['POST'])
+@app.route('/Perob/api/send_message/', methods=['POST'])
 @limiter.limit("20 per minute")
 def chat_direct_agent():
     data = request.get_json(silent=True) or {}
