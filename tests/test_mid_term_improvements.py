@@ -2,14 +2,21 @@
 """Regression tests for mid-term LocalMemoryAPI improvements."""
 
 import time
+import tempfile
 import unittest
+from pathlib import Path
 
+from tests.chatgpt_fixture import create_chatgpt_fixture
 from tools.local_memory_api import LocalMemoryAPI
 
 
 class MidTermLocalMemoryAPITests(unittest.TestCase):
     def setUp(self):
-        self.api = LocalMemoryAPI(chatgpt_limit=100)
+        temporary_directory = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary_directory.cleanup)
+        self.root = Path(temporary_directory.name)
+        create_chatgpt_fixture(self.root)
+        self.api = LocalMemoryAPI(base_dir=self.root, chatgpt_limit=100)
 
     def test_paginated_loading_returns_metadata_and_cached_results(self):
         page1 = self.api.get_conversations_paginated(page=1, page_size=20)

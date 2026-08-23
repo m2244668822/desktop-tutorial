@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - trevor/integration
       - 'trevor/task/**'
   pull_request:
     branches:
@@ -49,4 +48,5 @@ jobs:
       - name: Run test suite
         env:
           TREVOR_MEMORY_ENCRYPTION: required
+          TREVOR_MEMORY_KEY_B64: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
         run: python -m unittest discover -s tests -p 'test_*.py'

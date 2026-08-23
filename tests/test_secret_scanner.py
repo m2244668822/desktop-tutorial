@@ -53,6 +53,23 @@ class SecretScannerTests(unittest.TestCase):
             self.assertFalse(result['ok'])
             self.assertEqual('private_key', result['findings'][0]['rule'])
 
+    def test_scans_files_when_parent_directory_is_named_tmp(self):
+        from core.secret_scanner import SecretScanner
+
+        with tempfile.TemporaryDirectory() as outer:
+            root = Path(outer) / 'tmp' / 'repository'
+            root.mkdir(parents=True)
+            secret_file = root / 'unsafe.env'
+            secret_file.write_text(
+                'GROQ_API_KEY=gsk_' + ('B' * 40) + '\n',
+                encoding='utf-8',
+            )
+
+            result = SecretScanner(root).scan_paths([secret_file])
+
+        self.assertFalse(result['ok'])
+        self.assertEqual('groq_api_key', result['findings'][0]['rule'])
+
 
 if __name__ == '__main__':
     unittest.main()

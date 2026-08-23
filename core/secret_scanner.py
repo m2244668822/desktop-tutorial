@@ -68,6 +68,12 @@ class SecretScanner:
         except ValueError:
             return str(path.resolve())
 
+    def _scan_parts(self, path: Path) -> tuple[str, ...]:
+        try:
+            return path.resolve().relative_to(self.root).parts
+        except ValueError:
+            return (path.name,)
+
     @staticmethod
     def _looks_sensitive_literal(value: str) -> bool:
         candidate = value.strip().strip('\'\"')
@@ -105,7 +111,7 @@ class SecretScanner:
             path = Path(raw_path)
             if not path.is_file() or path.is_symlink() or path.stat().st_size > 2 * 1024 * 1024:
                 continue
-            if any(part in EXCLUDED_PARTS for part in path.parts):
+            if any(part in EXCLUDED_PARTS for part in self._scan_parts(path)):
                 continue
             try:
                 content = path.read_bytes()
