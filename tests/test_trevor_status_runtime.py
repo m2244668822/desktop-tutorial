@@ -7,6 +7,22 @@ from types import SimpleNamespace
 
 
 class TrevorStatusRuntimeTests(unittest.TestCase):
+    @staticmethod
+    def _server(data_root):
+        from core.web_server import WebServerMode
+
+        server = WebServerMode.__new__(WebServerMode)
+        server.paths = SimpleNamespace(data=data_root)
+        server.bridge = SimpleNamespace(monitor_active=False)
+        server.readiness_payload = lambda: {
+            'required_ready': True,
+            'bridge_ready': True,
+            'status': 'ready',
+            'degraded_reasons': [],
+        }
+        server._tcp_up = lambda host, port: False
+        return server
+
     def test_autonomy_status_uses_scheduler_and_worker_heartbeats(self):
         from core.web_server import WebServerMode
 
@@ -45,6 +61,25 @@ class TrevorStatusRuntimeTests(unittest.TestCase):
         self.assertTrue(payload['autonomy']['scheduler']['ready'])
         self.assertTrue(payload['autonomy']['worker']['ready'])
         self.assertEqual(1, payload['autonomy']['max_concurrent_tasks'])
+
+    def test_data_migration_distinguishes_device_and_graphiti_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data_root = Path(tmp)
+            migrations = data_root / 'migrations'
+            migrations.mkdir()
+            (migrations / 'trevor_data_manifest.json').write_text(
+                json.dumps({'unique_turns': 5424, 'conversation_threads': 1464}),
+                encoding='utf-8',
+            )
+            server = self._server(data_root)
+
+            payload = server.trevor_status_payload()
+
+        migration = payload['data_migration']
+        self.assertEqual('device_ready_graphiti_pending', migration['state'])
+        self.assertTrue(migration['device']['ready'])
+        self.assertEqual(5424, migration['device']['unique_turns'])
+        self.assertFalse(migration['graphiti']['ready'])
 
 
 if __name__ == '__main__':

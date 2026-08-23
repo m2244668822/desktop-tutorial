@@ -275,8 +275,17 @@ class WebServerMode:
             graphiti_port = int(os.getenv("TREVOR_GRAPHITI_PORT", "8091") or "8091")
         except (TypeError, ValueError):
             graphiti_port = 8091
-        migration_manifest = self.paths.data / "migrations" / "graphiti_manifest.json"
+        migration_root = self.paths.data / "migrations"
+        graphiti_migration_manifest = migration_root / "graphiti_manifest.json"
+        device_migration_manifest = migration_root / "trevor_data_manifest.json"
         autonomy_dir = self.paths.data / "autonomy"
+
+        def migration_manifest(path: Path) -> dict:
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                return {}
+            return payload if isinstance(payload, dict) else {}
 
         def runtime_state(name: str) -> dict:
             path = autonomy_dir / name
@@ -313,6 +322,18 @@ class WebServerMode:
         scheduler_ready = scheduler["ready"] or combined["ready"]
         worker_ready = worker["ready"] or combined["ready"]
         local_monitor_ready = bool(getattr(self.bridge, "monitor_active", False))
+        device_migration = migration_manifest(device_migration_manifest)
+        graphiti_migration = migration_manifest(graphiti_migration_manifest)
+        device_migration_ready = bool(device_migration)
+        graphiti_migration_ready = bool(graphiti_migration)
+        if device_migration_ready and graphiti_migration_ready:
+            migration_state = "ready"
+        elif device_migration_ready:
+            migration_state = "device_ready_graphiti_pending"
+        elif graphiti_migration_ready:
+            migration_state = "graphiti_ready_device_pending"
+        else:
+            migration_state = "pending"
         try:
             queued_tasks = self.autonomy_queue.tasks()
         except (RuntimeError, OSError, AttributeError):
@@ -349,8 +370,23 @@ class WebServerMode:
                 ),
             },
             "data_migration": {
-                "manifest_ready": migration_manifest.exists(),
-                "state": "ready" if migration_manifest.exists() else "pending",
+                "manifest_ready": device_migration_ready and graphiti_migration_ready,
+                "state": migration_state,
+                "device": {
+                    "ready": device_migration_ready,
+                    "unique_turns": int(device_migration.get("unique_turns", 0) or 0),
+                    "conversation_threads": int(
+                        device_migration.get("conversation_threads", 0) or 0
+                    ),
+                    "encrypted": True,
+                },
+                "graphiti": {
+                    "ready": graphiti_migration_ready,
+                    "migrated_count": int(
+                        graphiti_migration.get("migrated_count", 0) or 0
+                    ),
+                    "redacted": True,
+                },
             },
             "degraded_reasons": list(readiness.get("degraded_reasons", [])),
         }
