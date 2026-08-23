@@ -62,6 +62,37 @@ class TrevorStatusRuntimeTests(unittest.TestCase):
         self.assertTrue(payload['autonomy']['worker']['ready'])
         self.assertEqual(1, payload['autonomy']['max_concurrent_tasks'])
 
+    def test_combined_daemon_reports_running_scheduler_and_worker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data_root = Path(tmp)
+            autonomy = data_root / 'autonomy'
+            autonomy.mkdir()
+            heartbeat = datetime.now(timezone.utc).isoformat()
+            (autonomy / 'daemon_state.json').write_text(
+                json.dumps(
+                    {
+                        'daemon_status': 'running',
+                        'mode': 'combined',
+                        'heartbeat_at': heartbeat,
+                    }
+                ),
+                encoding='utf-8',
+            )
+            server = self._server(data_root)
+
+            payload = server.trevor_status_payload()
+
+        scheduler = payload['autonomy']['scheduler']
+        worker = payload['autonomy']['worker']
+        self.assertTrue(scheduler['ready'])
+        self.assertEqual('running', scheduler['status'])
+        self.assertEqual('combined', scheduler['mode'])
+        self.assertEqual('combined', scheduler['via'])
+        self.assertTrue(worker['ready'])
+        self.assertEqual('running', worker['status'])
+        self.assertEqual('combined', worker['mode'])
+        self.assertEqual('combined', worker['via'])
+
     def test_data_migration_distinguishes_device_and_graphiti_state(self):
         with tempfile.TemporaryDirectory() as tmp:
             data_root = Path(tmp)

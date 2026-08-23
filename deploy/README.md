@@ -44,6 +44,18 @@ python tools/install_trevor_edge_launchagent.py \
 
 Use `launchctl print gui/$(id -u)/com.trevor.edge` and `~/Library/Application Support/Trevor/edge/status.json` for health checks.
 
+## Mac Autonomy Fallback
+
+OCI remains the primary autonomy host. When OCI is unavailable, install the local combined scheduler and worker as a supervised LaunchAgent:
+
+```bash
+.venv312/bin/python tools/install_trevor_autonomy_launchagent.py
+launchctl print gui/$(id -u)/com.trevor.autonomy
+curl --fail http://127.0.0.1:5001/api/trevor/status
+```
+
+The rendered plist contains paths and non-secret policy settings only. Provider credentials continue to resolve from Keychain, mutable state remains under `TREVOR_DATA_DIR`, and launchd restarts the daemon after any exit.
+
 ## Rollback
 
 - Revert application changes with `python tools/trevor_operations.py rollback --commit <sha> --reason <reason>`; the command refuses dirty or non-protected branches and never force-resets.

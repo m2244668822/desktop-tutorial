@@ -319,8 +319,16 @@ class WebServerMode:
         scheduler = runtime_state("scheduler_state.json")
         worker = runtime_state("worker_state.json")
         combined = runtime_state("daemon_state.json")
-        scheduler_ready = scheduler["ready"] or combined["ready"]
-        worker_ready = worker["ready"] or combined["ready"]
+
+        def effective_autonomy_state(state: dict) -> dict:
+            if state["ready"]:
+                return {**state, "via": state["mode"] or "dedicated"}
+            if combined["ready"]:
+                return {**combined, "via": "combined"}
+            return {**state, "via": ""}
+
+        scheduler_state = effective_autonomy_state(scheduler)
+        worker_state = effective_autonomy_state(worker)
         local_monitor_ready = bool(getattr(self.bridge, "monitor_active", False))
         device_migration = migration_manifest(device_migration_manifest)
         graphiti_migration = migration_manifest(graphiti_migration_manifest)
@@ -353,12 +361,12 @@ class WebServerMode:
             },
             "autonomy": {
                 "ready": bool(
-                    (scheduler_ready and worker_ready)
+                    (scheduler_state["ready"] and worker_state["ready"])
                     or combined["ready"]
                     or local_monitor_ready
                 ),
-                "scheduler": {**scheduler, "ready": scheduler_ready},
-                "worker": {**worker, "ready": worker_ready},
+                "scheduler": scheduler_state,
+                "worker": worker_state,
                 "combined": combined,
                 "pending_tasks": sum(task.get("status") == "pending" for task in queued_tasks),
                 "max_concurrent_tasks": 1,
