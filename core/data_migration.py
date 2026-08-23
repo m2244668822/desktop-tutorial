@@ -6,7 +6,7 @@ import os
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Mapping
 
 from core.audit_chain import HashChainAuditLog
 from core.encrypted_store import AESGCMJsonStore, DeviceEncryptionKey
@@ -37,6 +37,7 @@ def _atomic_json(path: Path, payload: Any) -> None:
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+    os.chmod(temporary, 0o600)
     os.replace(temporary, path)
 
 
@@ -158,16 +159,17 @@ class TrevorDataMigrator:
             for index, message in enumerate(thread.get("messages", []) or []):
                 if not isinstance(message, dict):
                     continue
+                metadata = dict(message.get("metadata") or {})
                 self._add_turn(
-                    source=source,
-                    thread_hint=f"{thread_id}:{index}",
+                    source=str(metadata.get("source", source) or source),
+                    thread_hint=str(thread_id),
                     source_role=str(
-                        (message.get("metadata") or {}).get("source_role", source_role)
+                        metadata.get("source_role", source_role)
                     ),
                     timestamp=str(message.get("timestamp", thread.get("created_at", "")) or ""),
                     user=message.get("user", ""),
                     assistant=message.get("assistant", ""),
-                    metadata=message.get("metadata", {}),
+                    metadata=metadata,
                 )
 
     def _ingest_legacy_list(self, path: Path) -> None:
@@ -190,6 +192,127 @@ class TrevorDataMigrator:
                 },
             )
 
+    @staticmethod
+    def _chatgpt_timestamp(value: Any) -> str:
+        if isinstance(value, (int, float)):
+            try:
+                return datetime.fromtimestamp(float(value), timezone.utc).isoformat()
+            except (OSError, OverflowError, ValueError):
+                return ""
+        return str(value or "").strip()
+
+    @staticmethod
+    def _chatgpt_message_text(message: Mapping[str, Any]) -> str:
+        content = message.get("content", {})
+        if not isinstance(content, Mapping):
+            return ""
+        parts = content.get("parts", [])
+        if not isinstance(parts, list):
+            return ""
+        text_parts = []
+        for part in parts:
+            if isinstance(part, str):
+                text_parts.append(part)
+            elif isinstance(part, Mapping):
+                text = part.get("text", "")
+                if isinstance(text, str):
+                    text_parts.append(text)
+        return "\n".join(text_parts).strip()
+
+    @staticmethod
+    def _chatgpt_active_messages(conversation: Mapping[str, Any]) -> list[dict[str, Any]]:
+        mapping = conversation.get("mapping", {})
+        if not isinstance(mapping, Mapping):
+            return []
+        current = str(conversation.get("current_node", "") or "")
+        active_nodes = []
+        seen = set()
+        while current and current not in seen:
+            seen.add(current)
+            node = mapping.get(current)
+            if not isinstance(node, Mapping):
+                break
+            active_nodes.append(node)
+            current = str(node.get("parent", "") or "")
+        if active_nodes:
+            nodes = list(reversed(active_nodes))
+        else:
+            nodes = sorted(
+                (node for node in mapping.values() if isinstance(node, Mapping)),
+                key=lambda node: float(
+                    (node.get("message") or {}).get("create_time", 0) or 0
+                ),
+            )
+        return [
+            dict(node["message"])
+            for node in nodes
+            if isinstance(node.get("message"), Mapping)
+        ]
+
+    def _ingest_chatgpt_database(self, path: Path) -> None:
+        payload = _read_json(path, {})
+        data = payload.get("data", {}) if isinstance(payload, Mapping) else {}
+        conversations = data.get("conversations", []) if isinstance(data, Mapping) else []
+        if not isinstance(conversations, list):
+            return
+        for conversation_index, conversation in enumerate(conversations):
+            if not isinstance(conversation, Mapping):
+                continue
+            conversation_id = str(
+                conversation.get("id", conversation.get("conversation_id", ""))
+                or conversation_index
+            )
+            fallback_timestamp = self._chatgpt_timestamp(
+                conversation.get("update_time", conversation.get("create_time", ""))
+            )
+            pending_user: dict[str, Any] | None = None
+            turn_index = 0
+            for message in self._chatgpt_active_messages(conversation):
+                author = message.get("author", {})
+                role = str(author.get("role", "") or "").lower() if isinstance(author, Mapping) else ""
+                text = self._chatgpt_message_text(message)
+                if not text or role not in {"user", "assistant"}:
+                    continue
+                timestamp = self._chatgpt_timestamp(message.get("create_time")) or fallback_timestamp
+                metadata = message.get("metadata", {})
+                model = str(metadata.get("model_slug", "") or "") if isinstance(metadata, Mapping) else ""
+                if role == "user":
+                    if pending_user is not None:
+                        self._add_turn(
+                            source="chatgpt_database",
+                            thread_hint=conversation_id,
+                            source_role="ChatGPT",
+                            timestamp=str(pending_user["timestamp"]),
+                            user=pending_user["text"],
+                            assistant="",
+                            metadata={"turn_index": turn_index},
+                        )
+                        turn_index += 1
+                    pending_user = {"text": text, "timestamp": timestamp}
+                    continue
+                user_text = pending_user["text"] if pending_user is not None else ""
+                self._add_turn(
+                    source="chatgpt_database",
+                    thread_hint=conversation_id,
+                    source_role="ChatGPT",
+                    timestamp=timestamp,
+                    user=user_text,
+                    assistant=text,
+                    metadata={"turn_index": turn_index, "model": model},
+                )
+                turn_index += 1
+                pending_user = None
+            if pending_user is not None:
+                self._add_turn(
+                    source="chatgpt_database",
+                    thread_hint=conversation_id,
+                    source_role="ChatGPT",
+                    timestamp=str(pending_user["timestamp"]),
+                    user=pending_user["text"],
+                    assistant="",
+                    metadata={"turn_index": turn_index},
+                )
+
     def migrate(self) -> dict[str, Any]:
         self._turns.clear()
         self._conversations.clear()
@@ -207,6 +330,14 @@ class TrevorDataMigrator:
         )
         self._ingest_legacy_list(
             self.workspace / "500" / "llama32-chat" / "data" / "conversations.json"
+        )
+        self._ingest_chatgpt_database(
+            self.workspace
+            / "500"
+            / "llama32-chat"
+            / "data"
+            / "local_knowledge"
+            / "complete_chatgpt_database.json"
         )
         self.json_store.write_json(destination_file, self._conversations)
         manifest = {
