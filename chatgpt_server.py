@@ -6,6 +6,7 @@ import time
 import logging
 import re
 import threading
+import importlib
 import importlib.util
 import sqlite3
 from datetime import datetime, timedelta
@@ -31,7 +32,6 @@ from sqlalchemy.pool import NullPool
 from werkzeug.utils import secure_filename
 import ollama
 import requests
-from transformers import pipeline
 from agents import (
     build_agent_prompt,
     extract_signal_terms,
@@ -1135,10 +1135,16 @@ def get_gpt2_generator():
     if not has_ml_runtime_backend():
         logging.warning("GPT-2 local backend unavailable: no torch/tensorflow/flax runtime found")
         return None
+    if importlib.util.find_spec("transformers") is None:
+        logging.warning("GPT-2 local backend unavailable: transformers is not installed")
+        return None
 
     gpt2_init_attempted = True
     try:
-        gpt2_generator = pipeline('text-generation', model='gpt2', device=-1)
+        transformers = importlib.import_module('transformers')
+        gpt2_generator = transformers.pipeline(
+            'text-generation', model='gpt2', device=-1
+        )
         logging.info("GPT-2 initialized successfully")
     except Exception as e:
         gpt2_generator = None

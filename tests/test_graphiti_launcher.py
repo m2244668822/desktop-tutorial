@@ -51,6 +51,25 @@ class GraphitiLauncherTests(unittest.TestCase):
         self.assertEqual('', result['gemini_api_key'])
         self.assertEqual('nvidia-secret', result['nvidia_api_key'])
 
+    def test_health_url_uses_the_configured_sidecar_address(self):
+        from tools.launch_graphiti_sidecar import graphiti_health_url
+
+        self.assertEqual(
+            'http://127.0.0.1:9107/health',
+            graphiti_health_url(
+                {'TREVOR_GRAPHITI_HOST': '0.0.0.0', 'TREVOR_GRAPHITI_PORT': '9107'}
+            ),
+        )
+        self.assertEqual(
+            'http://graphiti.internal:8123/health',
+            graphiti_health_url(
+                {
+                    'TREVOR_GRAPHITI_HOST': 'graphiti.internal',
+                    'TREVOR_GRAPHITI_PORT': '8123',
+                }
+            ),
+        )
+
 
 if __name__ == '__main__':
     unittest.main()

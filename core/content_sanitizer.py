@@ -20,8 +20,24 @@ _REDACTION_PATTERNS: tuple[tuple[str, re.Pattern[str], str], ...] = (
     ),
     (
         'known_key',
-        re.compile(r'\b(?:nvapi-|gsk_|sk-|AIza)[A-Za-z0-9._-]{8,}\b'),
+        re.compile(
+            r'\b(?:'
+            r'(?:nvapi-|gsk_|sk-|AIza)[A-Za-z0-9._-]{8,}'
+            r'|gh[pousr]_[A-Za-z0-9]{20,}'
+            r'|AKIA[0-9A-Z]{16}'
+            r'|xox[baprs]-[A-Za-z0-9-]{20,}'
+            r')\b'
+        ),
         '[REDACTED_SECRET]',
+    ),
+    (
+        'private_key',
+        re.compile(
+            r'-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----.*?'
+            r'-----END (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----',
+            re.DOTALL,
+        ),
+        '[REDACTED_PRIVATE_KEY]',
     ),
     (
         'email',

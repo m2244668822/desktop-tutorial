@@ -51,6 +51,34 @@ class DependencySecurityContractTests(unittest.TestCase):
 
         self.assertFalse((ROOT / "requirements-airllm.txt").exists())
 
+    def test_chatgpt_server_loads_transformers_only_inside_optional_backend(self):
+        source = (ROOT / 'chatgpt_server.py').read_text(encoding='utf-8')
+
+        self.assertNotIn('from transformers import pipeline\n', source)
+        self.assertIn("import_module('transformers')", source)
+
+    def test_container_uses_the_supported_trevor_web_entrypoint(self):
+        dockerfile = (ROOT / 'Dockerfile').read_text(encoding='utf-8')
+
+        self.assertIn('EXPOSE 5001', dockerfile)
+        self.assertIn('"system_main.py", "web"', dockerfile)
+        self.assertNotIn('gunicorn', dockerfile)
+        self.assertNotIn('desktop_chat_app:app', dockerfile)
+
+    def test_github_actions_use_node24_runtimes(self):
+        workflow_sources = []
+        for workflow in (ROOT / '.github' / 'workflows').glob('*.yml'):
+            source = workflow.read_text(encoding='utf-8')
+            workflow_sources.append(source)
+            with self.subTest(workflow=workflow.name):
+                self.assertNotIn('actions/checkout@v4', source)
+                self.assertNotIn('actions/setup-python@v5', source)
+                self.assertIn('actions/checkout@v7', source)
+                self.assertIn('actions/setup-python@v7', source)
+        combined = '\n'.join(workflow_sources)
+        self.assertNotIn('actions/upload-artifact@v4', combined)
+        self.assertIn('actions/upload-artifact@v7', combined)
+
 
 if __name__ == "__main__":
     unittest.main()

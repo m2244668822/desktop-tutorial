@@ -39,6 +39,8 @@ TREVOR_UNITS=(
 CUTOVER_STARTED=0
 PREVIOUS_APP_SAVED=0
 ACTIVE_SERVICES=()
+READINESS_ATTEMPTS=180
+READINESS_STABLE_PROBES=5
 
 if [ ! -f "$SOURCE_ROOT/system_main.py" ]; then
   echo "invalid Trevor source root" >&2
@@ -127,10 +129,10 @@ install_falkordb_platform_module() {
 audit_deployment() {
   local status="$1"
   local audit_root=""
-  if [ -x "$APP_ROOT/.venv/bin/python" ]; then
-    audit_root="$APP_ROOT"
-  elif [ -x "$BUILD_ROOT/.venv/bin/python" ]; then
+  if [ -x "$BUILD_ROOT/.venv/bin/python" ]; then
     audit_root="$BUILD_ROOT"
+  elif [ -x "$APP_ROOT/.venv/bin/python" ]; then
+    audit_root="$APP_ROOT"
   else
     return 1
   fi
@@ -143,6 +145,44 @@ audit_deployment() {
       --subject oci-systemd \
       --data-root "$DATA_ROOT"
   )
+}
+
+cleanup_staging_artifacts() {
+  case "$BUILD_ROOT" in
+    "$RELEASE_ROOT"/.staging-*) ;;
+    *) return 1 ;;
+  esac
+  case "$UNIT_BACKUP_ROOT" in
+    "$RELEASE_ROOT"/.units-*) ;;
+    *) return 1 ;;
+  esac
+  rm -rf -- "$BUILD_ROOT" "$UNIT_BACKUP_ROOT"
+}
+
+wait_for_service_readiness() {
+  local attempt service stable_probes=0
+  for ((attempt = 1; attempt <= READINESS_ATTEMPTS; attempt += 1)); do
+    for service in "${TREVOR_SERVICES[@]}"; do
+      if ! systemctl is-active --quiet "$service"; then
+        echo "Trevor service stopped during readiness: $service" >&2
+        return 1
+      fi
+    done
+    if curl --fail --silent --show-error --max-time 5 \
+      http://127.0.0.1:5001/health/ready >/dev/null \
+      && curl --fail --silent --show-error --max-time 5 \
+        http://127.0.0.1:8091/health >/dev/null; then
+      stable_probes=$((stable_probes + 1))
+      if [ "$stable_probes" -ge "$READINESS_STABLE_PROBES" ]; then
+        return 0
+      fi
+    else
+      stable_probes=0
+    fi
+    sleep 2
+  done
+  echo "Trevor services did not reach stable readiness" >&2
+  return 1
 }
 
 rollback_cutover() {
@@ -179,6 +219,7 @@ deployment_exit() {
   if [ "$exit_code" -ne 0 ]; then
     rollback_cutover || true
     audit_deployment failed >/dev/null 2>&1 || true
+    cleanup_staging_artifacts || true
   fi
   exit "$exit_code"
 }
@@ -198,8 +239,6 @@ install -d -o root -g root -m 0755 \
   /opt/trevor "$RELEASE_ROOT" "$CONFIG_ROOT"
 install -d -o trevor -g trevor -m 0755 "$PYTHON_ROOT" "$BUILD_ROOT"
 install -d -o root -g root -m 0700 "$CREDENTIAL_ROOT" "$UNIT_BACKUP_ROOT"
-
-audit_deployment started >/dev/null 2>&1 || true
 
 rsync -a \
   --exclude '.git/' \
@@ -224,6 +263,7 @@ runuser -u trevor -- env \
   UV_PYTHON_INSTALL_DIR="$PYTHON_ROOT" \
   uv pip install --python "$BUILD_ROOT/.venv/bin/python" \
   --requirements "$BUILD_ROOT/requirements.txt"
+audit_deployment started >/dev/null
 runuser -u trevor -- env \
   UV_CACHE_DIR="$UV_CACHE_ROOT" \
   UV_PYTHON_INSTALL_DIR="$PYTHON_ROOT" \
@@ -316,16 +356,15 @@ systemctl restart trevor-graphiti.service
 systemctl restart trevor-api.service
 systemctl restart trevor-autonomy.service trevor-worker.service
 systemctl start trevor.target
-for service in "${TREVOR_SERVICES[@]}"; do
-  systemctl is-active --quiet "$service"
-done
+wait_for_service_readiness
 
 if command -v tailscale >/dev/null 2>&1 \
   && tailscale status >/dev/null 2>&1; then
   tailscale serve --bg --https=443 http://127.0.0.1:5001
 fi
 
+systemctl --no-pager --full status trevor.target
 audit_deployment completed
 CUTOVER_STARTED=0
+cleanup_staging_artifacts
 trap - EXIT
-systemctl --no-pager --full status trevor.target

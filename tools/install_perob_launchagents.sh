@@ -15,6 +15,21 @@ CREDENTIAL_SOURCE_DIR="${TREVOR_CREDENTIAL_SOURCE_DIR:-$HOME/Library/Application
 
 mkdir -p "$LAUNCH_DIR" "$LOG_DIR" "$LAUNCH_LOG_DIR"
 ARCHIVE_DIR="$LAUNCH_DIR/archive/perob-$(date +%Y%m%d-%H%M%S)"
+BACKEND_PLIST="$LAUNCH_DIR/${BACKEND_LABEL}.plist"
+HTTPS_PLIST="$LAUNCH_DIR/${HTTPS_LABEL}.plist"
+BACKEND_PLIST_TMP=""
+HTTPS_PLIST_TMP=""
+
+cleanup_temporary_plists() {
+  if [[ -n "$BACKEND_PLIST_TMP" ]]; then
+    rm -f -- "$BACKEND_PLIST_TMP"
+  fi
+  if [[ -n "$HTTPS_PLIST_TMP" ]]; then
+    rm -f -- "$HTTPS_PLIST_TMP"
+  fi
+}
+
+trap cleanup_temporary_plists EXIT
 
 MANAGED_PYTHON=""
 for candidate in "$ROOT"/.python-installations/cpython-3.12*/bin/python3.12; do
@@ -51,6 +66,15 @@ if [[ ! -x "$TRUSTED_PYTHON" ]]; then
   TRUSTED_PYTHON="$PYTHON_BIN"
 fi
 
+xml_escape() {
+  "$PYTHON_BIN" - "$1" <<'PY'
+import sys
+from xml.sax.saxutils import escape
+
+sys.stdout.write(escape(sys.argv[1], {'"': '&quot;', "'": '&apos;'}))
+PY
+}
+
 for credential in nvidia_api_key trevor_memory_key_b64; do
   if [[ ! -s "$CREDENTIAL_SOURCE_DIR/$credential" ]]; then
     echo "[error] missing private credential: $CREDENTIAL_SOURCE_DIR/$credential" >&2
@@ -71,21 +95,34 @@ if [[ -n "$PY_VERSION" ]]; then
   esac
 fi
 
-cat > "$LAUNCH_DIR/${BACKEND_LABEL}.plist" <<EOF
+BACKEND_LABEL_XML="$(xml_escape "$BACKEND_LABEL")"
+HTTPS_LABEL_XML="$(xml_escape "$HTTPS_LABEL")"
+TRUSTED_PYTHON_XML="$(xml_escape "$TRUSTED_PYTHON")"
+PYTHON_BIN_XML="$(xml_escape "$PYTHON_BIN")"
+ROOT_XML="$(xml_escape "$ROOT")"
+CREDENTIAL_SOURCE_DIR_XML="$(xml_escape "$CREDENTIAL_SOURCE_DIR")"
+SERVICE_PATH_XML="$(xml_escape "$SERVICE_PATH")"
+HOME_XML="$(xml_escape "$HOME")"
+LAUNCH_LOG_DIR_XML="$(xml_escape "$LAUNCH_LOG_DIR")"
+HTTPS_LISTEN_HOST_XML="$(xml_escape "$HTTPS_LISTEN_HOST")"
+BACKEND_PLIST_TMP="$(mktemp "$LAUNCH_DIR/.${BACKEND_LABEL}.plist.XXXXXX")"
+HTTPS_PLIST_TMP="$(mktemp "$LAUNCH_DIR/.${HTTPS_LABEL}.plist.XXXXXX")"
+
+cat > "$BACKEND_PLIST_TMP" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>${BACKEND_LABEL}</string>
+  <key>Label</key><string>${BACKEND_LABEL_XML}</string>
   <key>ProgramArguments</key>
   <array>
-    <string>${TRUSTED_PYTHON}</string>
-    <string>${ROOT}/tools/launch_trevor_backend.py</string>
-    <string>--python</string><string>${PYTHON_BIN}</string>
-    <string>--credential-source</string><string>${CREDENTIAL_SOURCE_DIR}</string>
+    <string>${TRUSTED_PYTHON_XML}</string>
+    <string>${ROOT_XML}/tools/launch_trevor_backend.py</string>
+    <string>--python</string><string>${PYTHON_BIN_XML}</string>
+    <string>--credential-source</string><string>${CREDENTIAL_SOURCE_DIR_XML}</string>
     <string>--</string>
     <string>-u</string>
-    <string>${ROOT}/desktop_chat_app.py</string>
+    <string>${ROOT_XML}/desktop_chat_app.py</string>
     <string>web</string>
     <string>--host</string><string>127.0.0.1</string>
     <string>--port</string><string>5001</string>
@@ -93,7 +130,7 @@ cat > "$LAUNCH_DIR/${BACKEND_LABEL}.plist" <<EOF
   </array>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>PATH</key><string>${SERVICE_PATH}</string>
+    <key>PATH</key><string>${SERVICE_PATH_XML}</string>
     <key>PYTHONUNBUFFERED</key><string>1</string>
     <key>PYTHONUTF8</key><string>1</string>
     <key>OPENCLAW_ENABLED</key><string>true</string>
@@ -103,47 +140,55 @@ cat > "$LAUNCH_DIR/${BACKEND_LABEL}.plist" <<EOF
     <key>TREVOR_DELIBERATION_ROLLOUT</key><string>shadow</string>
     <key>TREVOR_DISABLE_KEYCHAIN</key><string>true</string>
   </dict>
-  <key>WorkingDirectory</key><string>${HOME}</string>
+  <key>WorkingDirectory</key><string>${HOME_XML}</string>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>${LAUNCH_LOG_DIR}/perob-backend.out</string>
-  <key>StandardErrorPath</key><string>${LAUNCH_LOG_DIR}/perob-backend.err</string>
+  <key>StandardOutPath</key><string>${LAUNCH_LOG_DIR_XML}/perob-backend.out</string>
+  <key>StandardErrorPath</key><string>${LAUNCH_LOG_DIR_XML}/perob-backend.err</string>
 </dict>
 </plist>
 EOF
 
-cat > "$LAUNCH_DIR/${HTTPS_LABEL}.plist" <<EOF
+cat > "$HTTPS_PLIST_TMP" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>${HTTPS_LABEL}</string>
+  <key>Label</key><string>${HTTPS_LABEL_XML}</string>
   <key>ProgramArguments</key>
   <array>
-    <string>${PYTHON_BIN}</string>
-    <string>${ROOT}/tools/https_local_proxy.py</string>
-    <string>--listen-host</string><string>${HTTPS_LISTEN_HOST}</string>
+    <string>${PYTHON_BIN_XML}</string>
+    <string>${ROOT_XML}/tools/https_local_proxy.py</string>
+    <string>--listen-host</string><string>${HTTPS_LISTEN_HOST_XML}</string>
     <string>--listen-port</string><string>5443</string>
     <string>--upstream-host</string><string>127.0.0.1</string>
     <string>--upstream-port</string><string>5001</string>
-    <string>--certfile</string><string>${ROOT}/certs/local-https.crt</string>
-    <string>--keyfile</string><string>${ROOT}/certs/local-https.key</string>
+    <string>--certfile</string><string>${ROOT_XML}/certs/local-https.crt</string>
+    <string>--keyfile</string><string>${ROOT_XML}/certs/local-https.key</string>
     <string>--external-https-base</string><string>https://perob.com:5443</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>PATH</key><string>${SERVICE_PATH}</string>
+    <key>PATH</key><string>${SERVICE_PATH_XML}</string>
     <key>PYTHONUNBUFFERED</key><string>1</string>
     <key>PYTHONUTF8</key><string>1</string>
   </dict>
-  <key>WorkingDirectory</key><string>${HOME}</string>
+  <key>WorkingDirectory</key><string>${HOME_XML}</string>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>${LAUNCH_LOG_DIR}/perob-https.out</string>
-  <key>StandardErrorPath</key><string>${LAUNCH_LOG_DIR}/perob-https.err</string>
+  <key>StandardOutPath</key><string>${LAUNCH_LOG_DIR_XML}/perob-https.out</string>
+  <key>StandardErrorPath</key><string>${LAUNCH_LOG_DIR_XML}/perob-https.err</string>
 </dict>
 </plist>
 EOF
+
+plutil -lint "$BACKEND_PLIST_TMP"
+plutil -lint "$HTTPS_PLIST_TMP"
+chmod 0600 "$BACKEND_PLIST_TMP" "$HTTPS_PLIST_TMP"
+mv -f "$BACKEND_PLIST_TMP" "$BACKEND_PLIST"
+BACKEND_PLIST_TMP=""
+mv -f "$HTTPS_PLIST_TMP" "$HTTPS_PLIST"
+HTTPS_PLIST_TMP=""
 
 for stale in com.user.perob-backend.local com.user.perob-https.local; do
   launchctl bootout "gui/${UID_NUM}/${stale}" >/dev/null 2>&1 || true
@@ -154,9 +199,6 @@ for stale in com.user.perob-backend.local com.user.perob-https.local; do
 done
 launchctl bootout "gui/${UID_NUM}/${BACKEND_LABEL}" >/dev/null 2>&1 || true
 launchctl bootout "gui/${UID_NUM}/${HTTPS_LABEL}" >/dev/null 2>&1 || true
-
-plutil -lint "$LAUNCH_DIR/${BACKEND_LABEL}.plist"
-plutil -lint "$LAUNCH_DIR/${HTTPS_LABEL}.plist"
 
 echo "[ok] installed canonical Perob LaunchAgents"
 echo "[info] python=${PYTHON_BIN}"

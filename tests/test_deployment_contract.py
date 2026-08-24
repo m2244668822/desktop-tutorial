@@ -127,12 +127,30 @@ class DeploymentContractTests(unittest.TestCase):
         self.assertIn('BUILD_ROOT=', content)
         self.assertIn('PREVIOUS_APP_ROOT=', content)
         self.assertIn('rollback_cutover()', content)
+        self.assertIn('cleanup_staging_artifacts()', content)
+        self.assertIn('rm -rf -- "$BUILD_ROOT" "$UNIT_BACKUP_ROOT"', content)
         self.assertIn('mv "$BUILD_ROOT" "$APP_ROOT"', content)
         self.assertIn('mv "$PREVIOUS_APP_ROOT" "$APP_ROOT"', content)
         self.assertIn('systemctl is-active --quiet "$service"', content)
+        self.assertIn('wait_for_service_readiness', content)
+        self.assertIn('http://127.0.0.1:5001/health/ready', content)
+        self.assertIn('http://127.0.0.1:8091/health', content)
+        self.assertIn('READINESS_STABLE_PROBES', content)
         self.assertLess(
             content.index('uv sync --project'),
             content.index('CUTOVER_STARTED=1\nsystemctl stop'),
+        )
+        self.assertGreater(
+            content.index('audit_deployment started'),
+            content.index('uv pip install --python'),
+        )
+        self.assertLess(
+            content.index('audit_deployment started'),
+            content.index('uv sync --project'),
+        )
+        self.assertLess(
+            content.index('wait_for_service_readiness\n'),
+            content.index('audit_deployment completed'),
         )
 
     def test_oci_deploy_has_non_destructive_preflight_mode(self):

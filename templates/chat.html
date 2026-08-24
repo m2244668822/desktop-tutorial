@@ -516,7 +516,7 @@
 </div>
 
 <script>
-window.__API_TOKEN__ = "{{ server_api_token | default('') }}";
+window.__API_TOKEN__ = "";
 window.__API_BASE__ = (() => {
   const fromQuery = new URLSearchParams(window.location.search).get("api_base");
   if (fromQuery) return fromQuery.replace(/\/+$/, "");

@@ -1,8 +1,15 @@
 import json
+import multiprocessing
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+
+def _enqueue_from_process(path: str, index: int) -> None:
+    from core.autonomy import AutonomyQueue
+
+    AutonomyQueue(path).enqueue(f'task-{index}', priority=index)
 
 
 class TrevorAutonomyTests(unittest.TestCase):
@@ -69,6 +76,51 @@ class TrevorAutonomyTests(unittest.TestCase):
         self.assertEqual('trevor', claimed['agent'])
         self.assertEqual('崔佛', claimed['role'])
         self.assertIsNone(second_claim)
+
+    def test_queue_reclaims_a_task_after_its_worker_lease_expires(self):
+        from core.autonomy import AutonomyQueue
+
+        current = datetime(2026, 8, 24, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'queue.json'
+            queue = AutonomyQueue(path, now=lambda: current, claim_ttl_seconds=60)
+            first = queue.enqueue('修正測試')
+            queue.claim_next('worker-a')
+            current += timedelta(seconds=61)
+
+            reclaimed = AutonomyQueue(
+                path, now=lambda: current, claim_ttl_seconds=60
+            ).claim_next('worker-b')
+
+        self.assertEqual(first['id'], reclaimed['id'])
+        self.assertEqual('worker-b', reclaimed['worker_id'])
+        self.assertIn('lease_expires_at', reclaimed)
+
+    def test_queue_uses_an_interprocess_lock_for_mutations(self):
+        from core.autonomy import AutonomyQueue
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'queue.json'
+            queue = AutonomyQueue(path)
+            context = multiprocessing.get_context('spawn')
+            processes = [
+                context.Process(
+                    target=_enqueue_from_process,
+                    args=(str(path), index),
+                )
+                for index in range(8)
+            ]
+            for process in processes:
+                process.start()
+            for process in processes:
+                process.join(timeout=20)
+
+            tasks = queue.tasks()
+
+        self.assertEqual(queue.path.with_suffix('.json.lock'), queue.lock_path)
+        self.assertTrue(all(process.exitcode == 0 for process in processes))
+        self.assertEqual(8, len(tasks))
+        self.assertEqual(8, len({task['id'] for task in tasks}))
 
 
 if __name__ == '__main__':

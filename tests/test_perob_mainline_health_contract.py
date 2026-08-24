@@ -94,6 +94,18 @@ class PerobMainlineHealthContractTests(unittest.TestCase):
             self.assertIn('trevor_memory_key_b64', text, name)
             self.assertIn('--credential-source', text, name)
 
+    def test_launchagent_installer_escapes_and_lints_paths_before_replacement(self):
+        self.assertIn('xml_escape()', LAUNCHAGENT_INSTALLER)
+        self.assertIn('CREDENTIAL_SOURCE_DIR_XML=', LAUNCHAGENT_INSTALLER)
+        self.assertIn('BACKEND_PLIST_TMP=', LAUNCHAGENT_INSTALLER)
+        self.assertIn('HTTPS_PLIST_TMP=', LAUNCHAGENT_INSTALLER)
+        self.assertLess(
+            LAUNCHAGENT_INSTALLER.index('plutil -lint "$BACKEND_PLIST_TMP"'),
+            LAUNCHAGENT_INSTALLER.index(
+                'launchctl bootout "gui/${UID_NUM}/${BACKEND_LABEL}"'
+            ),
+        )
+
     def test_backend_launchagent_propagates_safe_provider_runtime_flags(self):
         for name, value in {
             "TREVOR_GEMINI_FREE_TIER_CONFIRMED": "true",

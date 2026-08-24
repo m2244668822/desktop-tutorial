@@ -16,6 +16,7 @@ import webbrowser
 from copy import deepcopy
 from datetime import datetime, timezone
 from http import HTTPStatus
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib import error as urllib_error
@@ -47,6 +48,38 @@ from core.trevor_identity import (
 WEB_BRIDGE_SHIM = r"""
 <script>
 (function () {
+  async function ensureBrowserSession() {
+    let session;
+    try {
+      const response = await fetch("/api/auth/session", { cache: "no-store" });
+      session = await response.json();
+    } catch (_error) {
+      return;
+    }
+    if (!session.required || session.authenticated) return;
+    const overlay = document.createElement("div");
+    overlay.id = "trevor-auth-overlay";
+    overlay.style.cssText = "position:fixed;inset:0;z-index:2147483647;background:#0b1018ee;display:grid;place-items:center;color:#f7f9fc;font-family:system-ui";
+    overlay.innerHTML = '<form style="width:min(420px,calc(100vw - 40px));padding:24px;border:1px solid #40506a;border-radius:14px;background:#151d29"><h2 style="margin-top:0">Trevor API access</h2><p>輸入由 OCI 核發的裝置 API 金鑰以建立安全工作階段。</p><input name="apiKey" type="password" autocomplete="off" required style="box-sizing:border-box;width:100%;padding:10px"><button type="submit" style="margin-top:14px;padding:10px 16px">登入</button><p data-error style="color:#ff9a9a"></p></form>';
+    overlay.querySelector("form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const input = overlay.querySelector('input[name="apiKey"]');
+      const error = overlay.querySelector("[data-error]");
+      const apiKey = input.value.trim();
+      input.value = "";
+      const response = await fetch("/api/auth/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ api_key: apiKey })
+      });
+      if (!response.ok) {
+        error.textContent = "授權失敗，請確認金鑰與 scope。";
+        return;
+      }
+      location.reload();
+    });
+    document.body.appendChild(overlay);
+  }
   async function callApi(path, payload) {
     const opts = { 
         method: payload ? "POST" : "GET", 
@@ -67,7 +100,10 @@ WEB_BRIDGE_SHIM = r"""
     rerun_workflow_step: (taskId, toolName, stepIndex) =>
       callApi("/api/rerun_workflow_step", { task_id: taskId, tool_name: toolName, step_index: stepIndex ?? -1 }),
   };
-  const fireReady = () => window.dispatchEvent(new Event("pywebviewready"));
+  const fireReady = () => {
+    ensureBrowserSession();
+    window.dispatchEvent(new Event("pywebviewready"));
+  };
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", fireReady, { once: true });
   } else {
@@ -157,6 +193,14 @@ class WebServerMode:
         supplied = authorization[7:].strip() if authorization.startswith("Bearer ") else ""
         if not supplied:
             supplied = str(headers.get("X-API-Token", "") or "").strip()
+        if not supplied:
+            cookie = SimpleCookie()
+            try:
+                cookie.load(str(headers.get("Cookie", "") or ""))
+            except Exception:
+                cookie = SimpleCookie()
+            session = cookie.get("trevor_session")
+            supplied = str(session.value if session is not None else "").strip()
         if not supplied:
             return {"ok": False, "error": "authentication_required"}
         return self.api_key_store.authenticate(supplied, required_scope=required_scope)
@@ -603,12 +647,19 @@ class WebServerMode:
                 )
                 self.send_header("Access-Control-Max-Age", "86400")
 
-            def _send_json(self, payload: dict, status: int = HTTPStatus.OK):
+            def _send_json(
+                self,
+                payload: dict,
+                status: int = HTTPStatus.OK,
+                extra_headers: dict[str, str] | None = None,
+            ):
                 body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
                 try:
                     self.send_response(status)
                     self._send_cors_headers()
                     self.send_header("Content-Type", "application/json; charset=utf-8")
+                    for name, value in (extra_headers or {}).items():
+                        self.send_header(str(name), str(value))
                     self.send_header("Content-Length", str(len(body)))
                     self.end_headers()
                     if self.command != "HEAD":
@@ -679,6 +730,25 @@ class WebServerMode:
                 
                 if route_path in redirect_map:
                     self._send_redirect(redirect_map[route_path])
+                    return
+
+                if route_path == "/api/auth/session":
+                    if not server_instance.api_auth_required:
+                        authenticated = True
+                    else:
+                        authenticated = bool(
+                            server_instance.authorize_headers(self.headers, "chat").get(
+                                "ok"
+                            )
+                        )
+                    self._send_json(
+                        {
+                            "ok": True,
+                            "required": server_instance.api_auth_required,
+                            "authenticated": authenticated,
+                        },
+                        extra_headers={"Cache-Control": "no-store"},
+                    )
                     return
                 
                 if route_path in {"/health", "/health/live", "/api/ping", "/status"}:
@@ -1015,6 +1085,11 @@ class WebServerMode:
                     return
 
                 if route_path == "/history":
+                    if (
+                        server_instance.api_auth_required
+                        and self._require_scope("memory") is None
+                    ):
+                        return
                     limit = 120
                     try:
                         qs = parse_qs(parsed.query or "")
@@ -1104,6 +1179,45 @@ class WebServerMode:
                     payload = json.loads(body.decode("utf-8") or "{}")
                 except Exception:
                     payload = {}
+
+                if route_path == "/api/auth/session":
+                    if server_instance.api_key_store is None:
+                        self._send_json(
+                            {"ok": False, "error": "auth_not_configured"},
+                            status=HTTPStatus.SERVICE_UNAVAILABLE,
+                        )
+                        return
+                    api_key = str(payload.get("api_key", "") or "").strip()
+                    authorization = server_instance.api_key_store.authenticate(
+                        api_key, required_scope="chat"
+                    )
+                    if not authorization.get("ok"):
+                        self._send_json(
+                            {
+                                "ok": False,
+                                "error": authorization.get(
+                                    "error", "authentication_required"
+                                ),
+                            },
+                            status=HTTPStatus.UNAUTHORIZED,
+                            extra_headers={"Cache-Control": "no-store"},
+                        )
+                        return
+                    cookie = SimpleCookie()
+                    cookie["trevor_session"] = api_key
+                    cookie["trevor_session"]["path"] = "/"
+                    cookie["trevor_session"]["httponly"] = True
+                    cookie["trevor_session"]["secure"] = True
+                    cookie["trevor_session"]["samesite"] = "Strict"
+                    cookie["trevor_session"]["max-age"] = 8 * 60 * 60
+                    self._send_json(
+                        {"ok": True, "authenticated": True},
+                        extra_headers={
+                            "Cache-Control": "no-store",
+                            "Set-Cookie": cookie.output(header="").strip(),
+                        },
+                    )
+                    return
 
                 if route_path == "/api/ai-horde/jobs":
                     if server_instance.api_auth_required and self._require_scope("chat") is None:
@@ -1352,6 +1466,11 @@ class WebServerMode:
                     return
 
                 if route_path == "/api/rerun_workflow_step":
+                    if (
+                        server_instance.api_auth_required
+                        and self._require_scope("tasks") is None
+                    ):
+                        return
                     try:
                         step_index = int(payload.get("step_index", -1))
                     except (TypeError, ValueError):

@@ -1,4 +1,5 @@
 import importlib.util
+import os
 import plistlib
 import subprocess
 import tempfile
@@ -45,6 +46,7 @@ class TrevorAutonomyLaunchAgentTests(unittest.TestCase):
             python_executable=Path("/opt/trevor/python"),
             data_root=Path("/var/lib/trevor-test"),
             log_root=Path("/var/log/trevor-test"),
+            credential_root=Path("/var/lib/trevor-credentials"),
         )
         payload = plistlib.loads(rendered.encode("utf-8"))
 
@@ -66,6 +68,10 @@ class TrevorAutonomyLaunchAgentTests(unittest.TestCase):
         self.assertEqual(
             "true",
             payload["EnvironmentVariables"]["TREVOR_DISABLE_KEYCHAIN"],
+        )
+        self.assertEqual(
+            "/var/lib/trevor-credentials",
+            payload["EnvironmentVariables"]["CREDENTIALS_DIRECTORY"],
         )
         environment_text = str(payload["EnvironmentVariables"])
         self.assertNotIn("API_KEY", environment_text)
@@ -96,6 +102,45 @@ class TrevorAutonomyLaunchAgentTests(unittest.TestCase):
 
         bootstrap_commands = [command for command in commands if command[1] == "bootstrap"]
         self.assertEqual(2, len(bootstrap_commands))
+
+    def test_private_credentials_are_required_before_disabling_keychain(self):
+        from tools.install_trevor_autonomy_launchagent import (
+            validate_private_credential_root,
+        )
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            root.chmod(0o700)
+            for name in ('nvidia_api_key', 'trevor_memory_key_b64'):
+                path = root / name
+                path.write_text('configured', encoding='utf-8')
+                path.chmod(0o400)
+
+            self.assertEqual(root.resolve(), validate_private_credential_root(root))
+
+            os.chmod(root / 'nvidia_api_key', 0o644)
+            with self.assertRaisesRegex(RuntimeError, 'credential_file_permissions'):
+                validate_private_credential_root(root)
+
+    def test_custom_data_root_requires_backend_alignment(self):
+        from tools.install_trevor_autonomy_launchagent import ensure_data_root_alignment
+
+        ensure_data_root_alignment(Path('/canonical'), Path('/canonical'))
+        with self.assertRaisesRegex(RuntimeError, 'custom_data_dir_requires_backend_alignment'):
+            ensure_data_root_alignment(Path('/custom'), Path('/canonical'))
+
+    def test_external_volume_install_uses_terminal_safe_manager(self):
+        source = (
+            ROOT / 'tools' / 'install_trevor_autonomy_launchagent.py'
+        ).read_text(encoding='utf-8')
+
+        self.assertIn('is_external_volume(ROOT)', source)
+        self.assertIn('manage_trevor_autonomy.sh', source)
+
+    def test_documented_health_check_requires_autonomy_readiness(self):
+        documentation = (ROOT / 'deploy' / 'README.md').read_text(encoding='utf-8')
+
+        self.assertIn("payload['autonomy']['ready']", documentation)
 
 
 if __name__ == "__main__":
