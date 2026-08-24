@@ -46,6 +46,16 @@ class PerobMainlineHealthContractTests(unittest.TestCase):
         self.assertIn("/health/ready", STACK_MANAGER)
         self.assertIn("PEROB_USE_LAUNCHAGENT", STACK_MANAGER)
 
+    def test_stack_manager_allows_slow_backend_startup(self):
+        self.assertIn(
+            'BACKEND_START_ATTEMPTS="${PEROB_BACKEND_START_ATTEMPTS:-30}"',
+            STACK_MANAGER,
+        )
+        self.assertIn(
+            'wait_http "http://127.0.0.1:5001/health/live" "backend live" "$BACKEND_START_ATTEMPTS"',
+            STACK_MANAGER,
+        )
+
     def test_runtime_launchers_prefer_python312_before_bare_python3(self):
         for name, text in {
             "manage_perob_stack.sh": STACK_MANAGER,
