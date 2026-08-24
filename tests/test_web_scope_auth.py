@@ -3,7 +3,7 @@ import unittest
 
 class _Store:
     def authenticate(self, api_key, *, required_scope):
-        if api_key == 'valid' and required_scope == 'audit':
+        if api_key == 'valid' and required_scope in {'audit', 'chat'}:
             return {'ok': True, 'key_id': 'key-1'}
         return {'ok': False, 'error': 'scope_denied'}
 
@@ -17,10 +17,14 @@ class WebScopeAuthTests(unittest.TestCase):
 
         bearer = server.authorize_headers({'Authorization': 'Bearer valid'}, 'audit')
         token = server.authorize_headers({'X-API-Token': 'valid'}, 'audit')
+        cookie = server.authorize_headers(
+            {'Cookie': 'theme=dark; trevor_session=valid'}, 'chat'
+        )
         denied = server.authorize_headers({'Authorization': 'Bearer wrong'}, 'audit')
 
         self.assertTrue(bearer['ok'])
         self.assertTrue(token['ok'])
+        self.assertTrue(cookie['ok'])
         self.assertEqual('scope_denied', denied['error'])
 
     def test_missing_auth_store_fails_closed(self):

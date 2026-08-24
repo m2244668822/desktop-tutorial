@@ -25,6 +25,8 @@
     <string>1</string>
     <key>TREVOR_DATA_DIR</key>
     <string>__TREVOR_DATA_DIR__</string>
+    <key>CREDENTIALS_DIRECTORY</key>
+    <string>__TREVOR_CREDENTIAL_DIR__</string>
     <key>TREVOR_DEPLOYMENT</key>
     <string>mac</string>
     <key>TREVOR_MEMORY_ENCRYPTION</key>

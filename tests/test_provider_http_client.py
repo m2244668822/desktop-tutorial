@@ -84,7 +84,8 @@ class ProviderHttpClientTests(unittest.TestCase):
         client = ProviderHttpClient(registry)
         endpoint = client.endpoint_for('cloudflare')
 
-        self.assertIn('/accounts/account-id/ai/run/', endpoint)
+        self.assertEqual(1, endpoint.count('/accounts/'))
+        self.assertIn('/client/v4/accounts/account-id/ai/run/', endpoint)
         self.assertTrue(endpoint.endswith('@cf/meta/llama-3.3-70b-instruct-fp8-fast'))
 
 

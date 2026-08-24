@@ -16,11 +16,14 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import builtins
 import os
+import platform
 import subprocess
 import sys
 from pathlib import Path
+from typing import Mapping
 
 from core.data_paths import ProjectPaths
 
@@ -110,6 +113,37 @@ def health_check(python_bin: Path) -> int:
     return 0
 
 
+def validate_linux_memory_key(
+    environment: Mapping[str, str] | None = None,
+    *,
+    platform_name: str | None = None,
+) -> None:
+    if str(platform_name or platform.system()).strip().lower() != "linux":
+        return
+    source = os.environ if environment is None else environment
+    encoded = str(source.get("TREVOR_MEMORY_KEY_B64", "") or "").strip()
+    if not encoded:
+        credential_directory = str(
+            source.get("CREDENTIALS_DIRECTORY", "") or ""
+        ).strip()
+        if credential_directory:
+            try:
+                encoded = (
+                    Path(credential_directory).expanduser()
+                    / "trevor_memory_key_b64"
+                ).read_text(encoding="utf-8").strip()
+            except OSError:
+                encoded = ""
+    if not encoded:
+        raise RuntimeError("linux_memory_key_required")
+    try:
+        decoded = base64.b64decode(encoded, validate=True)
+    except ValueError as exc:
+        raise RuntimeError("invalid_device_encryption_key") from exc
+    if len(decoded) != 32:
+        raise RuntimeError("invalid_device_encryption_key")
+
+
 def _ensure_gpt_server(python_bin: Path):
     """確保 GPT 紀錄庫服務在背景運行"""
     server_script = BASE_DIR / ".tmp_chatgpt_server.py"
@@ -137,6 +171,7 @@ def _ensure_gpt_server(python_bin: Path):
 def launch_web(
     python_bin: Path, host: str, port: int, open_browser: bool, energy_lite: bool
 ) -> int:
+    validate_linux_memory_key()
     _ensure_gpt_server(python_bin)
     cmd = [
         str(python_bin),
@@ -156,6 +191,7 @@ def launch_web(
 
 
 def launch_desktop(python_bin: Path, energy_lite: bool, unified: bool) -> int:
+    validate_linux_memory_key()
     _ensure_gpt_server(python_bin)
     cmd = [str(python_bin), "desktop_chat_app.py", "desktop"]
     if energy_lite:
@@ -169,6 +205,7 @@ def launch_desktop(python_bin: Path, energy_lite: bool, unified: bool) -> int:
 def launch_autopilot(
     python_bin: Path, heartbeat: int, evaluation: int, skip_health: bool
 ) -> int:
+    validate_linux_memory_key()
     if not skip_health:
         rc = health_check(python_bin)
         if rc != 0:

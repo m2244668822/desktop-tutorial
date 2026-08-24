@@ -256,6 +256,119 @@ class GraphitiMigrationTests(unittest.TestCase):
         self.assertEqual(2, len(episode_uuids))
         self.assertEqual(2, len(set(episode_uuids)))
 
+    def test_resume_with_changed_upload_limits_sends_only_pending_turns(self):
+        from core.graphiti_migration import GraphitiMigrationRunner
+
+        conversations = {
+            'thread': {
+                'messages': [
+                    {
+                        'timestamp': f'2026-08-{20 + index:02d}T00:00:00+00:00',
+                        'user': f'user-{index}',
+                        'assistant': f'assistant-{index}',
+                    }
+                    for index in range(1, 5)
+                ]
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = Path(tmp) / 'graphiti_manifest.json'
+            calls = 0
+
+            def fail_second(payload):
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    raise RuntimeError('temporary failure')
+
+            first = GraphitiMigrationRunner(
+                manifest,
+                sender=fail_second,
+                max_batch_turns=4,
+                max_batch_bytes=100_000,
+                max_upload_turns=2,
+                max_upload_bytes=100_000,
+            ).run(conversations)
+            resumed_payloads = []
+            resumed = GraphitiMigrationRunner(
+                manifest,
+                sender=lambda payload: resumed_payloads.append(payload),
+                max_batch_turns=4,
+                max_batch_bytes=100_000,
+                max_upload_turns=3,
+                max_upload_bytes=100_000,
+            ).run(conversations)
+
+        resumed_body = '\n'.join(
+            payload['episode_body'] for payload in resumed_payloads
+        )
+        self.assertFalse(first['ok'])
+        self.assertTrue(resumed['ok'])
+        self.assertEqual(2, resumed['migrated'])
+        self.assertEqual(2, resumed['skipped'])
+        self.assertNotIn('user-1', resumed_body)
+        self.assertNotIn('user-2', resumed_body)
+        self.assertIn('user-3', resumed_body)
+        self.assertIn('user-4', resumed_body)
+
+    def test_upload_journal_recovers_after_logical_batch_reflow(self):
+        from core.graphiti_migration import GraphitiMigrationRunner
+
+        messages = [
+            {
+                'timestamp': f'2026-08-{20 + index:02d}T00:00:00+00:00',
+                'user': f'user-{index}',
+                'assistant': f'assistant-{index}',
+            }
+            for index in range(1, 5)
+        ]
+        conversations = {'thread': {'messages': messages}}
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = Path(tmp) / 'graphiti_manifest.json'
+            with mock.patch(
+                'core.graphiti_migration._append_checkpoint',
+                side_effect=KeyboardInterrupt,
+            ):
+                with self.assertRaises(KeyboardInterrupt):
+                    GraphitiMigrationRunner(
+                        manifest,
+                        sender=lambda _payload: None,
+                        max_batch_turns=4,
+                        max_batch_bytes=100_000,
+                        max_upload_turns=2,
+                        max_upload_bytes=100_000,
+                    ).run(conversations)
+
+            messages.insert(
+                0,
+                {
+                    'timestamp': '2026-08-20T00:00:00+00:00',
+                    'user': 'new-earlier-turn',
+                    'assistant': 'new-answer',
+                },
+            )
+            resumed_payloads = []
+            resumed = GraphitiMigrationRunner(
+                manifest,
+                sender=lambda payload: resumed_payloads.append(payload),
+                max_batch_turns=4,
+                max_batch_bytes=100_000,
+                max_upload_turns=2,
+                max_upload_bytes=100_000,
+            ).run(conversations)
+
+        resumed_body = '\n'.join(
+            payload['episode_body'] for payload in resumed_payloads
+        )
+        self.assertTrue(resumed['ok'])
+        self.assertEqual(3, resumed['migrated'])
+        self.assertEqual(2, resumed['skipped'])
+        self.assertNotIn('user-1', resumed_body)
+        self.assertNotIn('user-2', resumed_body)
+        self.assertIn('new-earlier-turn', resumed_body)
+        self.assertIn('user-3', resumed_body)
+        self.assertIn('user-4', resumed_body)
+
     def test_truncated_upload_journal_tail_is_repaired_before_append(self):
         from core.graphiti_migration import GraphitiMigrationRunner
 

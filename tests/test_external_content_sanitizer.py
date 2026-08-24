@@ -48,6 +48,23 @@ class ExternalContentSanitizerTests(unittest.TestCase):
         self.assertNotIn('autonomy', result.payload)
         self.assertNotIn('memory_write', result.payload)
 
+    def test_all_secret_scanner_token_families_are_redacted(self):
+        from core.content_sanitizer import ExternalContentSanitizer
+
+        values = (
+            'ghp_' + 'A' * 30,
+            'AKIA' + 'B' * 16,
+            'xoxb-' + 'C' * 24,
+        )
+        result = ExternalContentSanitizer().sanitize(
+            message=' '.join(values),
+        )
+
+        rendered = json.dumps(result.payload, ensure_ascii=False)
+        for value in values:
+            self.assertNotIn(value, rendered)
+        self.assertGreaterEqual(result.redaction_count, len(values))
+
 
 if __name__ == '__main__':
     unittest.main()

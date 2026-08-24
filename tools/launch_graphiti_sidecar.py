@@ -9,7 +9,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 from urllib import error as urllib_error
 from urllib import request as urllib_request
 
@@ -49,6 +49,23 @@ def _health_ready(url: str) -> bool:
         return False
 
 
+def graphiti_health_url(environment: Mapping[str, str] | None = None) -> str:
+    source = os.environ if environment is None else environment
+    host = str(source.get('TREVOR_GRAPHITI_HOST', '127.0.0.1') or '').strip()
+    if not host:
+        host = '127.0.0.1'
+    try:
+        port = int(str(source.get('TREVOR_GRAPHITI_PORT', '8091') or '8091'))
+    except ValueError as exc:
+        raise RuntimeError('graphiti_address_invalid') from exc
+    if port < 1 or port > 65535:
+        raise RuntimeError('graphiti_address_invalid')
+    if host in {'0.0.0.0', '::', '[::]'}:
+        host = '127.0.0.1'
+    rendered_host = f'[{host}]' if ':' in host and not host.startswith('[') else host
+    return f'http://{rendered_host}:{port}/health'
+
+
 def _atomic_pid(path: Path, process_id: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f'.{path.name}.tmp-{os.getpid()}')
@@ -72,7 +89,7 @@ def launch(*, wait_seconds: int = 120) -> int:
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / 'graphiti.log'
     pid_path = run_dir / 'graphiti.pid'
-    health_url = 'http://127.0.0.1:8091/health'
+    health_url = graphiti_health_url()
     child: subprocess.Popen[bytes] | None = None
 
     with staged_credentials(credentials) as credential_directory:

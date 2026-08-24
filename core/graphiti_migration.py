@@ -425,6 +425,7 @@ class GraphitiMigrationRunner:
             max_batch_bytes=self.max_batch_bytes,
         )
         logical_batches = {_batch_hash(batch): batch for batch in batches}
+        journal_recovered_hashes: set[str] = set()
         previous_batching = previous.get('batching')
         previous_subbatched = (
             previous_batching.get('subbatched_logical_hashes', [])
@@ -448,19 +449,23 @@ class GraphitiMigrationRunner:
         }
         for record in upload_records:
             logical_batch = logical_batches.get(record.logical_batch_hash)
-            if logical_batch is None:
-                continue
-            logical_content_hashes = {
-                turn.content_hash for turn in logical_batch
-            }
-            if not set(record.content_hashes).issubset(logical_content_hashes):
-                raise RuntimeError('graphiti_upload_journal_invalid')
-            if record.strategy == 'deterministic_sub_batch_v2':
-                subbatched_logical_hashes.add(record.logical_batch_hash)
-            if record.strategy == 'deterministic_pending_sub_batch_v2':
-                subbatched_logical_hashes.add(record.logical_batch_hash)
-                pending_only_logical_hashes.add(record.logical_batch_hash)
+            if logical_batch is not None:
+                logical_content_hashes = {
+                    turn.content_hash for turn in logical_batch
+                }
+                if not set(record.content_hashes).issubset(
+                    logical_content_hashes
+                ):
+                    raise RuntimeError('graphiti_upload_journal_invalid')
+                if record.strategy == 'deterministic_sub_batch_v2':
+                    subbatched_logical_hashes.add(record.logical_batch_hash)
+                if record.strategy == 'deterministic_pending_sub_batch_v2':
+                    subbatched_logical_hashes.add(record.logical_batch_hash)
+                    pending_only_logical_hashes.add(record.logical_batch_hash)
             for content_hash in record.content_hashes:
+                if content_hash not in source_hashes:
+                    continue
+                journal_recovered_hashes.add(content_hash)
                 if content_hash in migrated_hashes:
                     continue
                 _append_checkpoint(checkpoint, content_hash)
@@ -478,6 +483,10 @@ class GraphitiMigrationRunner:
             use_pending_only = (
                 previous_completed
                 or logical_batch_hash in pending_only_logical_hashes
+                or any(
+                    turn.content_hash in journal_recovered_hashes
+                    for turn in batch
+                )
             )
             use_safe_sub_batches = (
                 logical_batch_hash in subbatched_logical_hashes

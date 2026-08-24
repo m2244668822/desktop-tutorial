@@ -5,12 +5,18 @@ import os
 import secrets
 import threading
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
 from core.trevor_identity import TREVOR_AGENT_ID, TREVOR_DISPLAY_NAME
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 
 
 def _utc_now() -> datetime:
@@ -36,6 +42,22 @@ def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
     )
     os.chmod(temporary, 0o600)
     os.replace(temporary, path)
+
+
+@contextmanager
+def _exclusive_file_lock(path: Path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    os.chmod(path.parent, 0o700)
+    descriptor = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        os.fchmod(descriptor, 0o600)
+        if fcntl is not None:
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        if fcntl is not None:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
 
 
 @dataclass(frozen=True)
@@ -174,10 +196,19 @@ class AutonomyQueue:
         path: str | Path,
         *,
         now: Callable[[], datetime] = _utc_now,
+        claim_ttl_seconds: int = 1800,
     ):
         self.path = Path(path)
+        self.lock_path = self.path.with_suffix(f'{self.path.suffix}.lock')
         self.now = now
+        self.claim_ttl_seconds = max(60, int(claim_ttl_seconds))
         self._lock = threading.Lock()
+
+    @contextmanager
+    def _mutation_lock(self):
+        with self._lock:
+            with _exclusive_file_lock(self.lock_path):
+                yield
 
     def _load(self) -> dict[str, Any]:
         if not self.path.exists():
@@ -215,7 +246,7 @@ class AutonomyQueue:
         }
         if not task['input']:
             raise ValueError('task_input_required')
-        with self._lock:
+        with self._mutation_lock():
             payload = self._load()
             payload.setdefault('tasks', []).append(task)
             payload['tasks'].sort(
@@ -229,9 +260,29 @@ class AutonomyQueue:
         worker = str(worker_id or '').strip()
         if not worker:
             raise ValueError('worker_id_required')
-        with self._lock:
+        with self._mutation_lock():
             payload = self._load()
             tasks = payload.get('tasks', [])
+            now = self.now().astimezone(timezone.utc)
+            for task in tasks:
+                if not isinstance(task, dict) or task.get('status') != 'running':
+                    continue
+                expires_at = _parse_datetime(task.get('lease_expires_at'))
+                if expires_at is None:
+                    updated_at = _parse_datetime(task.get('updated_at'))
+                    expires_at = (
+                        updated_at + timedelta(seconds=self.claim_ttl_seconds)
+                        if updated_at is not None
+                        else now
+                    )
+                if expires_at > now:
+                    continue
+                task['status'] = 'pending'
+                task.pop('worker_id', None)
+                task.pop('lease_expires_at', None)
+                task['pause_reason'] = 'stale_worker_reclaimed'
+                task['reclaimed_at'] = now.isoformat()
+                task['updated_at'] = now.isoformat()
             if any(
                 isinstance(task, dict) and task.get('status') == 'running'
                 for task in tasks
@@ -249,7 +300,10 @@ class AutonomyQueue:
                 return None
             pending['status'] = 'running'
             pending['worker_id'] = worker
-            pending['updated_at'] = self.now().astimezone(timezone.utc).isoformat()
+            pending['updated_at'] = now.isoformat()
+            pending['lease_expires_at'] = (
+                now + timedelta(seconds=self.claim_ttl_seconds)
+            ).isoformat()
             payload['updated_at'] = pending['updated_at']
             _atomic_json(self.path, payload)
             return dict(pending)
@@ -263,7 +317,7 @@ class AutonomyQueue:
         error: str = '',
     ) -> bool:
         target = str(task_id or '').strip()
-        with self._lock:
+        with self._mutation_lock():
             payload = self._load()
             for task in payload.get('tasks', []):
                 if not isinstance(task, dict) or task.get('id') != target:
@@ -271,6 +325,8 @@ class AutonomyQueue:
                 task['status'] = 'completed' if success else 'failed'
                 task['result'] = dict(result or {})
                 task['error'] = str(error or '')[:1000]
+                task.pop('worker_id', None)
+                task.pop('lease_expires_at', None)
                 task['updated_at'] = self.now().astimezone(timezone.utc).isoformat()
                 payload['updated_at'] = task['updated_at']
                 _atomic_json(self.path, payload)
@@ -279,13 +335,14 @@ class AutonomyQueue:
 
     def defer(self, task_id: str, *, reason: str) -> bool:
         target = str(task_id or '').strip()
-        with self._lock:
+        with self._mutation_lock():
             payload = self._load()
             for task in payload.get('tasks', []):
                 if not isinstance(task, dict) or task.get('id') != target:
                     continue
                 task['status'] = 'pending'
                 task.pop('worker_id', None)
+                task.pop('lease_expires_at', None)
                 task['pause_reason'] = str(reason or 'paused')[:200]
                 task['updated_at'] = self.now().astimezone(timezone.utc).isoformat()
                 payload['updated_at'] = task['updated_at']
@@ -294,7 +351,12 @@ class AutonomyQueue:
         return False
 
     def tasks(self) -> list[dict[str, Any]]:
-        return [dict(task) for task in self._load().get('tasks', []) if isinstance(task, dict)]
+        with self._mutation_lock():
+            return [
+                dict(task)
+                for task in self._load().get('tasks', [])
+                if isinstance(task, dict)
+            ]
 
 
 def mark_user_activity(data_root: str | Path) -> Path:
