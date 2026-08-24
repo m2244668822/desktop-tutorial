@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import re
 
+from .graphiti_contracts import CrossEncoderClient
+
 
 TOKEN_RE = re.compile(r'[\w\u4e00-\u9fff]{2,}')
 
 
-class TrevorLexicalReranker:
+class TrevorLexicalReranker(CrossEncoderClient):
     async def rank(self, query: str, passages: list[str]) -> list[tuple[str, float]]:
         query_tokens = set(TOKEN_RE.findall(str(query or '').lower()))
         ranked: list[tuple[str, float]] = []

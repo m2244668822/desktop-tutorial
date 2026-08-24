@@ -29,6 +29,25 @@ class _FakeGraphiti:
 
 
 class GraphitiSidecarContractTests(unittest.IsolatedAsyncioTestCase):
+    def test_sidecar_adapters_implement_graphiti_client_contracts(self):
+        from services.graphiti_sidecar.trevor_graphiti.gemini_reranker import (
+            TrevorGeminiReranker,
+        )
+        from services.graphiti_sidecar.trevor_graphiti.graphiti_contracts import (
+            CrossEncoderClient,
+            EmbedderClient,
+        )
+        from services.graphiti_sidecar.trevor_graphiti.lexical_reranker import (
+            TrevorLexicalReranker,
+        )
+        from services.graphiti_sidecar.trevor_graphiti.ollama_embedder import (
+            OllamaEmbedder,
+        )
+
+        self.assertTrue(issubclass(OllamaEmbedder, EmbedderClient))
+        self.assertTrue(issubclass(TrevorGeminiReranker, CrossEncoderClient))
+        self.assertTrue(issubclass(TrevorLexicalReranker, CrossEncoderClient))
+
     def test_runtime_secret_prefers_systemd_then_native_keychain(self):
         from services.graphiti_sidecar.trevor_graphiti import runtime
 

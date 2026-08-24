@@ -24,7 +24,7 @@
 
 - `pip-audit`：CI、核心執行、智能體擴充與 Graphiti sidecar 四組解析後依賴均回報 `No known vulnerabilities found`。
 - 秘密掃描：606 個版本控制檔案通過。
-- 自動測試：275 項全部通過。
+- 自動測試：276 項全部通過。
 - Git 差異檢查：`git diff --check` 通過。
 
 ## 後續控制
