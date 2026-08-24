@@ -44,20 +44,25 @@ def export_public_migration_status(
     source_directory: str | Path,
     destination_directory: str | Path,
 ) -> dict[str, dict[str, Any]]:
-    source = Path(source_directory)
-    destination = Path(destination_directory)
+    source = Path(source_directory).expanduser().resolve()
+    destination = Path(destination_directory).expanduser().resolve()
+    if source == destination:
+        raise RuntimeError("migration_destination_private")
     device_source = _read_manifest(source / "trevor_data_manifest.json")
     graphiti_source = _read_manifest(source / "graphiti_manifest.json")
 
     failed_count = _integer(graphiti_source, "failed_count")
     migrated_count = _integer(graphiti_source, "migrated_count")
     source_count = _integer(graphiti_source, "source_count")
+    device_turn_count = _integer(device_source, "unique_turns")
     if (
         graphiti_source.get("completed") is not True
         or failed_count != 0
         or migrated_count < source_count
     ):
         raise RuntimeError("graphiti_migration_incomplete")
+    if source_count != device_turn_count:
+        raise RuntimeError("migration_source_count_mismatch")
 
     batching_source = graphiti_source.get("batching")
     batching = {}
@@ -70,7 +75,7 @@ def export_public_migration_status(
         "schema_version": int(device_source.get("schema_version", 1) or 1),
         "identity": "trevor",
         "generated_at": str(device_source.get("generated_at", "") or ""),
-        "unique_turns": _integer(device_source, "unique_turns"),
+        "unique_turns": device_turn_count,
         "conversation_threads": _integer(device_source, "conversation_threads"),
         "deduplication": str(
             device_source.get("deduplication", "sha256_normalized_turn")

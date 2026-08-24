@@ -12,9 +12,9 @@
 
 # 崔佛框架即時狀態總覽
 
-- 產生時間：2026-08-25 03:10 CST
+- 產生時間：2026-08-25 04:12 CST
 - 對外身份：`trevor／崔佛`
-- 框架程式基準版本：`b5e7f7cb4018`
+- 本次 GitHub review 修正起點：`bdeacd6815b4`
 - 整體狀態：核心服務可用；Graphiti 歷史記憶遷移暫停以修復安全分片；OCI Tailscale 等待帳戶實體驗證
 - 安全狀態：GitHub Dependabot 開啟警示 `0`、Secret Scanning 開啟警示 `0`
 
@@ -86,8 +86,8 @@ flowchart TD
 | Web Search | 即時搜尋與來源摘要能力 | ✅ | 搜尋 adapter、真實能力回覆與測試已完成 | OCI Tailscale E2E 驗證 |
 | Stable Horde | 後端圖像生成，避免瀏覽器持有金鑰 | 🟡 | API 金鑰已移出 `.env` 並放入私密 credential file；後端能力已整合 | OCI 重開機後跑圖像生成 E2E |
 | 統一記憶 | 保存對話、偏好、任務與裝置私密資料 | ✅ | 1,427 個 thread、5,426 筆 turn 已統一；AES-256-GCM、雜湊去重與可重跑遷移已完成 | 僅剩 Graphiti 雲端去敏索引尚未全部寫完 |
-| 記憶衝突解析 | 防止舊角色、舊偏好與新指令互相衝突 | ✅ | 安全規則優先，其次明確使用者敘述，再依時間新舊裁決；保留 `source_role` | 持續以新記憶事件驗證衝突規則 |
-| Graphiti Sidecar | 時序知識圖、關係、偏好與任務摘要 | 🟢 | `Graphiti 0.29.3`、`FalkorDB Lite 0.10.0`、NVIDIA extraction、Ollama embedding 均在線 | 完成剩餘 2,792 筆 turn 遷移與搜尋驗收 |
+| 記憶衝突解析 | 防止舊角色、舊偏好與新指令互相衝突 | ✅ | 限制性安全值優先，再比較來源順位、記錄 priority，最後才依 `updated_at`；保留 `source_role` | 持續以新記憶事件驗證衝突規則 |
+| Graphiti Sidecar | 時序知識圖、關係、偏好與任務摘要 | 🟢 | `Graphiti 0.29.3`、`FalkorDB Lite 0.10.0`、NVIDIA extraction、Ollama embedding 均在線 | 完成剩餘 2,768 筆 turn 遷移與搜尋驗收 |
 | FalkorDB | Graphiti 私有圖資料庫 | 🟢 | 僅綁定 OCI loopback；低併發查詢、序列化寫入、平台模組校驗已完成 | 遷移完成後做快照與重開機恢復測試 |
 | Ollama Embedding | `nomic-embed-text` 向量嵌入 | 🟢 | OCI `ollama` systemd active；Graphiti health 已確認 | 重開機後確認模型仍存在且可嵌入 |
 | 自治 Scheduler | 每 15 分鐘評估工作與暫停條件 | 🟢 | OCI scheduler heartbeat 正常；單任務限制與安全政策已實作 | shadow 驗收後逐步開啟更多自治任務 |
@@ -98,7 +98,7 @@ flowchart TD
 | Mac 內建 runtime | 避免外接卷卸載讓 Python 崩潰 | ✅ | Python 3.12、完整 app 與遷移快照已搬到內建磁碟；本機服務由 launchd KeepAlive | 最終 main 更新後重建一次 runtime 快照 |
 | Tailscale 私網 | Mac 與 OCI 的唯一遠端 API 網路 | 🟠 | Mac 已登入；API 仍只綁定 loopback，不公開 Internet | OCI 顯示 `NeedsLogin`，必須完成帳戶實體 OAuth／passkey 驗證 |
 | Secret / Auth | credential files、API HMAC、Keychain 非互動讀取 | ✅ | `.env.example` 全為假值；Mac 目錄 `0700`、檔案 `0400`；OCI 目錄 root-only；不再跳 Keychain 密碼視窗 | 重開機成功後移除舊 RSA recovery SSH key |
-| 回滾 / 快照 | Git revert、資料快照與設定恢復 | 🟡 | Git 禁止 force reset；Graphiti 遷移前 env 快照存在 | 遷移完成後建立 FalkorDB／資料快照並驗證還原 |
+| 回滾 / 快照 | Git revert、資料快照與設定恢復 | 🟡 | Git 禁止 force reset；Graphiti 遷移前 env 快照存在；OCI installer 已改為 staging release 與失敗自動回滾 | 遷移完成後建立 FalkorDB／資料快照並驗證還原 |
 
 ## 技術框架與程式基座
 
@@ -169,13 +169,16 @@ stderr：        0 bytes
 5. 固定依時間排序，避免不同重跑順序造成行為衝突。
 6. 原始對話、附件、私密筆記與完整 content hash manifest 不上傳 OCI。
 
-目前正在處理的效能問題：
+安全分片修正：
 
 - 24-turn 大批次可能讓 NVIDIA 輸出超過完整 JSON 長度，Graphiti 解析時得到截斷 JSON。
-- 240 秒設定已消除原本 90 秒 HTTP timeout，但剩餘大批次仍需要安全分片。
+- 邏輯批次維持 24-turn identity；完全未完成批次改以最多 8-turn／14,000 bytes deterministic 子批次上傳。
+- 每個成功子批次先 `fsync` upload journal，再寫 turn checkpoint；中途崩潰也不會改用另一個 episode UUID。
+- 舊版混合 checkpoint 仍重用完整原批次；已完成 manifest 的增量遷移只傳新 turn，不重送舊內容。
+- sidecar 最高 timeout 為 300 秒；client 預設改為 330 秒，保留解析、圖操作與回應傳輸餘裕。
 - 上次執行安全寫入 72 筆後正常退出；manifest 回報剩餘 2,768 筆失敗，沒有遺失已完成 checkpoint。
 - checkpoint 離線分析基準：原 314 批中有 117 批全完成、195 批全待處理、2 批混合；修正前會重新計算。
-- 下一步只分片「完全未完成」的批次；混合批次沿用原 deterministic payload，避免重複既有 episode。
+- 修正已通過單元測試；下一步是合併、重建內建磁碟 runtime，再從 2,658 筆 checkpoint 續跑。
 
 ## 模型供應商狀態
 
@@ -203,7 +206,7 @@ stderr：        0 bytes
 
 | 驗收 | 結果 |
 | --- | --- |
-| Python 測試 | `304 passed` |
+| Python 測試 | `305 passed` |
 | 子測試 | `31 passed` |
 | 嚴格完整驗證 | passed |
 | Python syntax | passed |
@@ -218,6 +221,19 @@ stderr：        0 bytes
 | Secret scanning open alerts | `0` |
 | `main` branch protection | required `security-and-tests`、strict、禁止 force push／delete |
 | Merge policy | merge commit only、auto-merge enabled |
+
+## GitHub Review 回覆修正
+
+| Review 來源 | GitHub 建議 | 修正結果 |
+| --- | --- | --- |
+| PR #14／#15 | Graphiti 剩餘數量前後矛盾 | 已統一為 `5,426 - 2,658 = 2,768` |
+| PR #14 | 衝突解析漏寫 priority | 已明列限制性安全值、來源順位、`priority`、`updated_at` 的實際順序 |
+| PR #12 | client timeout 與 sidecar 300 秒上限相同 | 預設改為 `330` 秒並保留 CLI 覆寫 |
+| PR #11 | 公開匯出可能覆寫私密 manifest | source／destination 經 resolve 後相同即拒絕 |
+| PR #11 | device 與 Graphiti 筆數可能不一致 | `unique_turns` 不等於 `source_count` 即拒絕發布完成狀態 |
+| PR #10 | 增量遷移重送已完成 turn | 完成 manifest 後只對 pending turn 建立 deterministic payload |
+| PR #10 | OCI 安裝失敗會讓舊服務保持停止 | 先在 release staging 建置；最終才切換，失敗恢復舊 app、unit 與原 active services |
+| PR #10 | 空 credential staging 仍會停用 Keychain | backend、LaunchAgent installer 與手動啟動器均要求私密 NVIDIA／memory credential files，缺少即 fail closed |
 
 ## 已解決的重要故障
 
@@ -242,7 +258,7 @@ stderr：        0 bytes
 
 ## 尚未完成與執行順序
 
-1. 🟡 對 Graphiti 完全未完成批次做 deterministic 安全分片。
+1. 🟡 合併 deterministic 安全分片，重建內建磁碟 runtime 並續跑遷移。
 2. 🟡 完成 5,426／5,426 遷移，確認 `failed_count=0`。
 3. 🟡 立即重跑遷移，驗證 `migrated=0`、`skipped=5426`。
 4. 🟡 以泛用安全查詢驗證 Graphiti 搜尋，只記錄結果數與 redaction 數。

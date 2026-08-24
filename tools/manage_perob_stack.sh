@@ -13,6 +13,7 @@ SERVICE_PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 HTTPS_LISTEN_HOST="${PEROB_HTTPS_LISTEN_HOST:-127.0.0.1}"
 TRUSTED_PYTHON="${PEROB_CREDENTIAL_PYTHON:-/usr/local/bin/python3}"
 BACKEND_START_ATTEMPTS="${PEROB_BACKEND_START_ATTEMPTS:-30}"
+CREDENTIAL_SOURCE_DIR="${TREVOR_CREDENTIAL_SOURCE_DIR:-$HOME/Library/Application Support/Trevor/credentials}"
 
 BACKEND_PLIST="$HOME/Library/LaunchAgents/${BACKEND_LABEL}.plist"
 HTTPS_PLIST="$HOME/Library/LaunchAgents/${HTTPS_LABEL}.plist"
@@ -63,6 +64,16 @@ case "$PY_VERSION" in
     echo "[warn] Python ${PY_VERSION} may trigger Pydantic v1 compatibility warnings; prefer .venv312 or .venv311"
     ;;
 esac
+
+require_runtime_credentials() {
+  local credential
+  for credential in nvidia_api_key trevor_memory_key_b64; do
+    if [[ ! -s "$CREDENTIAL_SOURCE_DIR/$credential" ]]; then
+      echo "[error] missing private credential: $CREDENTIAL_SOURCE_DIR/$credential" >&2
+      return 1
+    fi
+  done
+}
 
 load_agent() {
   local label="$1"
@@ -116,7 +127,8 @@ start_manual_backend() {
     --env "TREVOR_DISABLE_KEYCHAIN=true" \
     --env "PATH=$SERVICE_PATH" \
     -- "$TRUSTED_PYTHON" -u "$ROOT/tools/launch_trevor_backend.py" \
-      --python "$PYTHON_BIN" -- -u "$ROOT/desktop_chat_app.py" web \
+      --python "$PYTHON_BIN" --credential-source "$CREDENTIAL_SOURCE_DIR" \
+      -- -u "$ROOT/desktop_chat_app.py" web \
       --host 127.0.0.1 --port 5001 --energy-lite >/dev/null
 }
 
@@ -186,6 +198,7 @@ wait_perob_https() {
 }
 
 start_all() {
+  require_runtime_credentials
   [[ -f "$BACKEND_PLIST" ]] || { echo "[error] missing: $BACKEND_PLIST"; exit 1; }
   [[ -f "$HTTPS_PLIST" ]] || { echo "[error] missing: $HTTPS_PLIST"; exit 1; }
 
