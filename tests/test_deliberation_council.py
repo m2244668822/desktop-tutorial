@@ -1,3 +1,4 @@
+import inspect
 import unittest
 
 
@@ -101,6 +102,40 @@ class DeliberationCouncilTests(unittest.TestCase):
             self.assertNotIn('owner@example.com', str(request))
             self.assertNotIn('secret-value', str(request))
             self.assertNotIn('hunter2', str(request))
+
+    def test_candidates_receive_same_runtime_capability_truth(self):
+        from core.deliberation import DeliberationCouncil
+
+        self.assertIn(
+            'runtime_capabilities',
+            inspect.signature(DeliberationCouncil.deliberate).parameters,
+        )
+        requests = []
+        manifest = {
+            'identity': {'agent': 'trevor', 'role': '崔佛'},
+            'capabilities': {
+                'workspace_files': {'ready': True},
+                'persistent_memory': {'ready': True},
+            },
+        }
+
+        def runner(provider, request):
+            requests.append((provider.name, request))
+            return candidate(provider.name, 'same')
+
+        DeliberationCouncil(self.build_registry(), runner=runner).deliberate(
+            '你能做什麼？',
+            mode='rigorous',
+            runtime_capabilities=manifest,
+        )
+
+        self.assertEqual(4, len(requests))
+        for _, request in requests:
+            self.assertEqual(
+                manifest,
+                request['trevor_context']['runtime_capabilities'],
+            )
+            self.assertNotIn('tools', request)
 
     def test_hard_gate_rejects_unsafe_high_confidence_candidate(self):
         from core.deliberation import DeliberationCouncil

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import time
 from dataclasses import dataclass
@@ -264,6 +265,7 @@ class DeliberationCouncil:
         conversation: Iterable[Mapping[str, Any]] = (),
         memory_context: str = '',
         attachments: Iterable[Mapping[str, Any]] = (),
+        runtime_capabilities: Mapping[str, Any] | None = None,
     ) -> CouncilResult:
         selected, desired = self._providers_for_mode(mode)
         sanitized = self.sanitizer.sanitize(
@@ -273,6 +275,9 @@ class DeliberationCouncil:
             attachments=attachments,
         )
         sanitized.payload['capability_mode'] = str(capability_mode or 'general')
+        sanitized.payload['runtime_capabilities'] = copy.deepcopy(
+            dict(runtime_capabilities or {})
+        )
         candidates: list[Candidate] = []
         unavailable = [name for name in desired if name not in selected]
         rejected: list[str] = []

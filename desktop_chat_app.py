@@ -49,6 +49,12 @@ from core.audit_chain import HashChainAuditLog
 from core.provider_client import ProviderHttpClient
 from core.provider_credentials import ProviderCredentialResolver
 from core.provider_registry import ProviderRegistry
+from core.openclaw_adapter import OpenClawAdapter
+from core.runtime_capabilities import (
+    build_runtime_capability_manifest,
+    is_runtime_capability_query,
+    render_runtime_capability_reply,
+)
 from core.trevor_identity import (
     CAPABILITY_MODES,
     TREVOR_DISPLAY_NAME,
@@ -2388,6 +2394,32 @@ class DesktopBridge:
             {"role": "user", "content": composed_user.strip()},
         ]
 
+    def _runtime_capability_manifest(self) -> dict[str, Any]:
+        autonomy_path = self.paths.data / 'autonomy' / 'daemon_state.json'
+        try:
+            autonomy_status = json.loads(autonomy_path.read_text(encoding='utf-8'))
+        except (OSError, json.JSONDecodeError):
+            autonomy_status = {}
+        try:
+            control_plane_status = OpenClawAdapter(self.workspace).status()
+        except Exception:
+            control_plane_status = {}
+        try:
+            provider_status = self.provider_registry.public_status()
+        except Exception:
+            provider_status = {'providers': []}
+        web_search_ready = str(
+            os.getenv('TREVOR_WEB_SEARCH_ENABLED', 'false') or 'false'
+        ).strip().lower() in {'1', 'true', 'yes', 'on'}
+        return build_runtime_capability_manifest(
+            self.workspace,
+            memory_ready=bool(self.memory_manager or self.long_term_memory_api),
+            provider_status=provider_status,
+            autonomy_status=autonomy_status,
+            control_plane_status=control_plane_status,
+            web_search_ready=web_search_ready,
+        )
+
     def _generate_live_llm_reply(
         self,
         message: str,
@@ -2435,6 +2467,7 @@ class DesktopBridge:
                     shadow=shadow,
                     conversation=list(self.conversation_context[-self.max_context:]),
                     memory_context=retrieval_brief,
+                    runtime_capabilities=self._runtime_capability_manifest(),
                 )
                 metadata = dict(result.metadata)
                 metadata["requested_mode"] = deliberation
@@ -2779,6 +2812,19 @@ class DesktopBridge:
             analysis=analysis,
         )
         workflow_payload["react"] = dict(react_loop)
+
+        if not should_run_workflow and is_runtime_capability_query(message):
+            runtime_capabilities = self._runtime_capability_manifest()
+            reply = render_runtime_capability_reply(runtime_capabilities)
+            live_llm_meta = {
+                "ok": False,
+                "attempted": False,
+                "fallback_used": True,
+                "provider": "nvidia",
+                "fallback_reason": "runtime_capability_truth",
+            }
+            workflow_payload["runtime_capabilities"] = runtime_capabilities
+            workflow_payload["llm_live"] = dict(live_llm_meta)
 
         if (not should_run_workflow) and self._is_langgraph_status_query(message):
             reply = self._build_langgraph_status_guard_reply(role)

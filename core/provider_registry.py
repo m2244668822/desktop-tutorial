@@ -360,6 +360,19 @@ class ProviderRegistry:
         purpose: str = 'dialogue',
     ) -> dict[str, Any]:
         name = str(provider).strip().lower()
+        spec = self.get(name)
+        capability_boundary = (
+            'You are the NVIDIA control core for Trevor. The Trevor runtime may use only '
+            'capabilities explicitly listed in trevor_context.runtime_capabilities. This '
+            'candidate call does not execute tools directly, so do not invent execution '
+            'results. Do not claim that Trevor lacks tools, workspace access, external APIs, '
+            'autonomy, or persistent memory when the runtime capability manifest marks them ready.'
+            if spec.control_authority
+            else
+            'You are a read-only external candidate. This candidate seat has no tools, task API, '
+            'autonomy API, or memory-write access. Do not generalize this seat limitation to Trevor. '
+            'Use trevor_context.runtime_capabilities as the only source of truth about the Trevor runtime.'
+        )
         request: dict[str, Any] = {
             'request_type': 'candidate',
             'model': self.model_for(name, purpose),
@@ -374,7 +387,7 @@ class ProviderRegistry:
                         'Return one JSON object only with answer, claims, evidence, assumptions, confidence, '
                         'and quality. quality must be an object with numeric evidence_verification and '
                         'requirement_fit fields plus boolean safe, privacy_ok, format_ok, and tests_ok fields. '
-                        'Do not reveal hidden reasoning. You have no tools, task API, autonomy API, or memory-write access.'
+                        f'Do not reveal hidden reasoning. {capability_boundary}'
                     ),
                 },
                 {'role': 'user', 'content': copy.deepcopy(dict(context))},
