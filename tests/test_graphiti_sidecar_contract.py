@@ -164,9 +164,30 @@ class GraphitiSidecarContractTests(unittest.IsolatedAsyncioTestCase):
             'nvidia/nemotron-3-ultra-550b-a55b',
             config.nvidia_extraction_model,
         )
+        self.assertEqual(4096, config.llm_max_tokens)
+        self.assertEqual(90.0, config.llm_timeout_seconds)
         self.assertEqual('nomic-embed-text', config.embedding_model)
         with self.assertRaises(ValueError):
             SidecarConfig.from_env({'TREVOR_GRAPHITI_HOST': '0.0.0.0'})
+
+        tuned = SidecarConfig.from_env(
+            {
+                'TREVOR_GRAPHITI_LLM_MAX_TOKENS': '2048',
+                'TREVOR_GRAPHITI_LLM_TIMEOUT_SECONDS': '45',
+            }
+        )
+        self.assertEqual(2048, tuned.llm_max_tokens)
+        self.assertEqual(45.0, tuned.llm_timeout_seconds)
+
+    def test_nvidia_graphiti_client_has_one_bounded_provider_attempt(self):
+        root = Path(__file__).resolve().parents[1]
+        runtime = (
+            root / 'services' / 'graphiti_sidecar' / 'trevor_graphiti' / 'runtime.py'
+        ).read_text(encoding='utf-8')
+
+        self.assertIn('max_retries=0', runtime)
+        self.assertIn('timeout=config.llm_timeout_seconds', runtime)
+        self.assertIn('max_tokens=config.llm_max_tokens', runtime)
 
     def test_embedded_runtime_rejects_unsupported_intel_macos_binary(self):
         from services.graphiti_sidecar.trevor_graphiti.runtime import (

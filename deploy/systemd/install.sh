@@ -114,6 +114,10 @@ install -d -o root -g root -m 0755 /opt/trevor "$APP_ROOT" "$CONFIG_ROOT"
 install -d -o trevor -g trevor -m 0755 "$PYTHON_ROOT"
 install -d -o root -g root -m 0700 "$CREDENTIAL_ROOT"
 
+systemctl stop \
+  trevor-api.service trevor-graphiti.service \
+  trevor-autonomy.service trevor-worker.service 2>/dev/null || true
+
 if [ "$(realpath "$SOURCE_ROOT")" != "$(realpath "$APP_ROOT")" ]; then
   rsync -a --exclude '.venv*' --exclude 'data/' --exclude 'logs/' --exclude '.env*' \
     "$SOURCE_ROOT/" "$APP_ROOT/"
@@ -223,7 +227,11 @@ ollama pull nomic-embed-text
 install -o root -g root -m 0644 "$APP_ROOT"/deploy/systemd/trevor-*.service /etc/systemd/system/
 install -o root -g root -m 0644 "$APP_ROOT/deploy/systemd/trevor.target" /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable --now trevor.target
+systemctl enable trevor.target
+systemctl restart trevor-graphiti.service
+systemctl restart trevor-api.service
+systemctl restart trevor-autonomy.service trevor-worker.service
+systemctl start trevor.target
 
 if command -v tailscale >/dev/null 2>&1 \
   && tailscale status >/dev/null 2>&1; then

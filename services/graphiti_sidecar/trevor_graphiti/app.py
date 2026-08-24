@@ -86,6 +86,8 @@ def create_app(config: SidecarConfig | None = None) -> FastAPI:
                     else 'deterministic-lexical'
                 ),
                 'embedding': resolved_config.embedding_model,
+                'max_output_tokens': resolved_config.llm_max_tokens,
+                'timeout_seconds': resolved_config.llm_timeout_seconds,
             },
         }
 

@@ -103,6 +103,16 @@ class DeploymentContractTests(unittest.TestCase):
             content,
         )
         self.assertIn('sha256sum --check --status', content)
+        self.assertIn('systemctl restart trevor-graphiti.service', content)
+        self.assertIn('systemctl restart trevor-api.service', content)
+        self.assertIn(
+            'systemctl restart trevor-autonomy.service trevor-worker.service',
+            content,
+        )
+        self.assertLess(
+            content.index('systemctl restart trevor-graphiti.service'),
+            content.index('systemctl restart trevor-api.service'),
+        )
 
     def test_oci_deploy_has_non_destructive_preflight_mode(self):
         content = (ROOT / 'deploy_to_oci.sh').read_text(encoding='utf-8')
