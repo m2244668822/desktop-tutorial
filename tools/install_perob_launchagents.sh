@@ -92,6 +92,7 @@ cat > "$LAUNCH_DIR/${BACKEND_LABEL}.plist" <<EOF
     <key>TREVOR_GROQ_FREE_TIER_CONFIRMED</key><string>true</string>
     <key>TREVOR_WEB_SEARCH_ENABLED</key><string>true</string>
     <key>TREVOR_DELIBERATION_ROLLOUT</key><string>shadow</string>
+    <key>TREVOR_DISABLE_KEYCHAIN</key><string>true</string>
   </dict>
   <key>WorkingDirectory</key><string>${HOME}</string>
   <key>RunAtLoad</key><true/>
