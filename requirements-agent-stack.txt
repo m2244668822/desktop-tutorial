@@ -3,7 +3,7 @@ python-dotenv==1.2.1
 httpx==0.28.1
 tenacity==9.1.4
 pydantic==2.12.5
-cryptography>=46,<47
+cryptography>=50.0.0,<51
 langgraph
 langchain
 faiss-cpu
