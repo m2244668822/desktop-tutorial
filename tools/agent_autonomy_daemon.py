@@ -8,9 +8,11 @@ import signal
 import sys
 import threading
 import time
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Sequence
+from urllib.request import Request, urlopen
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,11 +21,8 @@ if str(ROOT) not in sys.path:
 
 from core.audit_chain import HashChainAuditLog
 from core.autonomy import AutonomyConfig, AutonomyQueue, user_is_active
-from core.autonomy_executor import TrevorTaskExecutor
 from core.autonomy_runner import AutonomyRunner
 from core.data_paths import resolve_data_root
-from core.provider_credentials import ProviderCredentialResolver
-from core.provider_registry import ProviderRegistry
 
 
 def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
@@ -60,7 +59,29 @@ def provider_signals(public_status: dict[str, Any]) -> dict[str, bool]:
     }
 
 
-def load_signals(data_root: Path, config: AutonomyConfig) -> dict[str, Any]:
+def load_public_provider_status(
+    *,
+    opener: Callable[..., Any] = urlopen,
+    timeout: float = 5.0,
+) -> dict[str, Any]:
+    request = Request(
+        'http://127.0.0.1:5001/api/trevor/providers',
+        headers={'Accept': 'application/json'},
+        method='GET',
+    )
+    with opener(request, timeout=timeout) as response:
+        payload = json.loads(response.read().decode('utf-8'))
+    if not isinstance(payload, dict) or not isinstance(payload.get('providers'), list):
+        raise RuntimeError('provider_status_invalid')
+    return payload
+
+
+def load_signals(
+    data_root: Path,
+    config: AutonomyConfig,
+    *,
+    provider_status_loader: Callable[[], dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     try:
         import psutil
 
@@ -70,12 +91,12 @@ def load_signals(data_root: Path, config: AutonomyConfig) -> dict[str, Any]:
         cpu_percent = 0.0
         memory_percent = 0.0
 
-    resolver = ProviderCredentialResolver()
-    registry = ProviderRegistry(
-        env=os.environ,
-        credential_resolver=lambda provider: resolver.resolve(provider).value,
-    )
-    signals = provider_signals(registry.public_status())
+    loader = provider_status_loader or load_public_provider_status
+    try:
+        public_status = loader()
+    except Exception:
+        public_status = {}
+    signals = provider_signals(public_status)
     signals.update(
         {
             'user_active': user_is_active(
@@ -160,8 +181,17 @@ def run_daemon(args: argparse.Namespace) -> int:
     audit_log = HashChainAuditLog(data_root / 'audit' / 'events.jsonl')
     runner = None
     if not args.scheduler_only:
-        executor = TrevorTaskExecutor(ROOT, data_root, audit_log=audit_log)
-        runner = AutonomyRunner(data_root, executor=executor, config=config)
+        executor_instance = None
+
+        def execute_task(task: dict[str, Any]) -> dict[str, Any]:
+            nonlocal executor_instance
+            if executor_instance is None:
+                from core.autonomy_executor import TrevorTaskExecutor
+
+                executor_instance = TrevorTaskExecutor(ROOT, data_root, audit_log=audit_log)
+            return executor_instance(task)
+
+        runner = AutonomyRunner(data_root, executor=execute_task, config=config)
     stop = threading.Event()
 
     def request_stop(signum: int, frame: Any) -> None:
