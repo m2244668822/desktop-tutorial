@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -111,6 +112,25 @@ class GraphitiMigrationTests(unittest.TestCase):
 
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertIn('--base-url', result.stdout)
+        self.assertIn('--request-timeout', result.stdout)
+
+    def test_sender_uses_configured_request_timeout(self):
+        from tools.migrate_graphiti import _sender
+
+        response = mock.MagicMock()
+        response.status = 200
+        context = mock.MagicMock()
+        context.__enter__.return_value = response
+        with mock.patch(
+            'tools.migrate_graphiti.urllib_request.urlopen', return_value=context
+        ) as urlopen:
+            _sender(
+                'http://127.0.0.1:8091',
+                'private-token',
+                request_timeout=240,
+            )({'name': 'safe-test'})
+
+        self.assertEqual(240, urlopen.call_args.kwargs['timeout'])
 
     def test_rerun_deduplicates_redacts_and_preserves_source_role(self):
         from core.audit_chain import HashChainAuditLog
