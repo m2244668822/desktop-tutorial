@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -17,6 +18,39 @@ from core.graphiti_migration import GraphitiMigrationRunner
 from core.audit_chain import HashChainAuditLog
 from core.keychain_credentials import KeychainCredentialStore
 from tools.agent_memory_manager import AgentMemoryManager
+
+
+def load_unified_conversations(manager: AgentMemoryManager) -> dict:
+    conversations = manager._conversations
+    if not isinstance(conversations, dict):
+        raise RuntimeError('unified_memory_invalid')
+    manifest_path = manager.memory_dir.parent / 'migrations' / 'trevor_data_manifest.json'
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+    except FileNotFoundError:
+        manifest = {}
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError('unified_memory_manifest_invalid') from exc
+    expected = int(manifest.get('unique_turns', 0) or 0) if isinstance(manifest, dict) else 0
+    hashes: set[str] = set()
+    for thread in conversations.values():
+        if not isinstance(thread, dict):
+            continue
+        for message in thread.get('messages', []) or []:
+            if not isinstance(message, dict):
+                continue
+            metadata = message.get('metadata') or {}
+            content_hash = str(metadata.get('content_hash', '') or '')
+            if not content_hash:
+                normalized = '\n'.join(
+                    ' '.join(str(value or '').split()).strip().lower()
+                    for value in (message.get('user'), message.get('assistant'))
+                )
+                content_hash = hashlib.sha256(normalized.encode('utf-8')).hexdigest()
+            hashes.add(content_hash)
+    if expected and len(hashes) < expected:
+        raise RuntimeError('unified_memory_incomplete')
+    return conversations
 
 
 def _credential(name: str, env_name: str) -> str:
@@ -80,7 +114,7 @@ def main() -> int:
         sender=_sender(args.base_url, token),
         audit_log=HashChainAuditLog(manager.memory_dir.parent / 'audit' / 'events.jsonl'),
     )
-    result = runner.run(manager._conversations)
+    result = runner.run(load_unified_conversations(manager))
     print(json.dumps(result, ensure_ascii=False))
     return 0 if result['ok'] else 1
 

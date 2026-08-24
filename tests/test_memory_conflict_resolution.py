@@ -96,6 +96,50 @@ class MemoryConflictResolutionTests(unittest.TestCase):
         self.assertEqual('friendly', manager._agent_memories['崔佛']['preferences']['tone'])
         self.assertTrue(manager._agent_memories['崔佛']['conflicts'])
 
+    def test_save_merges_external_conversation_migration_before_writing(self):
+        from core.encrypted_store import AESGCMJsonStore
+        from tools.agent_memory_manager import AgentMemoryManager
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = AESGCMJsonStore(lambda: b'm' * 32)
+            manager = AgentMemoryManager(
+                tmp,
+                auto_save=False,
+                json_store=store,
+            )
+            manager.save_conversation('崔佛', '執行中新增', '本機回答')
+            external = {
+                'imported-thread': {
+                    'agent_name': '崔佛',
+                    'created_at': '2026-08-24T00:00:00+00:00',
+                    'last_message_at': '2026-08-24T00:00:00+00:00',
+                    'messages': [
+                        {
+                            'timestamp': '2026-08-24T00:00:00+00:00',
+                            'user': '外部遷移內容',
+                            'assistant': '匯入回答',
+                            'metadata': {'source': 'chatgpt_database'},
+                        }
+                    ],
+                }
+            }
+            store.write_json(manager.conversation_file, external)
+
+            manager._save_all(reason='test_external_merge')
+
+            saved = store.read_json(manager.conversation_file, {})
+
+        messages = [
+            message
+            for thread in saved.values()
+            for message in thread.get('messages', [])
+        ]
+        self.assertEqual(2, len(messages))
+        self.assertEqual(
+            {'外部遷移內容', '執行中新增'},
+            {message['user'] for message in messages},
+        )
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -23,7 +23,7 @@ OCI_LOCAL_DIR="${OCI_LOCAL_DIR%/}/"
 OCI_SSH_CONNECT_TIMEOUT="${OCI_SSH_CONNECT_TIMEOUT:-10}"
 OCI_SSH_CONNECTION_ATTEMPTS="${OCI_SSH_CONNECTION_ATTEMPTS:-1}"
 OCI_SSH_SERVER_ALIVE_INTERVAL="${OCI_SSH_SERVER_ALIVE_INTERVAL:-10}"
-OCI_SSH_SERVER_ALIVE_COUNT_MAX="${OCI_SSH_SERVER_ALIVE_COUNT_MAX:-2}"
+OCI_SSH_SERVER_ALIVE_COUNT_MAX="${OCI_SSH_SERVER_ALIVE_COUNT_MAX:-12}"
 OCI_SSH_STRICT_HOST_KEY_CHECKING="${OCI_SSH_STRICT_HOST_KEY_CHECKING:-accept-new}"
 OCI_SSH_USER_KNOWN_HOSTS_FILE="${OCI_SSH_USER_KNOWN_HOSTS_FILE:-$HOME/.ssh/known_hosts}"
 OCI_VERIFY_AFTER_SYNC="${OCI_VERIFY_AFTER_SYNC:-1}"
@@ -81,6 +81,7 @@ fi
 
 ssh "${SSH_OPTIONS[@]}" "$REMOTE" "mkdir -p '$OCI_REMOTE_DIR'"
 rsync -a \
+  --partial --partial-dir '.rsync-partial' \
   --exclude '.env' --exclude '.env.*' --exclude '.venv*' \
   --exclude 'data/' --exclude 'data_hdd_storage/' --exclude 'logs/' \
   --exclude '__pycache__/' --exclude '*.pyc' \

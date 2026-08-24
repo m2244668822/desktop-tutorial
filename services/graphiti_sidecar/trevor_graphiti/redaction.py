@@ -32,4 +32,10 @@ def redact_text(value: str) -> tuple[str, int]:
     return result, count
 
 
-__all__ = ['redact_text']
+def redact_metadata_label(value: str, *, limit: int) -> tuple[str, int]:
+    normalized = ' '.join(str(value or '').split()).strip()
+    redacted, count = redact_text(normalized)
+    return redacted[: max(0, int(limit))], count
+
+
+__all__ = ['redact_metadata_label', 'redact_text']

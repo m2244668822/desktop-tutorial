@@ -12,6 +12,7 @@ class _FakeGraphiti:
         self.max_active_queries = 0
         self.active_writes = 0
         self.max_active_writes = 0
+        self.episode_payloads = []
 
     async def search(self, query, group_ids=None, num_results=10):
         self.active_queries += 1
@@ -21,6 +22,7 @@ class _FakeGraphiti:
         return [{'fact': query, 'group_ids': group_ids, 'limit': num_results}]
 
     async def add_episode(self, **payload):
+        self.episode_payloads.append(payload)
         self.active_writes += 1
         self.max_active_writes = max(self.max_active_writes, self.active_writes)
         await asyncio.sleep(0.01)
@@ -29,6 +31,52 @@ class _FakeGraphiti:
 
 
 class GraphitiSidecarContractTests(unittest.IsolatedAsyncioTestCase):
+    def test_episode_metadata_labels_are_redacted_before_source_append(self):
+        from services.graphiti_sidecar.trevor_graphiti.redaction import (
+            redact_metadata_label,
+        )
+
+        value, redactions = redact_metadata_label('owner user@example.com', limit=80)
+
+        self.assertNotIn('user@example.com', value)
+        self.assertIn('[REDACTED_EMAIL]', value)
+        self.assertEqual(1, redactions)
+
+    async def test_nvidia_client_disables_reasoning_for_structured_requests(self):
+        from services.graphiti_sidecar.trevor_graphiti.nvidia_client import (
+            NvidiaNoThinkingClient,
+        )
+
+        class Completions:
+            def __init__(self):
+                self.calls = []
+
+            async def create(self, **kwargs):
+                self.calls.append(kwargs)
+                return {'ok': True}
+
+        completions = Completions()
+        delegate = mock.Mock()
+        delegate.chat.completions = completions
+        client = NvidiaNoThinkingClient(delegate)
+
+        result = await client.chat.completions.create(
+            model='nvidia/nemotron-3-nano-30b-a3b',
+            messages=[{'role': 'user', 'content': 'Return JSON'}],
+            extra_body={'chat_template_kwargs': {'low_effort': True}},
+        )
+
+        self.assertEqual({'ok': True}, result)
+        self.assertEqual(
+            {
+                'chat_template_kwargs': {
+                    'low_effort': True,
+                    'enable_thinking': False,
+                }
+            },
+            completions.calls[0]['extra_body'],
+        )
+
     def test_sidecar_adapters_implement_graphiti_client_contracts(self):
         from services.graphiti_sidecar.trevor_graphiti.gemini_reranker import (
             TrevorGeminiReranker,
@@ -162,9 +210,31 @@ class GraphitiSidecarContractTests(unittest.IsolatedAsyncioTestCase):
             'nvidia/nemotron-3-ultra-550b-a55b',
             config.nvidia_extraction_model,
         )
+        self.assertEqual(4096, config.llm_max_tokens)
+        self.assertEqual(90.0, config.llm_timeout_seconds)
         self.assertEqual('nomic-embed-text', config.embedding_model)
         with self.assertRaises(ValueError):
             SidecarConfig.from_env({'TREVOR_GRAPHITI_HOST': '0.0.0.0'})
+
+        tuned = SidecarConfig.from_env(
+            {
+                'TREVOR_GRAPHITI_LLM_MAX_TOKENS': '2048',
+                'TREVOR_GRAPHITI_LLM_TIMEOUT_SECONDS': '45',
+            }
+        )
+        self.assertEqual(2048, tuned.llm_max_tokens)
+        self.assertEqual(45.0, tuned.llm_timeout_seconds)
+
+    def test_nvidia_graphiti_client_has_one_bounded_provider_attempt(self):
+        root = Path(__file__).resolve().parents[1]
+        runtime = (
+            root / 'services' / 'graphiti_sidecar' / 'trevor_graphiti' / 'runtime.py'
+        ).read_text(encoding='utf-8')
+
+        self.assertIn('max_retries=0', runtime)
+        self.assertIn('timeout=config.llm_timeout_seconds', runtime)
+        self.assertIn('max_tokens=config.llm_max_tokens', runtime)
+        self.assertIn("structured_output_mode='json_schema'", runtime)
 
     def test_embedded_runtime_rejects_unsupported_intel_macos_binary(self):
         from services.graphiti_sidecar.trevor_graphiti.runtime import (
@@ -238,6 +308,52 @@ class GraphitiSidecarContractTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertLessEqual(graph.max_active_queries, 2)
         self.assertEqual(1, graph.max_active_writes)
+        self.assertTrue(all('uuid' not in payload for payload in graph.episode_payloads))
+
+    async def test_episode_name_makes_retries_idempotent(self):
+        from services.graphiti_sidecar.trevor_graphiti.gateway import GraphitiGateway
+
+        class Driver:
+            async def execute_query(self, *_args, **_kwargs):
+                return ([{'uuid': 'existing'}], None, None)
+
+        graph = _FakeGraphiti()
+        graph.driver = Driver()
+        gateway = GraphitiGateway(graph, query_concurrency=1)
+
+        result = await gateway.add_episode(
+            name='trevor-content-hash',
+            episode_body='body',
+            source_description='test',
+            reference_time='2026-08-21T00:00:00+00:00',
+            episode_uuid='00000000-0000-5000-8000-000000000001',
+        )
+
+        self.assertTrue(result['duplicate'])
+        self.assertEqual([], graph.episode_payloads)
+
+    async def test_episode_extraction_applies_unified_memory_conflict_policy(self):
+        from services.graphiti_sidecar.trevor_graphiti.gateway import GraphitiGateway
+
+        class Driver:
+            async def execute_query(self, *_args, **_kwargs):
+                return ([], None, None)
+
+        graph = _FakeGraphiti()
+        graph.driver = Driver()
+        gateway = GraphitiGateway(graph, query_concurrency=1)
+
+        await gateway.add_episode(
+            name='trevor-batch',
+            episode_body='[Memory turn] Newer durable preference wins.',
+            source_description='test',
+            reference_time='2026-08-21T00:00:00+00:00',
+            episode_uuid='00000000-0000-5000-8000-000000000001',
+        )
+
+        instructions = graph.episode_payloads[0]['custom_extraction_instructions']
+        self.assertIn('durable', instructions.lower())
+        self.assertIn('newer', instructions.lower())
 
     async def test_gateway_public_results_are_structured(self):
         from services.graphiti_sidecar.trevor_graphiti.gateway import GraphitiGateway

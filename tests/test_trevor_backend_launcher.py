@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -49,3 +50,56 @@ class TrevorBackendLauncherTests(unittest.TestCase):
         self.assertEqual('hmac-secret', credentials['trevor_api_hmac'])
         self.assertEqual('memory-secret', credentials['trevor_memory_key_b64'])
         self.assertNotIn('groq_api_key', credentials)
+
+    def test_loads_private_file_credentials_without_touching_keychain(self):
+        from tools.launch_trevor_backend import load_runtime_credentials
+
+        with TemporaryDirectory() as temporary_directory:
+            credential_directory = Path(temporary_directory)
+            credential_directory.chmod(0o700)
+            credential_file = credential_directory / 'nvidia_api_key'
+            credential_file.write_text('nvidia-secret\n', encoding='utf-8')
+            credential_file.chmod(0o400)
+
+            with patch(
+                'tools.launch_trevor_backend.KeychainCredentialStore',
+                side_effect=AssertionError('keychain_must_not_be_opened'),
+            ):
+                credentials = load_runtime_credentials(credential_directory)
+
+        self.assertEqual({'nvidia_api_key': 'nvidia-secret'}, credentials)
+
+    def test_keychain_import_requires_explicit_opt_in(self):
+        from tools.launch_trevor_backend import load_runtime_credentials
+
+        with TemporaryDirectory() as temporary_directory:
+            credential_directory = Path(temporary_directory)
+            credential_directory.chmod(0o700)
+            store = _Store(
+                {('trevor.providers', 'nvidia-api-key'): 'nvidia-secret'}
+            )
+
+            with patch(
+                'tools.launch_trevor_backend.KeychainCredentialStore',
+                return_value=store,
+            ) as store_factory:
+                credentials = load_runtime_credentials(
+                    credential_directory,
+                    allow_keychain=True,
+                )
+
+        store_factory.assert_called_once_with()
+        self.assertEqual('nvidia-secret', credentials['nvidia_api_key'])
+
+    def test_rejects_credential_files_visible_to_other_users(self):
+        from tools.launch_trevor_backend import load_runtime_credentials
+
+        with TemporaryDirectory() as temporary_directory:
+            credential_directory = Path(temporary_directory)
+            credential_directory.chmod(0o700)
+            credential_file = credential_directory / 'nvidia_api_key'
+            credential_file.write_text('nvidia-secret', encoding='utf-8')
+            credential_file.chmod(0o644)
+
+            with self.assertRaisesRegex(RuntimeError, 'credential_file_permissions'):
+                load_runtime_credentials(credential_directory)

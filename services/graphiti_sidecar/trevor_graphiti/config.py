@@ -20,6 +20,8 @@ class SidecarConfig:
     rerank_model: str
     nvidia_extraction_model: str
     nvidia_base_url: str
+    llm_max_tokens: int
+    llm_timeout_seconds: float
     embedding_model: str
     ollama_base_url: str
     query_concurrency: int
@@ -81,6 +83,22 @@ class SidecarConfig:
                 )
                 or 'https://integrate.api.nvidia.com/v1'
             ).rstrip('/'),
+            llm_max_tokens=max(
+                512,
+                min(
+                    16384,
+                    int(values.get('TREVOR_GRAPHITI_LLM_MAX_TOKENS', '4096') or '4096'),
+                ),
+            ),
+            llm_timeout_seconds=max(
+                10.0,
+                min(
+                    300.0,
+                    float(
+                        values.get('TREVOR_GRAPHITI_LLM_TIMEOUT_SECONDS', '90') or '90'
+                    ),
+                ),
+            ),
             embedding_model=str(
                 values.get('TREVOR_GRAPHITI_EMBEDDING_MODEL', 'nomic-embed-text')
                 or 'nomic-embed-text'

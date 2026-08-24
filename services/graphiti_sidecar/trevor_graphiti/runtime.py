@@ -9,6 +9,7 @@ from .config import SidecarConfig
 from .gateway import GraphitiGateway
 from .gemini_reranker import TrevorGeminiReranker
 from .lexical_reranker import TrevorLexicalReranker
+from .nvidia_client import NvidiaNoThinkingClient
 from .ollama_embedder import OllamaEmbedder
 
 
@@ -150,14 +151,18 @@ class TrevorGraphitiRuntime:
                 model=config.extraction_model,
                 small_model=config.extraction_model,
                 temperature=None,
-                max_tokens=16384,
+                max_tokens=config.llm_max_tokens,
             )
-            llm_client = GeminiClient(config=llm_config, max_tokens=16384)
+            llm_client = GeminiClient(
+                config=llm_config,
+                max_tokens=config.llm_max_tokens,
+            )
             reranker = TrevorGeminiReranker(
                 api_key=gemini_api_key, model=config.rerank_model
             )
             rerank_provider = 'gemini'
         else:
+            from openai import AsyncOpenAI
             from graphiti_core.llm_client.openai_generic_client import OpenAIGenericClient
 
             llm_config = LLMConfig(
@@ -166,12 +171,21 @@ class TrevorGraphitiRuntime:
                 small_model=config.nvidia_extraction_model,
                 base_url=config.nvidia_base_url,
                 temperature=0.1,
-                max_tokens=16384,
+                max_tokens=config.llm_max_tokens,
+            )
+            openai_client = NvidiaNoThinkingClient(
+                AsyncOpenAI(
+                    api_key=nvidia_api_key,
+                    base_url=config.nvidia_base_url,
+                    timeout=config.llm_timeout_seconds,
+                    max_retries=0,
+                )
             )
             llm_client = OpenAIGenericClient(
                 config=llm_config,
-                max_tokens=16384,
-                structured_output_mode='json_object',
+                client=openai_client,
+                max_tokens=config.llm_max_tokens,
+                structured_output_mode='json_schema',
             )
             reranker = TrevorLexicalReranker()
             rerank_provider = 'lexical'

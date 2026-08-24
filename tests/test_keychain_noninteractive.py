@@ -13,6 +13,8 @@ class _Security:
     kSecMatchLimitOne = 'one'
     kSecUseAuthenticationUI = 'authentication_ui'
     kSecUseAuthenticationUIFail = 'fail'
+    kSecUseNoAuthenticationUI = 'no_authentication_ui'
+    kSecUseAuthenticationContext = 'authentication_context'
     errSecItemNotFound = -1
     errSecSuccess = 0
 
@@ -22,6 +24,14 @@ class _Security:
     def SecItemCopyMatching(self, query, _result):
         self.query = query
         return self.errSecItemNotFound, None
+
+
+class _AuthenticationContext:
+    def __init__(self):
+        self.interaction_not_allowed = False
+
+    def setInteractionNotAllowed_(self, value):
+        self.interaction_not_allowed = bool(value)
 
 
 class KeychainNoninteractiveTests(unittest.TestCase):
@@ -41,9 +51,17 @@ class KeychainNoninteractiveTests(unittest.TestCase):
         security = _Security()
         backend = MacOSKeychainBackend.__new__(MacOSKeychainBackend)
         backend.security = security
+        backend.authentication_context_factory = _AuthenticationContext
 
         self.assertIsNone(backend.get('trevor.providers', 'nvidia-api-key'))
         self.assertEqual(
             security.kSecUseAuthenticationUIFail,
             security.query[security.kSecUseAuthenticationUI],
         )
+        self.assertIs(
+            True,
+            security.query[security.kSecUseNoAuthenticationUI],
+        )
+        context = security.query[security.kSecUseAuthenticationContext]
+        self.assertIsInstance(context, _AuthenticationContext)
+        self.assertTrue(context.interaction_not_allowed)

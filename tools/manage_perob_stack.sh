@@ -112,6 +112,7 @@ start_manual_backend() {
     --env "TREVOR_GROQ_FREE_TIER_CONFIRMED=true" \
     --env "TREVOR_WEB_SEARCH_ENABLED=true" \
     --env "TREVOR_DELIBERATION_ROLLOUT=shadow" \
+    --env "TREVOR_DISABLE_KEYCHAIN=true" \
     --env "PATH=$SERVICE_PATH" \
     -- "$TRUSTED_PYTHON" -u "$ROOT/tools/launch_trevor_backend.py" \
       --python "$PYTHON_BIN" -- -u "$ROOT/desktop_chat_app.py" web \

@@ -75,18 +75,44 @@ class DeploymentContractTests(unittest.TestCase):
         self.assertIn('tools/trevor_operations.py audit', content)
         self.assertIn('--event deployment', content)
         self.assertIn('--data-root "$DATA_ROOT"', content)
+        self.assertIn('tailscale status >/dev/null 2>&1', content)
 
     def test_systemd_install_bootstraps_python_and_locked_graphiti_runtime(self):
         content = (ROOT / 'deploy' / 'systemd' / 'install.sh').read_text(
             encoding='utf-8'
         )
 
+        self.assertIn('export PATH="/usr/local/bin:$PATH"', content)
+        self.assertIn('PYTHON_ROOT="/opt/trevor/python"', content)
+        self.assertIn('UV_PYTHON_INSTALL_DIR="$PYTHON_ROOT"', content)
+        self.assertIn('ca-certificates curl gcc gcc-c++ git make rsync', content)
+        self.assertIn('build-essential ca-certificates curl git rsync', content)
         self.assertIn('uv python install 3.12', content)
-        self.assertIn('uv pip sync', content)
+        self.assertEqual(2, content.count('uv venv --python 3.12 --clear'))
+        self.assertIn('uv pip install --python', content)
+        self.assertIn('--requirements "$APP_ROOT/requirements.txt"', content)
         self.assertIn('requirements.txt', content)
         self.assertIn('uv sync --project', content)
         self.assertIn('--frozen --no-dev', content)
         self.assertIn('optional_credentials=', content)
+        self.assertLess(content.index('cd "$APP_ROOT"'), content.index('uv python install'))
+        self.assertIn('restorecon -RF "$PYTHON_ROOT" "$APP_ROOT"', content)
+        self.assertIn('falkordb-rhel9-x64.so', content)
+        self.assertIn(
+            '0f8f7ba39a5f5c9bd1a2e270915bb1435369d9413773a91de6bcc84c5b0f2ea7',
+            content,
+        )
+        self.assertIn('sha256sum --check --status', content)
+        self.assertIn('systemctl restart trevor-graphiti.service', content)
+        self.assertIn('systemctl restart trevor-api.service', content)
+        self.assertIn(
+            'systemctl restart trevor-autonomy.service trevor-worker.service',
+            content,
+        )
+        self.assertLess(
+            content.index('systemctl restart trevor-graphiti.service'),
+            content.index('systemctl restart trevor-api.service'),
+        )
 
     def test_oci_deploy_has_non_destructive_preflight_mode(self):
         content = (ROOT / 'deploy_to_oci.sh').read_text(encoding='utf-8')
@@ -94,6 +120,12 @@ class DeploymentContractTests(unittest.TestCase):
         self.assertIn('--preflight-only', content)
         self.assertIn('preflight=ok', content)
         self.assertIn('IdentitiesOnly=yes', content)
+
+    def test_oci_deploy_resumes_large_syncs_with_tolerant_keepalive(self):
+        content = (ROOT / 'deploy_to_oci.sh').read_text(encoding='utf-8')
+
+        self.assertIn('OCI_SSH_SERVER_ALIVE_COUNT_MAX:-12', content)
+        self.assertIn("--partial-dir '.rsync-partial'", content)
 
     def test_uv_bootstrap_pins_python_312_baseline(self):
         self.assertEqual(

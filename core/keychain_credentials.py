@@ -19,6 +19,23 @@ class MacOSKeychainBackend:
         import Security
 
         self.security = Security
+        self.authentication_context_factory = self._load_authentication_context_factory()
+
+    @staticmethod
+    def _load_authentication_context_factory():
+        try:
+            import objc
+            from Foundation import NSBundle
+
+            bundle = NSBundle.bundleWithPath_(
+                "/System/Library/Frameworks/LocalAuthentication.framework"
+            )
+            if bundle is None or not bundle.load():
+                return None
+            context_class = objc.lookUpClass("LAContext")
+        except Exception:
+            return None
+        return lambda: context_class.alloc().init()
 
     def _query(self, service: str, account: str) -> dict[Any, Any]:
         security = self.security
@@ -39,6 +56,17 @@ class MacOSKeychainBackend:
         authentication_ui_fail = getattr(security, "kSecUseAuthenticationUIFail", None)
         if authentication_ui is not None and authentication_ui_fail is not None:
             query[authentication_ui] = authentication_ui_fail
+        no_authentication_ui = getattr(security, "kSecUseNoAuthenticationUI", None)
+        if no_authentication_ui is not None:
+            query[no_authentication_ui] = True
+        authentication_context_key = getattr(
+            security, "kSecUseAuthenticationContext", None
+        )
+        context_factory = getattr(self, "authentication_context_factory", None)
+        if authentication_context_key is not None and callable(context_factory):
+            context = context_factory()
+            context.setInteractionNotAllowed_(True)
+            query[authentication_context_key] = context
         status, data = security.SecItemCopyMatching(query, None)
         if status == security.errSecItemNotFound:
             return None

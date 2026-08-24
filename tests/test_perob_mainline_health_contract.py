@@ -88,6 +88,13 @@ class PerobMainlineHealthContractTests(unittest.TestCase):
     def test_full_verification_disables_interactive_keychain_access(self):
         self.assertIn("export TREVOR_DISABLE_KEYCHAIN=true", FULL_VERIFICATION)
 
+    def test_backend_launchers_disable_interactive_keychain_access(self):
+        self.assertIn('--env "TREVOR_DISABLE_KEYCHAIN=true"', STACK_MANAGER)
+        self.assertIn(
+            '<key>TREVOR_DISABLE_KEYCHAIN</key><string>true</string>',
+            LAUNCHAGENT_INSTALLER,
+        )
+
     def test_https_proxy_recalculates_content_length_once(self):
         self.assertIn('"content-length"', HTTPS_PROXY)
         self.assertIn('self._safe_send_response(', HTTPS_PROXY)
