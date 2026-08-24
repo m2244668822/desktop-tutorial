@@ -82,7 +82,8 @@ class DeploymentContractTests(unittest.TestCase):
         )
 
         self.assertIn('export PATH="/usr/local/bin:$PATH"', content)
-        self.assertIn('ca-certificates curl git rsync', content)
+        self.assertIn('ca-certificates curl gcc gcc-c++ git make rsync', content)
+        self.assertIn('build-essential ca-certificates curl git rsync', content)
         self.assertIn('uv python install 3.12', content)
         self.assertIn('uv pip sync', content)
         self.assertIn('requirements.txt', content)

@@ -21,17 +21,21 @@ fi
 
 ensure_host_tools() {
   if command -v curl >/dev/null 2>&1 \
+    && command -v gcc >/dev/null 2>&1 \
+    && command -v g++ >/dev/null 2>&1 \
     && command -v git >/dev/null 2>&1 \
+    && command -v make >/dev/null 2>&1 \
     && command -v rsync >/dev/null 2>&1; then
     return
   fi
   if command -v dnf >/dev/null 2>&1; then
-    dnf install -y ca-certificates curl git rsync
+    dnf install -y ca-certificates curl gcc gcc-c++ git make rsync
   elif command -v apt-get >/dev/null 2>&1; then
     apt-get update
-    DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl git rsync
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+      build-essential ca-certificates curl git rsync
   else
-    echo "supported package manager not found; install curl, git, and rsync" >&2
+    echo "supported package manager not found; install C/C++, curl, git, make, and rsync" >&2
     exit 1
   fi
 }
