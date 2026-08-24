@@ -65,14 +65,26 @@ def create_app(config: SidecarConfig | None = None) -> FastAPI:
 
     @app.get('/health')
     async def health(request: Request) -> dict[str, Any]:
-        payload = await request.app.state.runtime.gateway.health()
+        runtime = request.app.state.runtime
+        payload = await runtime.gateway.health()
+        extraction_model = (
+            resolved_config.extraction_model
+            if runtime.llm_provider == 'gemini'
+            else resolved_config.nvidia_extraction_model
+        )
         return {
             **payload,
             'graphiti_version': resolved_config.graphiti_version,
             'falkordblite_version': resolved_config.falkordblite_version,
             'models': {
-                'extraction': resolved_config.extraction_model,
-                'rerank': resolved_config.rerank_model,
+                'extraction_provider': runtime.llm_provider,
+                'extraction': extraction_model,
+                'rerank_provider': runtime.rerank_provider,
+                'rerank': (
+                    resolved_config.rerank_model
+                    if runtime.rerank_provider == 'gemini'
+                    else 'deterministic-lexical'
+                ),
                 'embedding': resolved_config.embedding_model,
             },
         }

@@ -10,6 +10,8 @@ PID_DIR="$ROOT/logs/pids"
 BACKEND_LABEL="com.user.perob-backend"
 HTTPS_LABEL="com.user.perob-https"
 SERVICE_PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+HTTPS_LISTEN_HOST="${PEROB_HTTPS_LISTEN_HOST:-127.0.0.1}"
+TRUSTED_PYTHON="${PEROB_CREDENTIAL_PYTHON:-/usr/local/bin/python3}"
 
 BACKEND_PLIST="$HOME/Library/LaunchAgents/${BACKEND_LABEL}.plist"
 HTTPS_PLIST="$HOME/Library/LaunchAgents/${HTTPS_LABEL}.plist"
@@ -18,10 +20,19 @@ HTTPS_PIDFILE="$PID_DIR/perob-https-manual.pid"
 
 mkdir -p "$LOG_DIR" "$PID_DIR"
 
+MANAGED_PYTHON=""
+for candidate in "$ROOT"/.python-installations/cpython-3.12*/bin/python3.12; do
+  if [[ -x "$candidate" ]]; then
+    MANAGED_PYTHON="$candidate"
+    break
+  fi
+done
+
 PYTHON_BIN=""
 for candidate in \
   "$ROOT/.venv312/bin/python3" \
   "$ROOT/.venv312/bin/python" \
+  "$MANAGED_PYTHON" \
   "$ROOT/.venv311/bin/python3" \
   "$ROOT/.venv311/bin/python" \
   "$(command -v python3.12 || true)" \
@@ -37,6 +48,9 @@ do
 done
 
 [[ -n "$PYTHON_BIN" ]] || { echo "[error] no runnable Python found" >&2; exit 1; }
+if [[ ! -x "$TRUSTED_PYTHON" ]]; then
+  TRUSTED_PYTHON="$PYTHON_BIN"
+fi
 
 PY_VERSION="$("$PYTHON_BIN" - <<'PY' 2>/dev/null || true
 import sys
@@ -94,8 +108,13 @@ start_manual_backend() {
     --env OPENCLAW_ENABLED=true \
     --env PYTHONUNBUFFERED=1 \
     --env PYTHONUTF8=1 \
+    --env "TREVOR_GEMINI_FREE_TIER_CONFIRMED=true" \
+    --env "TREVOR_GROQ_FREE_TIER_CONFIRMED=true" \
+    --env "TREVOR_WEB_SEARCH_ENABLED=true" \
+    --env "TREVOR_DELIBERATION_ROLLOUT=shadow" \
     --env "PATH=$SERVICE_PATH" \
-    -- "$PYTHON_BIN" -u "$ROOT/desktop_chat_app.py" web \
+    -- "$TRUSTED_PYTHON" -u "$ROOT/tools/launch_trevor_backend.py" \
+      --python "$PYTHON_BIN" -- -u "$ROOT/desktop_chat_app.py" web \
       --host 127.0.0.1 --port 5001 --energy-lite >/dev/null
 }
 
@@ -110,7 +129,7 @@ start_manual_https() {
     --env PYTHONUTF8=1 \
     --env "PATH=$SERVICE_PATH" \
     -- "$PYTHON_BIN" -u "$ROOT/tools/https_local_proxy.py" \
-      --listen-host 0.0.0.0 \
+      --listen-host "$HTTPS_LISTEN_HOST" \
       --listen-port 5443 \
       --upstream-host 127.0.0.1 \
       --upstream-port 5001 \

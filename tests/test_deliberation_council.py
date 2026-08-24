@@ -197,7 +197,7 @@ class DeliberationCouncilTests(unittest.TestCase):
         self.assertEqual('quota_exhausted', registry.state('gemini').disabled_reason)
         self.assertNotIn('openai', result.metadata['providers'])
 
-    def test_nvidia_503_uses_nvidia_hosted_general_backup(self):
+    def test_nvidia_503_uses_nvidia_hosted_glm_backup(self):
         from core.deliberation import DeliberationCouncil
         from core.provider_registry import ProviderCallError
 
@@ -216,14 +216,14 @@ class DeliberationCouncilTests(unittest.TestCase):
         self.assertEqual(
             [
                 'nvidia/nemotron-3-ultra-550b-a55b',
-                'nvidia/nemotron-3-super-120b-a12b',
+                'z-ai/glm-5.2',
             ],
             models,
         )
         self.assertEqual('nvidia backup answer', result.answer)
         self.assertEqual('nvidia', result.metadata['selected_provider'])
         self.assertEqual(
-            'nvidia/nemotron-3-super-120b-a12b',
+            'z-ai/glm-5.2',
             result.metadata['selected_model'],
         )
         self.assertTrue(result.metadata['provider_model_fallback'])

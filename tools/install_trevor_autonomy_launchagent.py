@@ -22,11 +22,15 @@ if str(ROOT) not in sys.path:
 from core.data_paths import resolve_data_root
 
 
+def normalize_executable_path(value: str | Path) -> Path:
+    return Path(value).expanduser().absolute()
+
+
 def _default_python() -> Path:
     candidate = ROOT / ".venv312" / "bin" / "python"
     if candidate.is_file() and os.access(candidate, os.X_OK):
-        return candidate.resolve()
-    return Path(sys.executable).resolve()
+        return normalize_executable_path(candidate)
+    return normalize_executable_path(sys.executable)
 
 
 def render_launchagent(
@@ -108,7 +112,7 @@ def reload_launchagent(
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
-    python_executable = Path(args.python).expanduser().resolve()
+    python_executable = normalize_executable_path(args.python)
     if not python_executable.is_file() or not os.access(python_executable, os.X_OK):
         raise SystemExit("trevor_python_not_executable")
 

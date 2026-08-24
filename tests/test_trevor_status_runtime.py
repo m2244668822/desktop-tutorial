@@ -112,6 +112,36 @@ class TrevorStatusRuntimeTests(unittest.TestCase):
         self.assertEqual(5424, migration['device']['unique_turns'])
         self.assertFalse(migration['graphiti']['ready'])
 
+    def test_failed_graphiti_manifest_is_not_reported_as_ready(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data_root = Path(tmp)
+            migrations = data_root / 'migrations'
+            migrations.mkdir()
+            (migrations / 'trevor_data_manifest.json').write_text(
+                json.dumps({'unique_turns': 1, 'conversation_threads': 1}),
+                encoding='utf-8',
+            )
+            (migrations / 'graphiti_manifest.json').write_text(
+                json.dumps(
+                    {
+                        'completed': False,
+                        'status': 'incomplete',
+                        'migrated_count': 1,
+                        'failed_count': 2,
+                    }
+                ),
+                encoding='utf-8',
+            )
+            server = self._server(data_root)
+
+            payload = server.trevor_status_payload()
+
+        migration = payload['data_migration']
+        self.assertEqual('device_ready_graphiti_pending', migration['state'])
+        self.assertFalse(migration['graphiti']['ready'])
+        self.assertEqual('incomplete', migration['graphiti']['status'])
+        self.assertEqual(2, migration['graphiti']['failed_count'])
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -15,6 +15,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from core.trevor_identity import TREVOR_AGENT_ID, TREVOR_DISPLAY_NAME, normalize_trevor_identity
+
 
 def _tcp_up(host: str, port: int, timeout: float = 0.35) -> bool:
     try:
@@ -34,28 +36,6 @@ def _status_from_ready(ready: bool, *, disabled: bool = False, degraded: bool = 
     return "offline"
 
 
-def _airllm_status(workspace: Path) -> dict[str, Any]:
-    venv = workspace / ".venv-airllm"
-    python_candidates = [
-        venv / "bin" / "python",
-        venv / "Scripts" / "python.exe",
-    ]
-    python_path = next((path for path in python_candidates if path.exists()), None)
-    requirements = workspace / "requirements-airllm.txt"
-    smoke_test = workspace / "tools" / "airllm_smoke_test.py"
-    ready = bool(venv.exists() and python_path and requirements.exists() and smoke_test.exists())
-    return {
-        "ready": ready,
-        "status": "sidecar_ready" if ready else "not_configured",
-        "venv": str(venv),
-        "python": str(python_path or ""),
-        "requirements": str(requirements),
-        "smoke_test": str(smoke_test),
-        "isolated_runtime": True,
-        "runtime_policy": "sidecar_only",
-    }
-
-
 def _capability(
     *,
     capability_id: str,
@@ -67,11 +47,12 @@ def _capability(
     cost_class: str = "local",
     task_types: list[str] | None = None,
     risk_level: str = "low",
-    owner_agent: str = "總管中樞",
+    owner_agent: str = TREVOR_AGENT_ID,
     fallback: str = "",
     endpoint: str = "",
     **extra: Any,
 ) -> dict[str, Any]:
+    owner_identity = normalize_trevor_identity(agent=owner_agent, role=owner_agent)
     payload = {
         "id": capability_id,
         "label": label,
@@ -82,12 +63,62 @@ def _capability(
         "cost_class": cost_class,
         "task_types": task_types or [],
         "risk_level": risk_level,
-        "owner_agent": owner_agent,
+        "owner_agent": TREVOR_AGENT_ID,
+        "owner_role": TREVOR_DISPLAY_NAME,
+        "owner_capability_mode": owner_identity.capability_mode,
         "fallback": fallback,
         "endpoint": endpoint,
     }
     payload.update(extra)
     return payload
+
+
+def _provider_rows(provider_status: dict[str, Any]) -> list[dict[str, Any]]:
+    public_rows = provider_status.get("providers")
+    if isinstance(public_rows, list):
+        return [
+            {
+                key: item.get(key)
+                for key in (
+                    "provider",
+                    "label",
+                    "model",
+                    "family",
+                    "enabled",
+                    "health",
+                    "latency_ms",
+                    "quota",
+                    "circuit",
+                    "disabled_reason",
+                    "free_only",
+                    "control_authority",
+                )
+                if key in item
+            }
+            for item in public_rows
+            if isinstance(item, dict) and item.get("provider")
+        ]
+    legacy_rows = provider_status.get("provider_catalog")
+    if not isinstance(legacy_rows, list):
+        return []
+    normalized = []
+    for item in legacy_rows:
+        if not isinstance(item, dict):
+            continue
+        provider = str(item.get("provider") or item.get("key") or "").strip().lower()
+        if not provider:
+            continue
+        tier = str((item.get("classification") or {}).get("tier") or "disabled").lower()
+        normalized.append(
+            {
+                "provider": provider,
+                "label": item.get("label") or provider,
+                "model": item.get("model") or "",
+                "enabled": tier != "disabled",
+                "health": "available" if tier != "disabled" else "disabled",
+            }
+        )
+    return normalized
 
 
 def build_capability_registry(
@@ -105,7 +136,6 @@ def build_capability_registry(
     knowledge_status = knowledge_status or {}
     provider_status = provider_status or {}
 
-    airllm = _airllm_status(root)
     openclaw_ready = bool(
         openclaw_status.get("ok")
         and openclaw_status.get("task_forwarding_configured")
@@ -115,8 +145,8 @@ def build_capability_registry(
     )
     faiss_ready = bool(knowledge_status.get("faiss_ready"))
     sqlite_ready = bool(knowledge_status.get("sqlite_ready") or knowledge_status.get("ok"))
-    providers = provider_status.get("provider_catalog", []) if isinstance(provider_status, dict) else []
-    cloud_ready = any(bool(item.get("classification", {}).get("tier") != "disabled") for item in providers)
+    providers = _provider_rows(provider_status) if isinstance(provider_status, dict) else []
+    cloud_ready = any(bool(item.get("enabled")) for item in providers)
 
     capabilities = [
         _capability(
@@ -169,21 +199,6 @@ def build_capability_registry(
             owner_agent="帽子",
             fallback="desktop_bridge",
             approval_required=True,
-        ),
-        _capability(
-            capability_id="airllm",
-            label="AirLLM 側車",
-            kind="local_model_sidecar",
-            ready=bool(airllm["ready"]),
-            status=str(airllm["status"]),
-            required=False,
-            cost_class="local",
-            task_types=["local_inference", "compression", "drafting"],
-            owner_agent="研究員",
-            fallback="ollama",
-            isolated_runtime=bool(airllm["isolated_runtime"]),
-            runtime_policy=str(airllm["runtime_policy"]),
-            runtime=airllm,
         ),
         _capability(
             capability_id="ollama",
@@ -263,7 +278,7 @@ def build_capability_registry(
             "integration_style": "adapter_and_sidecar",
             "main_runtime_rule": "主系統只登記與呼叫能力，不直接塞入重型依賴。",
             "n8n_optional": True,
-            "airllm_sidecar_only": True,
+            "cloud_control_core": "nvidia",
         },
         "capabilities": capabilities,
         "by_id": by_id,

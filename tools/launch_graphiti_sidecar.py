@@ -27,13 +27,15 @@ def load_graphiti_credentials(
 ) -> dict[str, str]:
     store = credential_store or KeychainCredentialStore()
     gemini = store.get_secret('trevor.providers', 'gemini-api-key')
-    if not gemini.configured:
-        raise RuntimeError('gemini_credential_missing')
+    nvidia = store.get_secret('trevor.providers', 'nvidia-api-key')
+    if not gemini.configured and not nvidia.configured:
+        raise RuntimeError('graphiti_llm_credential_missing')
     internal_token = store.get_secret('trevor.providers', 'graphiti-token')
     if not internal_token.configured:
         raise RuntimeError('graphiti_token_missing')
     return {
-        'gemini_api_key': gemini.value,
+        'gemini_api_key': gemini.value if gemini.configured else '',
+        'nvidia_api_key': nvidia.value if nvidia.configured else '',
         'graphiti_token': internal_token.value,
     }
 
@@ -75,7 +77,13 @@ def launch(*, wait_seconds: int = 120) -> int:
 
     with staged_credentials(credentials) as credential_directory:
         environment = os.environ.copy()
-        for name in ('GEMINI_API_KEY', 'GOOGLE_API_KEY', 'TREVOR_GRAPHITI_TOKEN'):
+        for name in (
+            'GEMINI_API_KEY',
+            'GOOGLE_API_KEY',
+            'NVIDIA_API_KEY',
+            'NVAPI_API_KEY',
+            'TREVOR_GRAPHITI_TOKEN',
+        ):
             environment.pop(name, None)
         environment.update(
             {

@@ -63,6 +63,7 @@ class ProviderCredentialResolver:
                 value = ''
             if value:
                 return ResolvedProviderCredential(True, 'systemd', value=value)
+            return ResolvedProviderCredential(False, 'none')
 
         keychain = self.credential_store.get_secret(self.service, f'{name}-api-key')
         if keychain.configured:

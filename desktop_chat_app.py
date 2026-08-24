@@ -21,6 +21,7 @@ import urllib.error as urllib_error
 import urllib.request as urllib_request
 import webbrowser
 from datetime import datetime
+from importlib.util import find_spec
 from pathlib import Path
 from typing import Any, Mapping
 from copy import deepcopy
@@ -55,6 +56,7 @@ from core.runtime_capabilities import (
     is_runtime_capability_query,
     render_runtime_capability_reply,
 )
+from core.web_search import WebSearchAdapter
 from core.trevor_identity import (
     CAPABILITY_MODES,
     TREVOR_DISPLAY_NAME,
@@ -343,6 +345,18 @@ class DesktopBridge:
         self.last_live_llm_meta: dict[str, Any] = {}
         provider_env = self._load_merged_env_data()
         provider_env.update({key: value for key, value in os.environ.items() if value})
+        web_search_enabled = str(
+            provider_env.get("TREVOR_WEB_SEARCH_ENABLED", "true") or "true"
+        ).strip().lower() in {"1", "true", "yes", "on"}
+        self.web_search_adapter = WebSearchAdapter(
+            enabled=web_search_enabled,
+            endpoint=str(
+                provider_env.get(
+                    "TREVOR_WEB_SEARCH_ENDPOINT",
+                    "https://html.duckduckgo.com/html/",
+                )
+            ),
+        )
         self.deliberation_rollout = str(
             provider_env.get("TREVOR_DELIBERATION_ROLLOUT", "shadow") or "shadow"
         ).strip().lower()
@@ -981,9 +995,7 @@ class DesktopBridge:
             return bool(self._langgraph_status_cache.get("available", False))
         available = False
         try:
-            from core.langgraph_workflow import LANGGRAPH_AVAILABLE
-
-            available = bool(LANGGRAPH_AVAILABLE)
+            available = find_spec("langgraph") is not None
         except Exception:
             available = False
         self._langgraph_status_cache = {"checked_at": now_ts, "available": available}
@@ -2408,9 +2420,7 @@ class DesktopBridge:
             provider_status = self.provider_registry.public_status()
         except Exception:
             provider_status = {'providers': []}
-        web_search_ready = str(
-            os.getenv('TREVOR_WEB_SEARCH_ENABLED', 'false') or 'false'
-        ).strip().lower() in {'1', 'true', 'yes', 'on'}
+        web_search_ready = bool(getattr(self.web_search_adapter, 'available', False))
         return build_runtime_capability_manifest(
             self.workspace,
             memory_ready=bool(self.memory_manager or self.long_term_memory_api),
@@ -3201,6 +3211,9 @@ class DesktopBridge:
 
     def get_trevor_provider_status(self) -> dict:
         return self.provider_registry.public_status()
+
+    def search_web(self, query: str, *, limit: int = 5) -> dict[str, Any]:
+        return self.web_search_adapter.search(query, limit=limit)
 
     def validate_trevor_provider_models(self) -> dict:
         self.provider_registry.validate_models(self.provider_client.list_models)

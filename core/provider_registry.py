@@ -96,7 +96,7 @@ PROVIDER_SPECS: tuple[ProviderSpec, ...] = (
 MODEL_OVERRIDES = {
     ('nvidia', 'control'): 'nvidia/nemotron-3-ultra-550b-a55b',
     ('nvidia', 'coding'): 'poolside/laguna-xs-2.1',
-    ('nvidia', 'general_backup'): 'nvidia/nemotron-3-super-120b-a12b',
+    ('nvidia', 'general_backup'): 'z-ai/glm-5.2',
 }
 
 NVIDIA_PURPOSE_ENV = {
@@ -306,8 +306,24 @@ class ProviderRegistry:
                     for model in fetcher(name)
                     if str(model).strip()
                 }
-            except Exception:
-                state.health = 'degraded'
+            except Exception as exc:
+                status_code = getattr(exc, 'status_code', None)
+                if status_code in {400, 401, 403}:
+                    state.health = 'disabled'
+                    state.disabled_reason = 'authentication_failed'
+                    state.circuit_state = 'disabled'
+                elif status_code == 402:
+                    state.health = 'disabled'
+                    state.disabled_reason = 'payment_required'
+                    state.quota_state = 'blocked'
+                    state.circuit_state = 'open'
+                elif status_code == 429:
+                    state.health = 'disabled'
+                    state.disabled_reason = 'quota_exhausted'
+                    state.quota_state = 'exhausted'
+                    state.circuit_state = 'open'
+                else:
+                    state.health = 'degraded'
                 state.last_checked_at = self._now()
                 continue
             state.last_checked_at = self._now()

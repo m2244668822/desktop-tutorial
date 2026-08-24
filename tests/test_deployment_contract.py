@@ -27,11 +27,21 @@ class DeploymentContractTests(unittest.TestCase):
         )
         self.assertIn('LoadCredential=trevor_api_hmac:', api)
         self.assertIn('--host 127.0.0.1', api)
+        for credential in (
+            'nvidia_api_key',
+            'gemini_api_key',
+            'groq_api_key',
+            'cerebras_api_key',
+            'openrouter_api_key',
+            'cloudflare_api_key',
+        ):
+            self.assertIn(f'LoadCredential={credential}:', api)
 
         graphiti = (ROOT / 'deploy' / 'systemd' / 'trevor-graphiti.service').read_text(
             encoding='utf-8'
         )
         self.assertIn('LoadCredential=gemini_api_key:', graphiti)
+        self.assertIn('LoadCredential=nvidia_api_key:', graphiti)
         self.assertIn('LoadCredential=graphiti_token:', graphiti)
 
     def test_launchagent_runs_rendered_edge_client(self):
@@ -53,6 +63,9 @@ class DeploymentContractTests(unittest.TestCase):
         self.assertIn('python tools/scan_secrets.py', content)
         self.assertIn('python -m unittest discover', content)
         self.assertIn('name: trevor-required', content)
+        self.assertIn('Graphiti Linux smoke', content)
+        self.assertIn('uv sync --project services/graphiti_sidecar', content)
+        self.assertIn('http://127.0.0.1:8091/health', content)
 
     def test_systemd_install_records_deployment_in_hash_chain(self):
         content = (ROOT / 'deploy' / 'systemd' / 'install.sh').read_text(
@@ -62,6 +75,25 @@ class DeploymentContractTests(unittest.TestCase):
         self.assertIn('tools/trevor_operations.py audit', content)
         self.assertIn('--event deployment', content)
         self.assertIn('--data-root "$DATA_ROOT"', content)
+
+    def test_systemd_install_bootstraps_python_and_locked_graphiti_runtime(self):
+        content = (ROOT / 'deploy' / 'systemd' / 'install.sh').read_text(
+            encoding='utf-8'
+        )
+
+        self.assertIn('uv python install 3.12', content)
+        self.assertIn('uv pip sync', content)
+        self.assertIn('requirements.txt', content)
+        self.assertIn('uv sync --project', content)
+        self.assertIn('--frozen --no-dev', content)
+        self.assertIn('optional_credentials=', content)
+
+    def test_oci_deploy_has_non_destructive_preflight_mode(self):
+        content = (ROOT / 'deploy_to_oci.sh').read_text(encoding='utf-8')
+
+        self.assertIn('--preflight-only', content)
+        self.assertIn('preflight=ok', content)
+        self.assertIn('IdentitiesOnly=yes', content)
 
     def test_uv_bootstrap_pins_python_312_baseline(self):
         self.assertEqual(

@@ -12,6 +12,7 @@ START_WEB_5001 = (ROOT / "tools" / "start_web_server_5001.sh").read_text(encodin
 FULL_VERIFICATION = (ROOT / "tools" / "run_full_verification.sh").read_text(encoding="utf-8")
 HTTPS_PROXY = (ROOT / "tools" / "https_local_proxy.py").read_text(encoding="utf-8")
 AEG_WRITER = (ROOT / "tools" / "write_aeg_shared_report.py").read_text(encoding="utf-8")
+BACKEND_LAUNCHER = ROOT / "tools" / "launch_trevor_backend.py"
 
 
 class PerobMainlineHealthContractTests(unittest.TestCase):
@@ -59,6 +60,33 @@ class PerobMainlineHealthContractTests(unittest.TestCase):
                 text.index("command -v python3 || true"),
                 name,
             )
+
+    def test_runtime_launchers_prefer_managed_python312_and_private_https(self):
+        for name, text in {
+            "manage_perob_stack.sh": STACK_MANAGER,
+            "install_perob_launchagents.sh": LAUNCHAGENT_INSTALLER,
+        }.items():
+            self.assertIn('.python-installations/cpython-3.12', text, name)
+            self.assertIn('PEROB_HTTPS_LISTEN_HOST', text, name)
+            self.assertIn('127.0.0.1', text, name)
+
+    def test_backend_launchagent_uses_trusted_credential_staging_wrapper(self):
+        self.assertTrue(BACKEND_LAUNCHER.exists())
+        self.assertIn('launch_trevor_backend.py', LAUNCHAGENT_INSTALLER)
+        self.assertIn('CREDENTIALS_DIRECTORY', BACKEND_LAUNCHER.read_text(encoding='utf-8'))
+
+    def test_backend_launchagent_propagates_safe_provider_runtime_flags(self):
+        for name, value in {
+            "TREVOR_GEMINI_FREE_TIER_CONFIRMED": "true",
+            "TREVOR_GROQ_FREE_TIER_CONFIRMED": "true",
+            "TREVOR_WEB_SEARCH_ENABLED": "true",
+            "TREVOR_DELIBERATION_ROLLOUT": "shadow",
+        }.items():
+            self.assertIn(f"<key>{name}</key><string>{value}</string>", LAUNCHAGENT_INSTALLER)
+            self.assertIn(f'--env "{name}={value}"', STACK_MANAGER)
+
+    def test_full_verification_disables_interactive_keychain_access(self):
+        self.assertIn("export TREVOR_DISABLE_KEYCHAIN=true", FULL_VERIFICATION)
 
     def test_https_proxy_recalculates_content_length_once(self):
         self.assertIn('"content-length"', HTTPS_PROXY)

@@ -19,6 +19,7 @@ OCI_KEY_PATH="${OCI_KEY_PATH:-$HOME/.ssh/trevor_oci_ed25519}"
 OCI_KEY_PATH="${OCI_KEY_PATH/#\~/$HOME}"
 OCI_REMOTE_DIR="${OCI_REMOTE_DIR:-/home/$OCI_USER/trevor-app}"
 OCI_LOCAL_DIR="${OCI_LOCAL_DIR:-$ROOT_DIR/}"
+OCI_LOCAL_DIR="${OCI_LOCAL_DIR%/}/"
 OCI_SSH_CONNECT_TIMEOUT="${OCI_SSH_CONNECT_TIMEOUT:-10}"
 OCI_SSH_CONNECTION_ATTEMPTS="${OCI_SSH_CONNECTION_ATTEMPTS:-1}"
 OCI_SSH_SERVER_ALIVE_INTERVAL="${OCI_SSH_SERVER_ALIVE_INTERVAL:-10}"
@@ -42,6 +43,16 @@ if [ "${1:-}" = "--print-config" ]; then
   exit 0
 fi
 
+MODE="${1:---sync-only}"
+case "$MODE" in
+  --sync-only|--install-services|--preflight-only)
+    ;;
+  *)
+    echo "usage: $0 [--print-config|--preflight-only|--sync-only|--install-services]" >&2
+    exit 2
+    ;;
+esac
+
 if [ -z "$OCI_IP" ] || [ ! -f "$OCI_KEY_PATH" ]; then
   echo "OCI host or SSH key is unavailable" >&2
   exit 1
@@ -50,6 +61,8 @@ chmod 0600 "$OCI_KEY_PATH"
 
 SSH_OPTIONS=(
   -i "$OCI_KEY_PATH"
+  -o "IdentitiesOnly=yes"
+  -o "BatchMode=yes"
   -o "ConnectTimeout=$OCI_SSH_CONNECT_TIMEOUT"
   -o "ConnectionAttempts=$OCI_SSH_CONNECTION_ATTEMPTS"
   -o "ServerAliveInterval=$OCI_SSH_SERVER_ALIVE_INTERVAL"
@@ -59,6 +72,13 @@ SSH_OPTIONS=(
 )
 REMOTE="$OCI_USER@$OCI_IP"
 
+if [ "$MODE" = "--preflight-only" ]; then
+  ssh "${SSH_OPTIONS[@]}" "$REMOTE" \
+    "set -eu; command -v sudo >/dev/null; command -v curl >/dev/null; printf 'remote=ok\\n'; uname -sm"
+  echo "preflight=ok"
+  exit 0
+fi
+
 ssh "${SSH_OPTIONS[@]}" "$REMOTE" "mkdir -p '$OCI_REMOTE_DIR'"
 rsync -a \
   --exclude '.env' --exclude '.env.*' --exclude '.venv*' \
@@ -67,7 +87,7 @@ rsync -a \
   -e "ssh ${SSH_OPTIONS[*]}" \
   "$OCI_LOCAL_DIR" "$REMOTE:$OCI_REMOTE_DIR/"
 
-if [ "${1:-}" = "--install-services" ]; then
+if [ "$MODE" = "--install-services" ]; then
   ssh "${SSH_OPTIONS[@]}" "$REMOTE" \
     "sudo bash '$OCI_REMOTE_DIR/deploy/systemd/install.sh' '$OCI_REMOTE_DIR'"
 fi

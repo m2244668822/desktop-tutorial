@@ -25,6 +25,20 @@ CAPABILITY_LABELS = {
     'learning': '學習',
 }
 
+PUBLIC_CAPABILITY_ALIASES = {
+    '研究學習中樞': '崔佛／研究能力',
+    '小編設計師': '崔佛／內容能力',
+    '白帽駭客': '崔佛／安全能力',
+    '總管中樞': '崔佛／一般能力',
+    '申言者': '崔佛／一般能力',
+    '中繼器': '崔佛／一般能力',
+    '工程師': '崔佛／程式能力',
+    '研究員': '崔佛／研究能力',
+    '學習器': '崔佛／學習能力',
+    '小編': '崔佛／內容能力',
+    '帽子': '崔佛／安全能力',
+}
+
 LEGACY_ALIAS_MODES = {
     'dispatcher': 'general',
     'manager': 'general',
@@ -142,6 +156,8 @@ def canonicalize_trevor_reply(value: str | None, capability_mode: str = 'general
     replacement = f'【{TREVOR_DISPLAY_NAME}｜{label}】'
     for alias in LEGACY_ALIAS_MODES:
         result = result.replace(f'【{alias}】', replacement)
+    for alias, capability in PUBLIC_CAPABILITY_ALIASES.items():
+        result = result.replace(alias, capability)
     return result
 
 
@@ -149,6 +165,7 @@ __all__ = [
     'CAPABILITY_MODES',
     'CAPABILITY_LABELS',
     'LEGACY_ALIAS_MODES',
+    'PUBLIC_CAPABILITY_ALIASES',
     'TREVOR_AGENT_ID',
     'TREVOR_DISPLAY_NAME',
     'TREVOR_SCHEMA_VERSION',

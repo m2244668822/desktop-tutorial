@@ -20,19 +20,36 @@ class GraphitiLauncherTests(unittest.TestCase):
             _Store(
                 {
                     ('trevor.providers', 'gemini-api-key'): 'gemini-secret',
+                    ('trevor.providers', 'nvidia-api-key'): 'nvidia-secret',
                     ('trevor.providers', 'graphiti-token'): 'internal-secret',
                 }
             )
         )
 
         self.assertEqual('gemini-secret', result['gemini_api_key'])
+        self.assertEqual('nvidia-secret', result['nvidia_api_key'])
         self.assertEqual('internal-secret', result['graphiti_token'])
 
     def test_missing_required_credential_fails_closed(self):
         from tools.launch_graphiti_sidecar import load_graphiti_credentials
 
-        with self.assertRaisesRegex(RuntimeError, 'gemini_credential_missing'):
+        with self.assertRaisesRegex(RuntimeError, 'graphiti_llm_credential_missing'):
             load_graphiti_credentials(_Store({}))
+
+    def test_nvidia_only_llm_credential_is_accepted(self):
+        from tools.launch_graphiti_sidecar import load_graphiti_credentials
+
+        result = load_graphiti_credentials(
+            _Store(
+                {
+                    ('trevor.providers', 'nvidia-api-key'): 'nvidia-secret',
+                    ('trevor.providers', 'graphiti-token'): 'internal-secret',
+                }
+            )
+        )
+
+        self.assertEqual('', result['gemini_api_key'])
+        self.assertEqual('nvidia-secret', result['nvidia_api_key'])
 
 
 if __name__ == '__main__':

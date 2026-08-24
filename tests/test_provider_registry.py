@@ -40,7 +40,7 @@ class ProviderRegistryTests(unittest.TestCase):
         )
         self.assertEqual('poolside/laguna-xs-2.1', registry.model_for('nvidia', 'coding'))
         self.assertEqual(
-            'nvidia/nemotron-3-super-120b-a12b',
+            'z-ai/glm-5.2',
             registry.model_for('nvidia', 'general_backup'),
         )
         self.assertTrue(registry.get('nvidia').control_authority)
@@ -118,6 +118,25 @@ class ProviderRegistryTests(unittest.TestCase):
 
         self.assertFalse(registry.is_available('gemini'))
         self.assertEqual('model_unavailable', registry.state('gemini').disabled_reason)
+
+    def test_model_discovery_disables_invalid_provider_credential(self):
+        from core.provider_registry import ProviderCallError, ProviderRegistry
+
+        registry = ProviderRegistry(
+            env={'GEMINI_API_KEY': 'gemini-test-value'},
+            free_tier_confirmed={'gemini'},
+        )
+
+        def invalid_credential(_provider):
+            raise ProviderCallError('redacted', status_code=400)
+
+        registry.validate_models(invalid_credential)
+
+        self.assertFalse(registry.is_available('gemini'))
+        self.assertEqual(
+            'authentication_failed',
+            registry.state('gemini').disabled_reason,
+        )
 
     def test_model_discovery_prunes_missing_nvidia_fallback_only(self):
         from core.provider_registry import ProviderRegistry

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 from typing import Any, Mapping
-from urllib import error as urllib_error
-from urllib import request as urllib_request
+
+import requests
 
 from core.provider_registry import ProviderCallError, ProviderRegistry, ProviderSpec
 
@@ -79,22 +79,21 @@ class ProviderHttpClient:
             payload.pop('provider', None)
             payload.pop('response_format', None)
         encoded = json.dumps(payload, ensure_ascii=False).encode('utf-8')
-        http_request = urllib_request.Request(
-            self.endpoint_for(name),
-            data=encoded,
-            headers=self._headers_for(name),
-            method='POST',
-        )
         try:
-            with urllib_request.urlopen(http_request, timeout=self.timeout) as response:
-                body = response.read().decode('utf-8', errors='replace')
-        except urllib_error.HTTPError as exc:
-            raise ProviderCallError(
-                f'{name}: HTTP {exc.code}',
-                status_code=int(exc.code),
-            ) from exc
-        except urllib_error.URLError as exc:
+            response = requests.post(
+                self.endpoint_for(name),
+                data=encoded,
+                headers={**self._headers_for(name), 'User-Agent': 'Trevor/1.0'},
+                timeout=self.timeout,
+            )
+        except requests.RequestException as exc:
             raise ProviderCallError(f'{name}: network unavailable') from exc
+        if response.status_code >= 400:
+            raise ProviderCallError(
+                f'{name}: HTTP {response.status_code}',
+                status_code=int(response.status_code),
+            )
+        body = bytes(response.content).decode('utf-8', errors='replace')
         try:
             parsed = json.loads(body or '{}')
         except json.JSONDecodeError as exc:
@@ -109,13 +108,24 @@ class ProviderHttpClient:
         if name == 'cloudflare':
             return {self.registry.model_for(name)}
         spec = self.registry.get(name)
-        endpoint = f'{spec.base_url.rstrip("/")}/models'
-        request = urllib_request.Request(endpoint, headers=self._headers_for(name), method='GET')
+        if name == 'gemini':
+            endpoint = f'{spec.base_url.rstrip("/").removesuffix("/openai")}/models'
+        else:
+            endpoint = f'{spec.base_url.rstrip("/")}/models'
         try:
-            with urllib_request.urlopen(request, timeout=min(self.timeout, 15.0)) as response:
-                body = response.read().decode('utf-8', errors='replace')
-        except (urllib_error.HTTPError, urllib_error.URLError) as exc:
+            response = requests.get(
+                endpoint,
+                headers={**self._headers_for(name), 'User-Agent': 'Trevor/1.0'},
+                timeout=min(self.timeout, 15.0),
+            )
+        except requests.RequestException as exc:
             raise ProviderCallError(f'{name}: model discovery failed') from exc
+        if response.status_code >= 400:
+            raise ProviderCallError(
+                f'{name}: model discovery failed',
+                status_code=int(response.status_code),
+            )
+        body = bytes(response.content).decode('utf-8', errors='replace')
         parsed = json.loads(body or '{}')
         rows = parsed.get('data', parsed.get('models', [])) if isinstance(parsed, Mapping) else []
         models = set()

@@ -51,6 +51,20 @@ class TrevorIdentityContractTests(unittest.TestCase):
         self.assertEqual(2, payload['identity']['schema_version'])
         self.assertEqual('legacy_agent_alias', payload['deprecations'][0]['code'])
 
+    def test_public_reply_rewrites_legacy_personalities_as_capability_modes(self):
+        identity = importlib.import_module('core.trevor_identity')
+        reply = identity.canonicalize_trevor_reply(
+            '【工程師】研究員提供證據，帽子覆核，最後交給小編。'
+            '\n[申言者->工程師交接]',
+            'coding',
+        )
+
+        self.assertIn('【崔佛｜程式】', reply)
+        for legacy in ('工程師', '研究員', '帽子', '小編', '申言者'):
+            self.assertNotIn(legacy, reply)
+        self.assertIn('崔佛／研究能力', reply)
+        self.assertIn('崔佛／安全能力', reply)
+
     def test_prompt_registry_exposes_only_trevor(self):
         self.assertEqual({'崔佛'}, set(agent_prompts.AGENT_SYSTEM_PROMPTS))
         self.assertEqual(('崔佛',), agent_prompts.AGENT_WINDOW_ROLES)
