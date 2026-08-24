@@ -46,6 +46,34 @@ class ProviderRegistryTests(unittest.TestCase):
         self.assertTrue(registry.get('nvidia').control_authority)
         self.assertFalse(registry.get('gemini').control_authority)
 
+    def test_provider_prompts_keep_trevor_authority_separate_from_candidate_seats(self):
+        from core.provider_registry import ProviderRegistry
+
+        registry = ProviderRegistry(
+            env={
+                'NVIDIA_API_KEY': 'nvapi-test-value',
+                'GEMINI_API_KEY': 'gemini-test-value',
+            },
+            free_tier_confirmed={'gemini'},
+        )
+        context = {
+            'runtime_capabilities': {
+                'workspace_files': {'ready': True},
+                'persistent_memory': {'ready': True},
+            }
+        }
+
+        nvidia_request = registry.build_dialogue_request('nvidia', context)
+        gemini_request = registry.build_dialogue_request('gemini', context)
+        nvidia_prompt = nvidia_request['messages'][0]['content']
+        gemini_prompt = gemini_request['messages'][0]['content']
+
+        self.assertIn('NVIDIA control core', nvidia_prompt)
+        self.assertIn('Trevor runtime', nvidia_prompt)
+        self.assertNotIn('You have no tools, task API, autonomy API', nvidia_prompt)
+        self.assertIn('read-only external candidate', gemini_prompt)
+        self.assertIn('Do not generalize this seat limitation to Trevor', gemini_prompt)
+
     def test_openrouter_and_cloudflare_fail_closed_on_cost(self):
         from core.provider_registry import ProviderRegistry
 

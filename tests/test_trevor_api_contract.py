@@ -92,6 +92,46 @@ class TrevorApiContractTests(unittest.TestCase):
         self.assertEqual('rigorous', captured['deliberation'])
         self.assertEqual('complete', result['deliberation']['status'])
 
+    def test_capability_query_uses_runtime_truth_instead_of_model_denial(self):
+        from core.runtime_capabilities import build_runtime_capability_manifest
+
+        manifest = build_runtime_capability_manifest(
+            self.bridge.workspace,
+            memory_ready=True,
+            provider_status={
+                'providers': [{'provider': 'nvidia', 'enabled': True}]
+            },
+            autonomy_status={'daemon_status': 'running'},
+            control_plane_status={
+                'ok': True,
+                'task_forwarding_configured': True,
+            },
+        )
+        self.bridge._runtime_capability_manifest = lambda: manifest
+        self.bridge.enable_live_llm_default = True
+        self.bridge._should_attempt_live_llm_backend = lambda _backend: True
+        self.bridge._generate_live_llm_reply = lambda **_kwargs: (
+            '我沒有外掛式技能安裝機制，且缺乏檔案系統存取與長期記憶。',
+            {'ok': True, 'attempted': True, 'provider': 'nvidia'},
+        )
+
+        result = self.bridge.send_message(
+            '說明技能安裝與缺失能力',
+            role='崔佛',
+            model_key='nvidia',
+            interaction_mode='discussion',
+        )
+
+        self.assertFalse(result['llm_live']['attempted'])
+        self.assertEqual(
+            'runtime_capability_truth',
+            result['llm_live']['fallback_reason'],
+        )
+        self.assertIn('本機技能包', result['reply'])
+        self.assertIn('工作區檔案：可用', result['reply'])
+        self.assertIn('持久記憶：可用', result['reply'])
+        self.assertNotIn('我沒有外掛式技能安裝機制', result['reply'])
+
     def test_send_route_accepts_new_contract_fields(self):
         source = WEB_SERVER.read_text(encoding='utf-8')
         self.assertIn('payload.get("capability_mode", "")', source)
