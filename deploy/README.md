@@ -32,6 +32,18 @@ curl --fail http://127.0.0.1:5001/health/ready
 
 The installer configures `tailscale serve --bg --https=443 http://127.0.0.1:5001`. Tailscale ACLs must restrict the node to the owner’s devices.
 
+## Migration Status
+
+After both device and Graphiti migrations complete, generate the privacy-safe status files before publishing migration state to OCI:
+
+```bash
+TREVOR_DISABLE_KEYCHAIN=true .venv312/bin/python -m core.migration_status \
+  --source "$HOME/Library/Application Support/Trevor/migrations" \
+  --destination /tmp/trevor-migration-status
+```
+
+Transfer only the two generated JSON files to `/var/lib/trevor/migrations` with owner `trevor:trevor` and mode `0600`. Never transfer the source manifests: they include device file inventory or per-turn content hashes that OCI does not need.
+
 ## Mac Edge
 
 Bootstrap the local admin API key once, then install the rendered LaunchAgent with the OCI MagicDNS URL:
