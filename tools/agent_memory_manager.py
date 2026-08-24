@@ -22,6 +22,7 @@ memory_manager.save_conversation("總管", "用戶訊息", "助手回覆")
 memory_manager.save_ide_context({"workspace": "...", "open_files": [...], "vscode_status": {...}})
 """
 
+import copy
 import json
 import os
 import sys
@@ -97,6 +98,7 @@ class AgentMemoryManager:
         self._conversations = {}
         self._ide_context = {}
         self._sessions = {}
+        self._conversation_disk_signature = None
 
         # 最後保存時間
         self._last_save_time = datetime.now()
@@ -124,6 +126,7 @@ class AgentMemoryManager:
         if normalized:
             self._dirty = True
         self._encrypt_legacy_private_files()
+        self._conversation_disk_signature = self._path_signature(self.conversation_file)
 
         # 啟動定時保存線程
         if self.auto_save:
@@ -608,13 +611,81 @@ class AgentMemoryManager:
         os.chmod(tmp_path, 0o600)
         os.replace(tmp_path, path)
 
+    @staticmethod
+    def _path_signature(path: Path) -> tuple[int, int, int] | None:
+        try:
+            metadata = path.stat()
+        except OSError:
+            return None
+        return (metadata.st_ino, metadata.st_mtime_ns, metadata.st_size)
+
+    def _merge_external_conversations_unlocked(self) -> int:
+        current_signature = self._path_signature(self.conversation_file)
+        if current_signature == self._conversation_disk_signature:
+            return 0
+        external = self._read_json(self.conversation_file, {})
+        if not isinstance(external, dict):
+            raise RuntimeError("external_conversation_store_invalid")
+
+        merged: dict[str, dict[str, Any]] = {}
+        seen_hashes: set[str] = set()
+        added = 0
+
+        def merge_source(source: Dict[str, Any], *, external_source: bool) -> None:
+            nonlocal added
+            for thread_id, thread in source.items():
+                if not isinstance(thread, dict):
+                    continue
+                target = merged.get(str(thread_id))
+                if target is None:
+                    target = copy.deepcopy(thread)
+                    target["messages"] = []
+                    merged[str(thread_id)] = target
+                else:
+                    for key, value in thread.items():
+                        if key != "messages" and key not in target:
+                            target[key] = copy.deepcopy(value)
+                    target["last_message_at"] = max(
+                        str(target.get("last_message_at", "") or ""),
+                        str(thread.get("last_message_at", "") or ""),
+                    )
+                owner = str(thread.get("agent_name", TREVOR_DISPLAY_NAME) or TREVOR_DISPLAY_NAME)
+                canonical, source_role, capability_mode = self._canonical_identity(owner)
+                target["agent_name"] = canonical
+                for message in thread.get("messages", []) or []:
+                    if not isinstance(message, dict):
+                        continue
+                    item = copy.deepcopy(message)
+                    metadata = dict(item.get("metadata") or {})
+                    content_hash = str(metadata.get("content_hash", "") or "") or self._turn_hash(
+                        item.get("user", ""), item.get("assistant", "")
+                    )
+                    if content_hash in seen_hashes:
+                        continue
+                    seen_hashes.add(content_hash)
+                    metadata["content_hash"] = content_hash
+                    metadata.setdefault("source_role", source_role)
+                    metadata.setdefault("capability_mode", capability_mode)
+                    item["metadata"] = metadata
+                    target["messages"].append(item)
+                    if not external_source:
+                        added += 1
+
+        merge_source(external, external_source=True)
+        merge_source(self._conversations, external_source=False)
+        self._conversations = merged
+        self._conversation_disk_signature = current_signature
+        return added
+
     def _save_agent_memories(self):
         """保存智能體記憶"""
         self._atomic_write_json(self.agent_memory_file, self._agent_memories)
 
     def _save_conversations(self):
         """保存對話歷史"""
+        self._merge_external_conversations_unlocked()
         self._atomic_write_json(self.conversation_file, self._conversations)
+        self._conversation_disk_signature = self._path_signature(self.conversation_file)
 
     def _save_ide_context(self):
         """保存IDE上下文"""

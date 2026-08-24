@@ -40,6 +40,43 @@ def _atomic_manifest(path: Path, payload: dict[str, Any]) -> None:
     os.replace(temporary, path)
 
 
+def _checkpoint_path(manifest_path: Path) -> Path:
+    return manifest_path.with_suffix(f'{manifest_path.suffix}.checkpoint')
+
+
+def _read_checkpoint(path: Path) -> set[str]:
+    if not path.exists():
+        return set()
+    try:
+        lines = path.read_text(encoding='ascii').splitlines()
+    except OSError as exc:
+        raise RuntimeError('graphiti_checkpoint_unreadable') from exc
+    hashes: set[str] = set()
+    for line in lines:
+        value = line.strip().lower()
+        if len(value) != 64 or any(character not in '0123456789abcdef' for character in value):
+            raise RuntimeError('graphiti_checkpoint_invalid')
+        hashes.add(value)
+    return hashes
+
+
+def _append_checkpoint(path: Path, content_hash: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND
+    if hasattr(os, 'O_NOFOLLOW'):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags, 0o600)
+    except OSError as exc:
+        raise RuntimeError('graphiti_checkpoint_unwritable') from exc
+    try:
+        os.fchmod(descriptor, 0o600)
+        os.write(descriptor, f'{content_hash}\n'.encode('ascii'))
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
 class GraphitiMigrationRunner:
     def __init__(
         self,
@@ -56,7 +93,9 @@ class GraphitiMigrationRunner:
 
     def run(self, conversations: Mapping[str, Any]) -> dict[str, Any]:
         previous = _read_manifest(self.manifest_path)
+        checkpoint = _checkpoint_path(self.manifest_path)
         migrated_hashes = set(previous.get('content_hashes', []) or [])
+        migrated_hashes.update(_read_checkpoint(checkpoint))
         seen_this_run: set[str] = set()
         source_hashes: set[str] = set()
         migrated = 0
@@ -109,6 +148,7 @@ class GraphitiMigrationRunner:
                 except Exception:
                     failed += 1
                     continue
+                _append_checkpoint(checkpoint, content_hash)
                 migrated_hashes.add(content_hash)
                 migrated += 1
         completed = failed == 0
@@ -128,6 +168,8 @@ class GraphitiMigrationRunner:
             'rerunnable': True,
         }
         _atomic_manifest(self.manifest_path, manifest)
+        if completed:
+            checkpoint.unlink(missing_ok=True)
         result = {
             'ok': completed,
             'completed': completed,
