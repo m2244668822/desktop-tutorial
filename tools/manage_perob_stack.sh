@@ -12,6 +12,7 @@ HTTPS_LABEL="com.user.perob-https"
 SERVICE_PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 HTTPS_LISTEN_HOST="${PEROB_HTTPS_LISTEN_HOST:-127.0.0.1}"
 TRUSTED_PYTHON="${PEROB_CREDENTIAL_PYTHON:-/usr/local/bin/python3}"
+BACKEND_START_ATTEMPTS="${PEROB_BACKEND_START_ATTEMPTS:-30}"
 
 BACKEND_PLIST="$HOME/Library/LaunchAgents/${BACKEND_LABEL}.plist"
 HTTPS_PLIST="$HOME/Library/LaunchAgents/${HTTPS_LABEL}.plist"
@@ -194,7 +195,7 @@ start_all() {
     wait_http "http://127.0.0.1:5001/health/live" "backend fallback live"
   else
     load_agent "$BACKEND_LABEL" "$BACKEND_PLIST"
-    if ! wait_http "http://127.0.0.1:5001/health/live" "backend live" 6; then
+    if ! wait_http "http://127.0.0.1:5001/health/live" "backend live" "$BACKEND_START_ATTEMPTS"; then
       unload_agent "$BACKEND_LABEL"
       stop_port 5001
       start_manual_backend

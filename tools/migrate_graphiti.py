@@ -79,8 +79,9 @@ def _credential(name: str, env_name: str) -> str:
     return ''
 
 
-def _sender(base_url: str, token: str):
+def _sender(base_url: str, token: str, *, request_timeout: float = 300.0):
     endpoint = f"{base_url.rstrip('/')}/v1/episodes"
+    timeout = max(1.0, float(request_timeout))
 
     def send(payload: dict) -> None:
         headers = {'Content-Type': 'application/json'}
@@ -93,7 +94,7 @@ def _sender(base_url: str, token: str):
             method='POST',
         )
         try:
-            with urllib_request.urlopen(request, timeout=120) as response:
+            with urllib_request.urlopen(request, timeout=timeout) as response:
                 if response.status != 200:
                     raise RuntimeError('graphiti_migration_rejected')
         except (urllib_error.URLError, TimeoutError) as exc:
@@ -105,13 +106,18 @@ def _sender(base_url: str, token: str):
 def main() -> int:
     parser = argparse.ArgumentParser(description='Migrate unified Trevor memory to Graphiti')
     parser.add_argument('--base-url', default='http://127.0.0.1:8091')
+    parser.add_argument('--request-timeout', type=float, default=300.0)
     args = parser.parse_args()
     manager = AgentMemoryManager(auto_save=False)
     manifest = manager.memory_dir.parent / 'migrations' / 'graphiti_manifest.json'
     token = _credential('graphiti_token', 'TREVOR_GRAPHITI_TOKEN')
     runner = GraphitiMigrationRunner(
         manifest,
-        sender=_sender(args.base_url, token),
+        sender=_sender(
+            args.base_url,
+            token,
+            request_timeout=args.request_timeout,
+        ),
         audit_log=HashChainAuditLog(manager.memory_dir.parent / 'audit' / 'events.jsonl'),
     )
     result = runner.run(load_unified_conversations(manager))
