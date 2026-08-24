@@ -89,13 +89,20 @@ class DeploymentContractTests(unittest.TestCase):
         self.assertIn('build-essential ca-certificates curl git rsync', content)
         self.assertIn('uv python install 3.12', content)
         self.assertEqual(2, content.count('uv venv --python 3.12 --clear'))
-        self.assertIn('uv pip sync', content)
+        self.assertIn('uv pip install --python', content)
+        self.assertIn('--requirements "$APP_ROOT/requirements.txt"', content)
         self.assertIn('requirements.txt', content)
         self.assertIn('uv sync --project', content)
         self.assertIn('--frozen --no-dev', content)
         self.assertIn('optional_credentials=', content)
         self.assertLess(content.index('cd "$APP_ROOT"'), content.index('uv python install'))
         self.assertIn('restorecon -RF "$PYTHON_ROOT" "$APP_ROOT"', content)
+        self.assertIn('falkordb-rhel9-x64.so', content)
+        self.assertIn(
+            '0f8f7ba39a5f5c9bd1a2e270915bb1435369d9413773a91de6bcc84c5b0f2ea7',
+            content,
+        )
+        self.assertIn('sha256sum --check --status', content)
 
     def test_oci_deploy_has_non_destructive_preflight_mode(self):
         content = (ROOT / 'deploy_to_oci.sh').read_text(encoding='utf-8')
