@@ -9,6 +9,7 @@ from .config import SidecarConfig
 from .gateway import GraphitiGateway
 from .gemini_reranker import TrevorGeminiReranker
 from .lexical_reranker import TrevorLexicalReranker
+from .nvidia_client import NvidiaNoThinkingClient
 from .ollama_embedder import OllamaEmbedder
 
 
@@ -172,11 +173,13 @@ class TrevorGraphitiRuntime:
                 temperature=0.1,
                 max_tokens=config.llm_max_tokens,
             )
-            openai_client = AsyncOpenAI(
-                api_key=nvidia_api_key,
-                base_url=config.nvidia_base_url,
-                timeout=config.llm_timeout_seconds,
-                max_retries=0,
+            openai_client = NvidiaNoThinkingClient(
+                AsyncOpenAI(
+                    api_key=nvidia_api_key,
+                    base_url=config.nvidia_base_url,
+                    timeout=config.llm_timeout_seconds,
+                    max_retries=0,
+                )
             )
             llm_client = OpenAIGenericClient(
                 config=llm_config,

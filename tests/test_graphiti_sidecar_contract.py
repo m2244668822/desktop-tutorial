@@ -31,6 +31,41 @@ class _FakeGraphiti:
 
 
 class GraphitiSidecarContractTests(unittest.IsolatedAsyncioTestCase):
+    async def test_nvidia_client_disables_reasoning_for_structured_requests(self):
+        from services.graphiti_sidecar.trevor_graphiti.nvidia_client import (
+            NvidiaNoThinkingClient,
+        )
+
+        class Completions:
+            def __init__(self):
+                self.calls = []
+
+            async def create(self, **kwargs):
+                self.calls.append(kwargs)
+                return {'ok': True}
+
+        completions = Completions()
+        delegate = mock.Mock()
+        delegate.chat.completions = completions
+        client = NvidiaNoThinkingClient(delegate)
+
+        result = await client.chat.completions.create(
+            model='nvidia/nemotron-3-nano-30b-a3b',
+            messages=[{'role': 'user', 'content': 'Return JSON'}],
+            extra_body={'chat_template_kwargs': {'low_effort': True}},
+        )
+
+        self.assertEqual({'ok': True}, result)
+        self.assertEqual(
+            {
+                'chat_template_kwargs': {
+                    'low_effort': True,
+                    'enable_thinking': False,
+                }
+            },
+            completions.calls[0]['extra_body'],
+        )
+
     def test_sidecar_adapters_implement_graphiti_client_contracts(self):
         from services.graphiti_sidecar.trevor_graphiti.gemini_reranker import (
             TrevorGeminiReranker,
