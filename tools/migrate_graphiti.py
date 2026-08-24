@@ -14,10 +14,17 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from core.graphiti_migration import GraphitiMigrationRunner
+from core.graphiti_migration import (
+    DEFAULT_UPLOAD_BATCH_BYTES,
+    DEFAULT_UPLOAD_BATCH_TURNS,
+    GraphitiMigrationRunner,
+)
 from core.audit_chain import HashChainAuditLog
 from core.keychain_credentials import KeychainCredentialStore
 from tools.agent_memory_manager import AgentMemoryManager
+
+
+DEFAULT_REQUEST_TIMEOUT_SECONDS = 330.0
 
 
 def load_unified_conversations(manager: AgentMemoryManager) -> dict:
@@ -79,7 +86,12 @@ def _credential(name: str, env_name: str) -> str:
     return ''
 
 
-def _sender(base_url: str, token: str, *, request_timeout: float = 300.0):
+def _sender(
+    base_url: str,
+    token: str,
+    *,
+    request_timeout: float = DEFAULT_REQUEST_TIMEOUT_SECONDS,
+):
     endpoint = f"{base_url.rstrip('/')}/v1/episodes"
     timeout = max(1.0, float(request_timeout))
 
@@ -106,7 +118,21 @@ def _sender(base_url: str, token: str, *, request_timeout: float = 300.0):
 def main() -> int:
     parser = argparse.ArgumentParser(description='Migrate unified Trevor memory to Graphiti')
     parser.add_argument('--base-url', default='http://127.0.0.1:8091')
-    parser.add_argument('--request-timeout', type=float, default=300.0)
+    parser.add_argument(
+        '--request-timeout',
+        type=float,
+        default=DEFAULT_REQUEST_TIMEOUT_SECONDS,
+    )
+    parser.add_argument(
+        '--upload-max-turns',
+        type=int,
+        default=DEFAULT_UPLOAD_BATCH_TURNS,
+    )
+    parser.add_argument(
+        '--upload-max-bytes',
+        type=int,
+        default=DEFAULT_UPLOAD_BATCH_BYTES,
+    )
     args = parser.parse_args()
     manager = AgentMemoryManager(auto_save=False)
     manifest = manager.memory_dir.parent / 'migrations' / 'graphiti_manifest.json'
@@ -119,6 +145,8 @@ def main() -> int:
             request_timeout=args.request_timeout,
         ),
         audit_log=HashChainAuditLog(manager.memory_dir.parent / 'audit' / 'events.jsonl'),
+        max_upload_turns=args.upload_max_turns,
+        max_upload_bytes=args.upload_max_bytes,
     )
     result = runner.run(load_unified_conversations(manager))
     print(json.dumps(result, ensure_ascii=False))

@@ -30,6 +30,10 @@ CREDENTIAL_SPECS = (
     ('trevor_memory_key_b64', 'trevor.memory', 'aes-256-gcm'),
     ('ai_horde_api_key', 'perob.ai-horde', 'api-key'),
 )
+REQUIRED_RUNTIME_CREDENTIALS = (
+    'nvidia_api_key',
+    'trevor_memory_key_b64',
+)
 
 
 def runtime_python_path(python_executable: str) -> Path:
@@ -98,6 +102,16 @@ def load_runtime_credentials(
     return credentials
 
 
+def validate_required_credentials(credentials: dict[str, str]) -> None:
+    missing = [
+        name for name in REQUIRED_RUNTIME_CREDENTIALS if not credentials.get(name)
+    ]
+    if missing:
+        raise RuntimeError(
+            'required_runtime_credentials_missing:' + ','.join(missing)
+        )
+
+
 def run_backend(
     python_executable: str,
     command: list[str],
@@ -119,6 +133,7 @@ def run_backend(
         source_directory,
         allow_keychain=allow_keychain,
     )
+    validate_required_credentials(credentials)
     run_root = data_root / 'run'
     environment = os.environ.copy()
     for name in (

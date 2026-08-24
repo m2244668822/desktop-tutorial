@@ -9,6 +9,7 @@ fi
 
 SOURCE_ROOT="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 APP_ROOT="/opt/trevor/app"
+RELEASE_ROOT="/opt/trevor/releases"
 PYTHON_ROOT="/opt/trevor/python"
 DATA_ROOT="/var/lib/trevor"
 CONFIG_ROOT="/etc/trevor"
@@ -17,6 +18,27 @@ UV_CACHE_ROOT="$DATA_ROOT/cache/uv"
 FALKORDB_MODULE_CACHE_ROOT="$DATA_ROOT/cache/falkordb"
 FALKORDB_MODULE_VERSION="v4.18.3"
 FALKORDB_RHEL9_MODULE_SHA256="0f8f7ba39a5f5c9bd1a2e270915bb1435369d9413773a91de6bcc84c5b0f2ea7"
+DEPLOY_ID="$(date +%Y%m%d-%H%M%S)-$$"
+BUILD_ROOT="$RELEASE_ROOT/.staging-$DEPLOY_ID"
+PREVIOUS_APP_ROOT="$RELEASE_ROOT/previous-$DEPLOY_ID"
+FAILED_APP_ROOT="$RELEASE_ROOT/failed-$DEPLOY_ID"
+UNIT_BACKUP_ROOT="$RELEASE_ROOT/.units-$DEPLOY_ID"
+TREVOR_SERVICES=(
+  trevor-api.service
+  trevor-graphiti.service
+  trevor-autonomy.service
+  trevor-worker.service
+)
+TREVOR_UNITS=(
+  trevor-api.service
+  trevor-graphiti.service
+  trevor-autonomy.service
+  trevor-worker.service
+  trevor.target
+)
+CUTOVER_STARTED=0
+PREVIOUS_APP_SAVED=0
+ACTIVE_SERVICES=()
 
 if [ ! -f "$SOURCE_ROOT/system_main.py" ]; then
   echo "invalid Trevor source root" >&2
@@ -56,6 +78,7 @@ ensure_uv() {
 }
 
 install_falkordb_platform_module() {
+  local app_root="$1"
   local os_id os_major asset cache_path temporary module_path graphiti_python
   os_id="$(. /etc/os-release; printf '%s' "$ID")"
   os_major="$(. /etc/os-release; printf '%s' "${VERSION_ID%%.*}")"
@@ -92,14 +115,75 @@ install_falkordb_platform_module() {
     return 1
   fi
 
-  graphiti_python="$APP_ROOT/services/graphiti_sidecar/.venv/bin/python"
+  graphiti_python="$app_root/services/graphiti_sidecar/.venv/bin/python"
   module_path="$(
-    cd "$APP_ROOT/services/graphiti_sidecar"
+    cd "$app_root/services/graphiti_sidecar"
     runuser -u trevor -- "$graphiti_python" -c \
       'from pathlib import Path; import redislite; print(Path(redislite.__file__).resolve().parent / "bin" / "falkordb.so")'
   )"
   install -o trevor -g trevor -m 0755 "$cache_path" "$module_path"
 }
+
+audit_deployment() {
+  local status="$1"
+  local audit_root=""
+  if [ -x "$APP_ROOT/.venv/bin/python" ]; then
+    audit_root="$APP_ROOT"
+  elif [ -x "$BUILD_ROOT/.venv/bin/python" ]; then
+    audit_root="$BUILD_ROOT"
+  else
+    return 1
+  fi
+  (
+    cd "$audit_root"
+    runuser -u trevor -- env TREVOR_DATA_DIR="$DATA_ROOT" \
+      "$audit_root/.venv/bin/python" tools/trevor_operations.py audit \
+      --event deployment \
+      --status "$status" \
+      --subject oci-systemd \
+      --data-root "$DATA_ROOT"
+  )
+}
+
+rollback_cutover() {
+  local service unit
+  if [ "$CUTOVER_STARTED" -ne 1 ]; then
+    return
+  fi
+  systemctl stop "${TREVOR_SERVICES[@]}" 2>/dev/null || true
+  if [ -e "$APP_ROOT" ]; then
+    mv "$APP_ROOT" "$FAILED_APP_ROOT" || true
+  fi
+  if [ "$PREVIOUS_APP_SAVED" -eq 1 ]; then
+    if [ -e "$PREVIOUS_APP_ROOT" ]; then
+      mv "$PREVIOUS_APP_ROOT" "$APP_ROOT"
+    fi
+  fi
+  for unit in "${TREVOR_UNITS[@]}"; do
+    if [ -f "$UNIT_BACKUP_ROOT/$unit" ]; then
+      install -o root -g root -m 0644 \
+        "$UNIT_BACKUP_ROOT/$unit" "/etc/systemd/system/$unit"
+    else
+      rm -f "/etc/systemd/system/$unit"
+    fi
+  done
+  systemctl daemon-reload || true
+  for service in "${ACTIVE_SERVICES[@]}"; do
+    systemctl start "$service" || true
+  done
+}
+
+deployment_exit() {
+  local exit_code=$?
+  trap - EXIT
+  if [ "$exit_code" -ne 0 ]; then
+    rollback_cutover || true
+    audit_deployment failed >/dev/null 2>&1 || true
+  fi
+  exit "$exit_code"
+}
+
+trap deployment_exit EXIT
 
 ensure_host_tools
 ensure_uv
@@ -110,20 +194,22 @@ fi
 
 install -d -o trevor -g trevor -m 0700 \
   "$DATA_ROOT" "$UV_CACHE_ROOT" "$FALKORDB_MODULE_CACHE_ROOT"
-install -d -o root -g root -m 0755 /opt/trevor "$APP_ROOT" "$CONFIG_ROOT"
-install -d -o trevor -g trevor -m 0755 "$PYTHON_ROOT"
-install -d -o root -g root -m 0700 "$CREDENTIAL_ROOT"
+install -d -o root -g root -m 0755 \
+  /opt/trevor "$RELEASE_ROOT" "$CONFIG_ROOT"
+install -d -o trevor -g trevor -m 0755 "$PYTHON_ROOT" "$BUILD_ROOT"
+install -d -o root -g root -m 0700 "$CREDENTIAL_ROOT" "$UNIT_BACKUP_ROOT"
 
-systemctl stop \
-  trevor-api.service trevor-graphiti.service \
-  trevor-autonomy.service trevor-worker.service 2>/dev/null || true
+audit_deployment started >/dev/null 2>&1 || true
 
-if [ "$(realpath "$SOURCE_ROOT")" != "$(realpath "$APP_ROOT")" ]; then
-  rsync -a --exclude '.venv*' --exclude 'data/' --exclude 'logs/' --exclude '.env*' \
-    "$SOURCE_ROOT/" "$APP_ROOT/"
-fi
-chown -R trevor:trevor "$APP_ROOT"
-cd "$APP_ROOT"
+rsync -a \
+  --exclude '.git/' \
+  --exclude '.venv*' \
+  --exclude 'data/' \
+  --exclude 'logs/' \
+  --exclude '.env*' \
+  "$SOURCE_ROOT/" "$BUILD_ROOT/"
+chown -R trevor:trevor "$BUILD_ROOT"
+cd "$BUILD_ROOT"
 
 runuser -u trevor -- env \
   UV_CACHE_DIR="$UV_CACHE_ROOT" \
@@ -132,53 +218,29 @@ runuser -u trevor -- env \
 runuser -u trevor -- env \
   UV_CACHE_DIR="$UV_CACHE_ROOT" \
   UV_PYTHON_INSTALL_DIR="$PYTHON_ROOT" \
-  uv venv --python 3.12 --clear "$APP_ROOT/.venv"
+  uv venv --python 3.12 --clear "$BUILD_ROOT/.venv"
 runuser -u trevor -- env \
   UV_CACHE_DIR="$UV_CACHE_ROOT" \
   UV_PYTHON_INSTALL_DIR="$PYTHON_ROOT" \
-  uv pip install --python "$APP_ROOT/.venv/bin/python" \
-  --requirements "$APP_ROOT/requirements.txt"
+  uv pip install --python "$BUILD_ROOT/.venv/bin/python" \
+  --requirements "$BUILD_ROOT/requirements.txt"
 runuser -u trevor -- env \
   UV_CACHE_DIR="$UV_CACHE_ROOT" \
   UV_PYTHON_INSTALL_DIR="$PYTHON_ROOT" \
-  uv venv --python 3.12 --clear "$APP_ROOT/services/graphiti_sidecar/.venv"
+  uv venv --python 3.12 --clear "$BUILD_ROOT/services/graphiti_sidecar/.venv"
 runuser -u trevor -- env \
   UV_CACHE_DIR="$UV_CACHE_ROOT" \
   UV_PYTHON_INSTALL_DIR="$PYTHON_ROOT" \
-  UV_PROJECT_ENVIRONMENT="$APP_ROOT/services/graphiti_sidecar/.venv" \
-  uv sync --project "$APP_ROOT/services/graphiti_sidecar" --frozen --no-dev
-install_falkordb_platform_module
+  UV_PROJECT_ENVIRONMENT="$BUILD_ROOT/services/graphiti_sidecar/.venv" \
+  uv sync --project "$BUILD_ROOT/services/graphiti_sidecar" --frozen --no-dev
+install_falkordb_platform_module "$BUILD_ROOT"
 if command -v restorecon >/dev/null 2>&1; then
-  restorecon -RF "$PYTHON_ROOT" "$APP_ROOT"
+  restorecon -RF "$PYTHON_ROOT" "$BUILD_ROOT"
 fi
-
-audit_deployment() {
-  local status="$1"
-  (
-    cd "$APP_ROOT"
-    runuser -u trevor -- env TREVOR_DATA_DIR="$DATA_ROOT" \
-      "$APP_ROOT/.venv/bin/python" tools/trevor_operations.py audit \
-      --event deployment \
-      --status "$status" \
-      --subject oci-systemd \
-      --data-root "$DATA_ROOT"
-  )
-}
-
-deployment_exit() {
-  local exit_code=$?
-  if [ "$exit_code" -ne 0 ]; then
-    audit_deployment failed >/dev/null 2>&1 || true
-  fi
-  exit "$exit_code"
-}
-
-trap deployment_exit EXIT
-audit_deployment started
 
 if [ ! -f "$CONFIG_ROOT/trevor.env" ]; then
   install -o root -g root -m 0600 \
-    "$APP_ROOT/deploy/systemd/trevor.env.example" "$CONFIG_ROOT/trevor.env"
+    "$BUILD_ROOT/deploy/systemd/trevor.env.example" "$CONFIG_ROOT/trevor.env"
 fi
 
 required_credentials=(
@@ -224,6 +286,28 @@ fi
 systemctl enable --now ollama.service
 ollama pull nomic-embed-text
 
+for unit in "${TREVOR_UNITS[@]}"; do
+  if [ -f "/etc/systemd/system/$unit" ]; then
+    cp -a "/etc/systemd/system/$unit" "$UNIT_BACKUP_ROOT/$unit"
+  fi
+done
+for service in "${TREVOR_SERVICES[@]}"; do
+  if systemctl is-active --quiet "$service"; then
+    ACTIVE_SERVICES+=("$service")
+  fi
+done
+
+CUTOVER_STARTED=1
+systemctl stop "${TREVOR_SERVICES[@]}" 2>/dev/null || true
+if [ -e "$APP_ROOT" ]; then
+  mv "$APP_ROOT" "$PREVIOUS_APP_ROOT"
+  PREVIOUS_APP_SAVED=1
+fi
+mv "$BUILD_ROOT" "$APP_ROOT"
+if command -v restorecon >/dev/null 2>&1; then
+  restorecon -RF "$APP_ROOT"
+fi
+
 install -o root -g root -m 0644 "$APP_ROOT"/deploy/systemd/trevor-*.service /etc/systemd/system/
 install -o root -g root -m 0644 "$APP_ROOT/deploy/systemd/trevor.target" /etc/systemd/system/
 systemctl daemon-reload
@@ -232,6 +316,9 @@ systemctl restart trevor-graphiti.service
 systemctl restart trevor-api.service
 systemctl restart trevor-autonomy.service trevor-worker.service
 systemctl start trevor.target
+for service in "${TREVOR_SERVICES[@]}"; do
+  systemctl is-active --quiet "$service"
+done
 
 if command -v tailscale >/dev/null 2>&1 \
   && tailscale status >/dev/null 2>&1; then
@@ -239,5 +326,6 @@ if command -v tailscale >/dev/null 2>&1 \
 fi
 
 audit_deployment completed
+CUTOVER_STARTED=0
 trap - EXIT
 systemctl --no-pager --full status trevor.target

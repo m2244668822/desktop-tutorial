@@ -99,6 +99,57 @@ class MigrationStatusExportTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "graphiti_migration_incomplete"):
                 export_public_migration_status(source, root / "public")
 
+    def test_export_rejects_graphiti_source_count_mismatch(self):
+        from core.migration_status import export_public_migration_status
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source"
+            source.mkdir()
+            (source / "trevor_data_manifest.json").write_text(
+                json.dumps({"unique_turns": 2, "conversation_threads": 1}),
+                encoding="utf-8",
+            )
+            (source / "graphiti_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "completed": True,
+                        "migrated_count": 1,
+                        "source_count": 1,
+                        "failed_count": 0,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(RuntimeError, "migration_source_count_mismatch"):
+                export_public_migration_status(source, root / "public")
+
+    def test_export_rejects_destination_equal_to_private_source(self):
+        from core.migration_status import export_public_migration_status
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source"
+            source.mkdir()
+            (source / "trevor_data_manifest.json").write_text(
+                json.dumps({"unique_turns": 1, "conversation_threads": 1}),
+                encoding="utf-8",
+            )
+            (source / "graphiti_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "completed": True,
+                        "migrated_count": 1,
+                        "source_count": 1,
+                        "failed_count": 0,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(RuntimeError, "migration_destination_private"):
+                export_public_migration_status(source, source)
+
 
 if __name__ == "__main__":
     unittest.main()
