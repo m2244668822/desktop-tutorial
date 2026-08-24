@@ -8,7 +8,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from .config import SidecarConfig
-from .redaction import redact_text
+from .redaction import redact_metadata_label, redact_text
 from .runtime import TrevorGraphitiRuntime, load_runtime_secret
 
 
@@ -103,8 +103,12 @@ def create_app(config: SidecarConfig | None = None) -> FastAPI:
     async def add_episode(payload: EpisodeRequest, request: Request) -> dict[str, Any]:
         body, redactions = redact_text(payload.episode_body)
         source, source_redactions = redact_text(payload.source_description)
-        source_role = str(payload.metadata.get('source_role', '') or '').strip()
-        capability = str(payload.metadata.get('capability_mode', '') or '').strip()
+        source_role, source_role_redactions = redact_metadata_label(
+            payload.metadata.get('source_role', ''), limit=80
+        )
+        capability, capability_redactions = redact_metadata_label(
+            payload.metadata.get('capability_mode', ''), limit=40
+        )
         if source_role:
             source = f'{source};source_role={source_role[:80]}'
         if capability:
@@ -117,7 +121,15 @@ def create_app(config: SidecarConfig | None = None) -> FastAPI:
             episode_uuid=payload.episode_uuid,
             group_id=payload.group_id,
         )
-        return {'ok': True, 'redactions': redactions + source_redactions}
+        return {
+            'ok': True,
+            'redactions': (
+                redactions
+                + source_redactions
+                + source_role_redactions
+                + capability_redactions
+            ),
+        }
 
     return app
 

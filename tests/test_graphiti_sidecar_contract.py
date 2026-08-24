@@ -31,6 +31,17 @@ class _FakeGraphiti:
 
 
 class GraphitiSidecarContractTests(unittest.IsolatedAsyncioTestCase):
+    def test_episode_metadata_labels_are_redacted_before_source_append(self):
+        from services.graphiti_sidecar.trevor_graphiti.redaction import (
+            redact_metadata_label,
+        )
+
+        value, redactions = redact_metadata_label('owner user@example.com', limit=80)
+
+        self.assertNotIn('user@example.com', value)
+        self.assertIn('[REDACTED_EMAIL]', value)
+        self.assertEqual(1, redactions)
+
     async def test_nvidia_client_disables_reasoning_for_structured_requests(self):
         from services.graphiti_sidecar.trevor_graphiti.nvidia_client import (
             NvidiaNoThinkingClient,
@@ -320,6 +331,29 @@ class GraphitiSidecarContractTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(result['duplicate'])
         self.assertEqual([], graph.episode_payloads)
+
+    async def test_episode_extraction_applies_unified_memory_conflict_policy(self):
+        from services.graphiti_sidecar.trevor_graphiti.gateway import GraphitiGateway
+
+        class Driver:
+            async def execute_query(self, *_args, **_kwargs):
+                return ([], None, None)
+
+        graph = _FakeGraphiti()
+        graph.driver = Driver()
+        gateway = GraphitiGateway(graph, query_concurrency=1)
+
+        await gateway.add_episode(
+            name='trevor-batch',
+            episode_body='[Memory turn] Newer durable preference wins.',
+            source_description='test',
+            reference_time='2026-08-21T00:00:00+00:00',
+            episode_uuid='00000000-0000-5000-8000-000000000001',
+        )
+
+        instructions = graph.episode_payloads[0]['custom_extraction_instructions']
+        self.assertIn('durable', instructions.lower())
+        self.assertIn('newer', instructions.lower())
 
     async def test_gateway_public_results_are_structured(self):
         from services.graphiti_sidecar.trevor_graphiti.gateway import GraphitiGateway
