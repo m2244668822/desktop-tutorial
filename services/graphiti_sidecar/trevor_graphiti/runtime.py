@@ -182,7 +182,7 @@ class TrevorGraphitiRuntime:
                 config=llm_config,
                 client=openai_client,
                 max_tokens=config.llm_max_tokens,
-                structured_output_mode='json_object',
+                structured_output_mode='json_schema',
             )
             reranker = TrevorLexicalReranker()
             rerank_provider = 'lexical'

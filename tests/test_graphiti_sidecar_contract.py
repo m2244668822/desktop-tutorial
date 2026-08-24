@@ -188,6 +188,7 @@ class GraphitiSidecarContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('max_retries=0', runtime)
         self.assertIn('timeout=config.llm_timeout_seconds', runtime)
         self.assertIn('max_tokens=config.llm_max_tokens', runtime)
+        self.assertIn("structured_output_mode='json_schema'", runtime)
 
     def test_embedded_runtime_rejects_unsupported_intel_macos_binary(self):
         from services.graphiti_sidecar.trevor_graphiti.runtime import (
