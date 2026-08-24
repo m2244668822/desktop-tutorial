@@ -85,6 +85,15 @@ class PerobMainlineHealthContractTests(unittest.TestCase):
         self.assertIn('launch_trevor_backend.py', LAUNCHAGENT_INSTALLER)
         self.assertIn('CREDENTIALS_DIRECTORY', BACKEND_LAUNCHER.read_text(encoding='utf-8'))
 
+    def test_backend_launchers_require_private_credential_source(self):
+        for name, text in {
+            'install_perob_launchagents.sh': LAUNCHAGENT_INSTALLER,
+            'manage_perob_stack.sh': STACK_MANAGER,
+        }.items():
+            self.assertIn('CREDENTIAL_SOURCE_DIR=', text, name)
+            self.assertIn('trevor_memory_key_b64', text, name)
+            self.assertIn('--credential-source', text, name)
+
     def test_backend_launchagent_propagates_safe_provider_runtime_flags(self):
         for name, value in {
             "TREVOR_GEMINI_FREE_TIER_CONFIRMED": "true",

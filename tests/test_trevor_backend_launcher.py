@@ -103,3 +103,16 @@ class TrevorBackendLauncherTests(unittest.TestCase):
 
             with self.assertRaisesRegex(RuntimeError, 'credential_file_permissions'):
                 load_runtime_credentials(credential_directory)
+
+    def test_rejects_backend_start_without_required_credentials(self):
+        from tools.launch_trevor_backend import validate_required_credentials
+
+        with self.assertRaisesRegex(RuntimeError, 'required_runtime_credentials_missing'):
+            validate_required_credentials({'nvidia_api_key': 'configured'})
+
+        validate_required_credentials(
+            {
+                'nvidia_api_key': 'configured',
+                'trevor_memory_key_b64': 'configured',
+            }
+        )

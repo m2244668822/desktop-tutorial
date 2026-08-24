@@ -90,13 +90,17 @@ class DeploymentContractTests(unittest.TestCase):
         self.assertIn('uv python install 3.12', content)
         self.assertEqual(2, content.count('uv venv --python 3.12 --clear'))
         self.assertIn('uv pip install --python', content)
-        self.assertIn('--requirements "$APP_ROOT/requirements.txt"', content)
+        self.assertIn('--requirements "$BUILD_ROOT/requirements.txt"', content)
         self.assertIn('requirements.txt', content)
         self.assertIn('uv sync --project', content)
         self.assertIn('--frozen --no-dev', content)
         self.assertIn('optional_credentials=', content)
-        self.assertLess(content.index('cd "$APP_ROOT"'), content.index('uv python install'))
-        self.assertIn('restorecon -RF "$PYTHON_ROOT" "$APP_ROOT"', content)
+        self.assertLess(
+            content.index('cd "$BUILD_ROOT"'),
+            content.index('uv python install'),
+        )
+        self.assertIn('restorecon -RF "$PYTHON_ROOT" "$BUILD_ROOT"', content)
+        self.assertIn('restorecon -RF "$APP_ROOT"', content)
         self.assertIn('falkordb-rhel9-x64.so', content)
         self.assertIn(
             '0f8f7ba39a5f5c9bd1a2e270915bb1435369d9413773a91de6bcc84c5b0f2ea7',
@@ -112,6 +116,23 @@ class DeploymentContractTests(unittest.TestCase):
         self.assertLess(
             content.index('systemctl restart trevor-graphiti.service'),
             content.index('systemctl restart trevor-api.service'),
+        )
+
+    def test_systemd_install_builds_before_cutover_and_rolls_back_failure(self):
+        content = (ROOT / 'deploy' / 'systemd' / 'install.sh').read_text(
+            encoding='utf-8'
+        )
+
+        self.assertIn('RELEASE_ROOT="/opt/trevor/releases"', content)
+        self.assertIn('BUILD_ROOT=', content)
+        self.assertIn('PREVIOUS_APP_ROOT=', content)
+        self.assertIn('rollback_cutover()', content)
+        self.assertIn('mv "$BUILD_ROOT" "$APP_ROOT"', content)
+        self.assertIn('mv "$PREVIOUS_APP_ROOT" "$APP_ROOT"', content)
+        self.assertIn('systemctl is-active --quiet "$service"', content)
+        self.assertLess(
+            content.index('uv sync --project'),
+            content.index('CUTOVER_STARTED=1\nsystemctl stop'),
         )
 
     def test_oci_deploy_has_non_destructive_preflight_mode(self):

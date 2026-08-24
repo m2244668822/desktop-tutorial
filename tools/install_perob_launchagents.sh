@@ -11,6 +11,7 @@ HTTPS_LABEL="com.user.perob-https"
 SERVICE_PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 HTTPS_LISTEN_HOST="${PEROB_HTTPS_LISTEN_HOST:-127.0.0.1}"
 TRUSTED_PYTHON="${PEROB_CREDENTIAL_PYTHON:-/usr/local/bin/python3}"
+CREDENTIAL_SOURCE_DIR="${TREVOR_CREDENTIAL_SOURCE_DIR:-$HOME/Library/Application Support/Trevor/credentials}"
 
 mkdir -p "$LAUNCH_DIR" "$LOG_DIR" "$LAUNCH_LOG_DIR"
 ARCHIVE_DIR="$LAUNCH_DIR/archive/perob-$(date +%Y%m%d-%H%M%S)"
@@ -50,6 +51,13 @@ if [[ ! -x "$TRUSTED_PYTHON" ]]; then
   TRUSTED_PYTHON="$PYTHON_BIN"
 fi
 
+for credential in nvidia_api_key trevor_memory_key_b64; do
+  if [[ ! -s "$CREDENTIAL_SOURCE_DIR/$credential" ]]; then
+    echo "[error] missing private credential: $CREDENTIAL_SOURCE_DIR/$credential" >&2
+    exit 1
+  fi
+done
+
 PY_VERSION="$("$PYTHON_BIN" - <<'PY' 2>/dev/null || true
 import sys
 print(f"{sys.version_info.major}.{sys.version_info.minor}")
@@ -74,6 +82,7 @@ cat > "$LAUNCH_DIR/${BACKEND_LABEL}.plist" <<EOF
     <string>${TRUSTED_PYTHON}</string>
     <string>${ROOT}/tools/launch_trevor_backend.py</string>
     <string>--python</string><string>${PYTHON_BIN}</string>
+    <string>--credential-source</string><string>${CREDENTIAL_SOURCE_DIR}</string>
     <string>--</string>
     <string>-u</string>
     <string>${ROOT}/desktop_chat_app.py</string>

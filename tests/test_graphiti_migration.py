@@ -78,6 +78,7 @@ class GraphitiMigrationTests(unittest.TestCase):
                 sender=lambda payload: full_payloads.append(payload),
                 max_batch_turns=2,
                 max_batch_bytes=100_000,
+                max_upload_turns=2,
             ).run(conversations)
 
             partial_manifest = Path(tmp) / 'partial.json'
@@ -91,6 +92,7 @@ class GraphitiMigrationTests(unittest.TestCase):
                 sender=lambda payload: resumed_payloads.append(payload),
                 max_batch_turns=2,
                 max_batch_bytes=100_000,
+                max_upload_turns=1,
             ).run(conversations)
 
         self.assertEqual(1, result['migrated'])
@@ -99,6 +101,225 @@ class GraphitiMigrationTests(unittest.TestCase):
         self.assertEqual(
             full_payloads[0]['episode_body'], resumed_payloads[0]['episode_body']
         )
+
+    def test_uncompleted_logical_batch_uses_deterministic_safe_sub_batches(self):
+        from core.graphiti_migration import GraphitiMigrationRunner
+
+        conversations = {
+            'thread': {
+                'messages': [
+                    {
+                        'timestamp': f'2026-08-{20 + index:02d}T00:00:00+00:00',
+                        'user': f'user-{index}',
+                        'assistant': f'assistant-{index}',
+                    }
+                    for index in range(1, 7)
+                ]
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            first_payloads = []
+            first = GraphitiMigrationRunner(
+                Path(tmp) / 'first.json',
+                sender=lambda payload: first_payloads.append(payload),
+                max_batch_turns=6,
+                max_batch_bytes=100_000,
+                max_upload_turns=2,
+                max_upload_bytes=100_000,
+            ).run(conversations)
+            second_payloads = []
+            GraphitiMigrationRunner(
+                Path(tmp) / 'second.json',
+                sender=lambda payload: second_payloads.append(payload),
+                max_batch_turns=6,
+                max_batch_bytes=100_000,
+                max_upload_turns=2,
+                max_upload_bytes=100_000,
+            ).run(conversations)
+
+        self.assertEqual(6, first['migrated'])
+        self.assertEqual(1, first['batch_count'])
+        self.assertEqual(3, first['upload_batch_count'])
+        self.assertEqual(3, len(first_payloads))
+        self.assertEqual([2, 2, 2], [
+            payload['metadata']['turn_count'] for payload in first_payloads
+        ])
+        self.assertEqual(
+            [payload['episode_uuid'] for payload in first_payloads],
+            [payload['episode_uuid'] for payload in second_payloads],
+        )
+        self.assertEqual(
+            [payload['episode_body'] for payload in first_payloads],
+            [payload['episode_body'] for payload in second_payloads],
+        )
+
+    def test_completed_migration_uploads_only_new_incremental_turns(self):
+        from core.graphiti_migration import GraphitiMigrationRunner
+
+        messages = [
+            {
+                'timestamp': '2026-08-21T00:00:00+00:00',
+                'user': 'first',
+                'assistant': 'stored',
+            },
+            {
+                'timestamp': '2026-08-22T00:00:00+00:00',
+                'user': 'second',
+                'assistant': 'stored',
+            },
+        ]
+        conversations = {'thread': {'messages': messages}}
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = Path(tmp) / 'graphiti_manifest.json'
+            GraphitiMigrationRunner(
+                manifest,
+                sender=lambda _payload: None,
+                max_batch_turns=3,
+                max_batch_bytes=100_000,
+                max_upload_turns=3,
+                max_upload_bytes=100_000,
+            ).run(conversations)
+            messages.append(
+                {
+                    'timestamp': '2026-08-23T00:00:00+00:00',
+                    'user': 'third-new',
+                    'assistant': 'stored',
+                }
+            )
+            incremental_payloads = []
+            result = GraphitiMigrationRunner(
+                manifest,
+                sender=lambda payload: incremental_payloads.append(payload),
+                max_batch_turns=3,
+                max_batch_bytes=100_000,
+                max_upload_turns=3,
+                max_upload_bytes=100_000,
+            ).run(conversations)
+
+        self.assertTrue(result['ok'])
+        self.assertEqual(1, result['migrated'])
+        self.assertEqual(2, result['skipped'])
+        self.assertEqual(1, len(incremental_payloads))
+        self.assertEqual(1, incremental_payloads[0]['metadata']['turn_count'])
+        self.assertIn('third-new', incremental_payloads[0]['episode_body'])
+        self.assertNotIn('first', incremental_payloads[0]['episode_body'])
+        self.assertNotIn('second', incremental_payloads[0]['episode_body'])
+
+    def test_upload_journal_prevents_duplicate_after_checkpoint_interruption(self):
+        from core.graphiti_migration import GraphitiMigrationRunner
+
+        conversations = {
+            'thread': {
+                'messages': [
+                    {
+                        'timestamp': f'2026-08-{20 + index:02d}T00:00:00+00:00',
+                        'user': f'user-{index}',
+                        'assistant': f'assistant-{index}',
+                    }
+                    for index in range(1, 5)
+                ]
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = Path(tmp) / 'graphiti_manifest.json'
+            episode_uuids = []
+
+            def sender(payload):
+                episode_uuids.append(payload['episode_uuid'])
+
+            with mock.patch(
+                'core.graphiti_migration._append_checkpoint',
+                side_effect=KeyboardInterrupt,
+            ):
+                with self.assertRaises(KeyboardInterrupt):
+                    GraphitiMigrationRunner(
+                        manifest,
+                        sender=sender,
+                        max_batch_turns=4,
+                        max_batch_bytes=100_000,
+                        max_upload_turns=2,
+                        max_upload_bytes=100_000,
+                    ).run(conversations)
+
+            result = GraphitiMigrationRunner(
+                manifest,
+                sender=sender,
+                max_batch_turns=4,
+                max_batch_bytes=100_000,
+                max_upload_turns=2,
+                max_upload_bytes=100_000,
+            ).run(conversations)
+
+        self.assertTrue(result['ok'])
+        self.assertEqual(2, result['migrated'])
+        self.assertEqual(2, result['skipped'])
+        self.assertEqual(2, len(episode_uuids))
+        self.assertEqual(2, len(set(episode_uuids)))
+
+    def test_truncated_upload_journal_tail_is_repaired_before_append(self):
+        from core.graphiti_migration import GraphitiMigrationRunner
+
+        conversations = {
+            'thread': {
+                'messages': [
+                    {
+                        'timestamp': f'2026-08-{20 + index:02d}T00:00:00+00:00',
+                        'user': f'user-{index}',
+                        'assistant': f'assistant-{index}',
+                    }
+                    for index in range(1, 5)
+                ]
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = Path(tmp) / 'graphiti_manifest.json'
+            calls = 0
+
+            def fail_second(payload):
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    raise RuntimeError('temporary failure')
+
+            first = GraphitiMigrationRunner(
+                manifest,
+                sender=fail_second,
+                max_batch_turns=4,
+                max_batch_bytes=100_000,
+                max_upload_turns=2,
+                max_upload_bytes=100_000,
+            ).run(conversations)
+            journal = manifest.with_suffix('.json.uploads')
+            with journal.open('ab') as handle:
+                handle.write(b'{"schema_version":1')
+
+            with mock.patch(
+                'core.graphiti_migration._append_checkpoint',
+                side_effect=KeyboardInterrupt,
+            ):
+                with self.assertRaises(KeyboardInterrupt):
+                    GraphitiMigrationRunner(
+                        manifest,
+                        sender=lambda _payload: None,
+                        max_batch_turns=4,
+                        max_batch_bytes=100_000,
+                        max_upload_turns=2,
+                        max_upload_bytes=100_000,
+                    ).run(conversations)
+
+            resumed_payloads = []
+            resumed = GraphitiMigrationRunner(
+                manifest,
+                sender=lambda payload: resumed_payloads.append(payload),
+                max_batch_turns=4,
+                max_batch_bytes=100_000,
+                max_upload_turns=2,
+                max_upload_bytes=100_000,
+            ).run(conversations)
+
+        self.assertFalse(first['ok'])
+        self.assertTrue(resumed['ok'])
+        self.assertEqual([], resumed_payloads)
 
     def test_cli_can_start_outside_the_repository_working_directory(self):
         result = subprocess.run(
@@ -113,6 +334,8 @@ class GraphitiMigrationTests(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertIn('--base-url', result.stdout)
         self.assertIn('--request-timeout', result.stdout)
+        self.assertIn('--upload-max-turns', result.stdout)
+        self.assertIn('--upload-max-bytes', result.stdout)
 
     def test_sender_uses_configured_request_timeout(self):
         from tools.migrate_graphiti import _sender
@@ -131,6 +354,22 @@ class GraphitiMigrationTests(unittest.TestCase):
             )({'name': 'safe-test'})
 
         self.assertEqual(240, urlopen.call_args.kwargs['timeout'])
+
+    def test_sender_default_exceeds_sidecar_maximum_timeout(self):
+        from tools.migrate_graphiti import _sender
+
+        response = mock.MagicMock()
+        response.status = 200
+        context = mock.MagicMock()
+        context.__enter__.return_value = response
+        with mock.patch(
+            'tools.migrate_graphiti.urllib_request.urlopen', return_value=context
+        ) as urlopen:
+            _sender('http://127.0.0.1:8091', 'private-token')(
+                {'name': 'safe-test'}
+            )
+
+        self.assertGreater(urlopen.call_args.kwargs['timeout'], 300)
 
     def test_rerun_deduplicates_redacts_and_preserves_source_role(self):
         from core.audit_chain import HashChainAuditLog
