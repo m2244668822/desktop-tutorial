@@ -12,11 +12,11 @@
 
 # 崔佛框架即時狀態總覽
 
-- 更新時間：2026-08-25 05:10 CST
+- 更新時間：2026-08-25 06:39 CST
 - 對外身份：`trevor／崔佛`
 - 本次 GitHub review 修正起點：`d6ca3f726637`
-- 整體狀態：GitHub 未結案 review 已完成程式修正與回歸驗證；Graphiti 歷史記憶遷移仍暫停；OCI Tailscale
-  等待帳戶實體驗證
+- 整體狀態：GitHub 第一輪 review 已合併主線；第二輪 4 項與 PR #20 最新 7 項提醒均已完成程式修正及
+  回歸驗證；Graphiti 歷史記憶遷移仍暫停；OCI Tailscale 等待帳戶實體驗證
 - 安全狀態：GitHub Dependabot 開啟警示 `0`、Secret Scanning 開啟警示 `0`
 
 ## 狀態圖例
@@ -93,7 +93,7 @@ flowchart TD
 | Ollama Embedding | `nomic-embed-text` 向量嵌入 | 🟢 | OCI `ollama` systemd active；Graphiti health 已確認 | 重開機後確認模型仍存在且可嵌入 |
 | 自治 Scheduler | 每 15 分鐘評估工作與暫停條件 | 🟢 | OCI scheduler heartbeat 正常；單任務限制與安全政策已實作 | shadow 驗收後逐步開啟更多自治任務 |
 | 自治 Worker | 隔離執行修復、測試與小功能 | 🟢 | OCI worker active；lease、worktree、秘密阻擋與稽核已有測試 | 以正式小任務完成重開機後驗收 |
-| Git 整合流程 | task → integration → main、required CI、auto-merge | ✅ | PR #12 已由 task 合併 integration；PR #13 已經 required CI 後 merge-commit 至 main | 最終 OCI 安裝完成後記錄部署事件 |
+| Git 整合流程 | task → integration → main、required CI、auto-merge | ✅ | 第一輪 review 修正經 PR #18／#19 與兩套 required CI merge-commit 至 main | 第二輪 review 修正通過相同雙層流程後再部署 OCI |
 | Hash-chain Audit | 部署、模型、權限、遷移、Git 與回滾稽核 | ✅ | 本機與 OCI hash chain 都已驗證完整 | 遷移完成、正式安裝與回滾快照要追加事件 |
 | OCI systemd | API、Graphiti、Autonomy、Worker、Ollama 常駐 | 🟢 | 五個服務目前 active；Trevor target 已 enable | 使用最新 main 跑正式 installer，之後重開機驗證 |
 | Mac 內建 runtime | 避免外接卷卸載讓 Python 崩潰 | ✅ | Python 3.12、完整 app 與遷移快照已搬到內建磁碟；本機服務由 launchd KeepAlive | 最終 main 更新後重建一次 runtime 快照 |
@@ -207,14 +207,14 @@ stderr：        0 bytes
 
 | 驗收 | 結果 |
 | --- | --- |
-| Python 測試 | 目前工作樹完整套件 `328 passed` |
-| Review 回歸測試 | 受影響模組 `126 passed`；最終韌性補測 `11 passed` |
+| Python 測試 | 目前工作樹以內建磁碟 Python 3.12 runtime 執行完整套件，`338 passed` |
+| Review 回歸測試 | 第一輪受影響模組 `126 passed`；第二輪權限／readiness／lease 專項 `37 passed` |
 | 嚴格完整驗證 | `STRICT=1 bash tools/run_full_verification.sh` passed；內含 `36 passed` contracts |
 | Python syntax | passed |
 | Shell syntax | passed |
 | Git whitespace | passed |
 | Git object integrity | passed；只有可回收 dangling objects |
-| Secret scan | passed，掃描 `614` 個檔案 |
+| Secret scan | passed，掃描 `615` 個檔案 |
 | Python dependency audit | 無已知漏洞 |
 | Graphiti lock audit | 無已知漏洞；固定 Graphiti commit 例外為不可推導版本 |
 | npm production audit | `0` vulnerabilities |
@@ -225,9 +225,10 @@ stderr：        0 bytes
 
 ## GitHub Review 回覆修正
 
-本輪重新稽核 PR #1、#2、#9、#16、#17 共 30 個未結案 review thread；已修正仍可重現的問題，已被後續
-架構取代的意見則以現行 private credential 與單一崔佛控制面核對。所有 thread 會在 required CI 合併後附上
-對應測試證據再標記 resolved。
+第一輪重新稽核 PR #1、#2、#9、#16、#17 共 31 個未結案 review thread，已在 main `55d359a` 附上
+對應測試證據並全部標記 resolved。GitHub 隨後在 PR #18 新增 4 個有效提醒；第二輪已先建立失敗測試、完成
+根因修正。PR #20 對最新 commit 執行 Codex review 後再提出 7 個邊界問題，也已用失敗測試重現並修正；全部
+變更依 task → integration → main 流程通過 required CI 後再逐項結案。
 
 | Review 來源 | GitHub 建議 | 修正結果 |
 | --- | --- | --- |
@@ -246,6 +247,17 @@ stderr：        0 bytes
 | PR #1 | 外部 payload 去敏漏掉多類 token 與 PEM private key | sanitizer 與 secret scanner token family 對齊，完整私鑰區塊一律遮蔽 |
 | PR #1／#2 | Docker entry 無可執行 app；Linux memory key 與 macOS autonomy credential 可能靜默缺失 | Docker 改用 `system_main.py web`；Linux 與 LaunchAgent 啟動前驗證私密 credential，缺少即 fail closed |
 | PR #18 CI | GitHub hosted runner 警告官方 Action 仍使用 Node.js 20 | 依官方最新 major 將 checkout、setup-python、upload-artifact 升級至 `v7`，並新增防回歸契約 |
+| PR #18 follow-up | root 核發遠端 API key 會讓 Trevor key store 失去讀取權 | root 只讀 HMAC，任何 data-root 寫入前即永久降權為 `trevor`；不以 root 對 service-controlled path 執行 `chown` |
+| PR #18 follow-up | credential 遺失時 `stop`／`status` 也被阻擋 | Python、資料目錄與 credential preflight 僅在 `start`／`restart` 執行；停止與查詢不依賴秘密或資料卷 |
+| PR #18 follow-up | readiness endpoint HTTP 200 但 JSON 可能是未就緒 | systemd installer 同時解析 API `ok`／`required_ready` 與 Graphiti `ok`，連續 5 次為真才接受 cutover |
+| PR #18 follow-up | 長任務超過 1,800 秒會被其他 worker 重複認領 | 執行期間定期續租；renew／finish／defer 均核對 worker owner，舊 worker 無法覆寫新 owner 結果 |
+| PR #20 | root 在檢查 symlink 後再 `chown` 仍有 TOCTOU 競態 | 完全移除 root pathname ownership mutation；切換 UID/GID 後才讓 Trevor 建立或更新 key store 與 audit |
+| PR #20 | 自訂續租間隔可能晚於 claim TTL | 續租間隔一律上限為有效 TTL 的三分之一；即使 caller 傳入 600 秒，60 秒 TTL 仍固定 20 秒續租 |
+| PR #20 | 單次暫時 filesystem／lock 例外會永久停止續租 | exception 改為最長 5 秒的短間隔重試；只有明確回傳 ownership lost 才終止續租 thread |
+| PR #20 | root 以 Trevor 可改寫的 venv Python 解析 readiness | JSON parser 透過 `runuser` 以 `trevor` 執行；可改寫 interpreter 不再取得 root 執行權 |
+| PR #20 | 舊版 root-owned auth／audit 讓降權核發失敗 | 任何 unprivileged audit 前先以 `openat`／`O_NOFOLLOW`／`fchown` 遷移，cutover 停服後再重驗 |
+| PR #20 | `audit_deployment started` 早於舊資料遷移會先失敗 | 遷移提前到 staging 與 EXIT audit trap 之前；legacy host 不會在修復 ownership 前先嘗試寫 audit |
+| PR #20 | 惡意 FIFO 讓 root migration 在 `fstat` 前永久阻塞 | 候選檔案以 `O_NONBLOCK` 開啟後再驗證 regular file；FIFO 回歸測試確認立即拒絕 |
 | PR #14／#15 | Graphiti 剩餘數量前後矛盾 | 已統一為 `5,426 - 2,658 = 2,768` |
 | PR #14 | 衝突解析漏寫 priority | 已明列限制性安全值、來源順位、`priority`、`updated_at` 的實際順序 |
 | PR #12 | client timeout 與 sidecar 300 秒上限相同 | 預設改為 `330` 秒並保留 CLI 覆寫 |

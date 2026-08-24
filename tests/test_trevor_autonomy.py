@@ -96,6 +96,31 @@ class TrevorAutonomyTests(unittest.TestCase):
         self.assertEqual('worker-b', reclaimed['worker_id'])
         self.assertIn('lease_expires_at', reclaimed)
 
+    def test_only_claim_owner_can_renew_or_finish_running_task(self):
+        from core.autonomy import AutonomyQueue
+
+        current = datetime(2026, 8, 24, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            queue = AutonomyQueue(
+                Path(tmp) / 'queue.json',
+                now=lambda: current,
+                claim_ttl_seconds=60,
+            )
+            task = queue.enqueue('長時間維護')
+            queue.claim_next('worker-a')
+
+            self.assertFalse(queue.renew_claim(task['id'], 'worker-b'))
+            self.assertTrue(queue.renew_claim(task['id'], 'worker-a'))
+            current += timedelta(seconds=61)
+            reclaimed = queue.claim_next('worker-b')
+            self.assertEqual('worker-b', reclaimed['worker_id'])
+            self.assertFalse(
+                queue.finish(task['id'], worker_id='worker-a', success=True)
+            )
+            self.assertTrue(
+                queue.finish(task['id'], worker_id='worker-b', success=True)
+            )
+
     def test_queue_uses_an_interprocess_lock_for_mutations(self):
         from core.autonomy import AutonomyQueue
 
