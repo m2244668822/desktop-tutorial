@@ -81,6 +81,7 @@ class DeploymentContractTests(unittest.TestCase):
             encoding='utf-8'
         )
 
+        self.assertIn('ca-certificates curl git rsync', content)
         self.assertIn('uv python install 3.12', content)
         self.assertIn('uv pip sync', content)
         self.assertIn('requirements.txt', content)
@@ -94,6 +95,12 @@ class DeploymentContractTests(unittest.TestCase):
         self.assertIn('--preflight-only', content)
         self.assertIn('preflight=ok', content)
         self.assertIn('IdentitiesOnly=yes', content)
+
+    def test_oci_deploy_resumes_large_syncs_with_tolerant_keepalive(self):
+        content = (ROOT / 'deploy_to_oci.sh').read_text(encoding='utf-8')
+
+        self.assertIn('OCI_SSH_SERVER_ALIVE_COUNT_MAX:-12', content)
+        self.assertIn("--partial-dir '.rsync-partial'", content)
 
     def test_uv_bootstrap_pins_python_312_baseline(self):
         self.assertEqual(
