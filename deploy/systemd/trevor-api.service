@@ -15,6 +15,11 @@ Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
 EnvironmentFile=-/etc/trevor/trevor.env
 LoadCredential=nvidia_api_key:/etc/trevor/credentials/nvidia_api_key
+LoadCredential=gemini_api_key:/etc/trevor/credentials/gemini_api_key
+LoadCredential=groq_api_key:/etc/trevor/credentials/groq_api_key
+LoadCredential=cerebras_api_key:/etc/trevor/credentials/cerebras_api_key
+LoadCredential=openrouter_api_key:/etc/trevor/credentials/openrouter_api_key
+LoadCredential=cloudflare_api_key:/etc/trevor/credentials/cloudflare_api_key
 LoadCredential=trevor_api_hmac:/etc/trevor/credentials/trevor_api_hmac
 LoadCredential=trevor_memory_key_b64:/etc/trevor/credentials/trevor_memory_key_b64
 LoadCredential=ai_horde_api_key:/etc/trevor/credentials/ai_horde_api_key

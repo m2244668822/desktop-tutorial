@@ -1,14 +1,14 @@
 # Core desktop / agent runtime
 pywebview==6.1
-python-dotenv==1.2.1
+python-dotenv==1.2.3
 httpx==0.28.1
 tenacity==9.1.4
 pydantic==2.12.5
-cryptography>=46,<47
+cryptography==50.0.0
 openai
 anthropic
 google-genai
-requests
+requests==2.34.2
 Flask>=3,<4
 Flask-SQLAlchemy>=3,<4
 Flask-Limiter>=4,<5
@@ -16,9 +16,7 @@ ollama>=0.6,<1
 groq==1.0.0
 langgraph
 langchain
-chromadb
 faiss-cpu
-sentence-transformers
 autogen-agentchat
 autogen-ext
 pathvalidate==3.3.1

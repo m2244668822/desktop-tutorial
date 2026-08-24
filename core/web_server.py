@@ -31,6 +31,7 @@ from core.audit_chain import HashChainAuditLog
 from core.autonomy import AutonomyPolicy, AutonomyQueue, mark_user_activity
 from core.capability_registry import build_capability_registry
 from core.data_paths import ProjectPaths
+from core.network_status import tailscale_status
 from core.openclaw_adapter import OpenClawAdapter
 from core.task_board import task_items_payload, task_summary_payload
 from core.traffic_governor import decide_route
@@ -207,7 +208,7 @@ class WebServerMode:
             }
         }
         try:
-            provider_payload = (self.bridge.get_api_onboarding_info() or {}).get("providers", {})
+            provider_payload = self.bridge.get_trevor_provider_status() or {}
         except Exception:
             provider_payload = {}
         capability_registry = build_capability_registry(
@@ -333,7 +334,7 @@ class WebServerMode:
         device_migration = migration_manifest(device_migration_manifest)
         graphiti_migration = migration_manifest(graphiti_migration_manifest)
         device_migration_ready = bool(device_migration)
-        graphiti_migration_ready = bool(graphiti_migration)
+        graphiti_migration_ready = bool(graphiti_migration.get("completed") is True)
         if device_migration_ready and graphiti_migration_ready:
             migration_state = "ready"
         elif device_migration_ready:
@@ -346,7 +347,7 @@ class WebServerMode:
             queued_tasks = self.autonomy_queue.tasks()
         except (RuntimeError, OSError, AttributeError):
             queued_tasks = []
-        tailscale_socket = Path("/var/run/tailscale/tailscaled.sock")
+        private_network = tailscale_status()
         return {
             "ok": bool(readiness.get("required_ready")),
             "identity": normalize_trevor_identity().public_dict(),
@@ -373,9 +374,7 @@ class WebServerMode:
             },
             "tailscale": {
                 "private_only": True,
-                "configured": bool(
-                    os.getenv("TAILSCALE_HOSTNAME", "").strip() or tailscale_socket.exists()
-                ),
+                **private_network,
             },
             "data_migration": {
                 "manifest_ready": device_migration_ready and graphiti_migration_ready,
@@ -390,8 +389,17 @@ class WebServerMode:
                 },
                 "graphiti": {
                     "ready": graphiti_migration_ready,
+                    "status": str(
+                        graphiti_migration.get("status", "pending") or "pending"
+                    ),
                     "migrated_count": int(
                         graphiti_migration.get("migrated_count", 0) or 0
+                    ),
+                    "source_count": int(
+                        graphiti_migration.get("source_count", 0) or 0
+                    ),
+                    "failed_count": int(
+                        graphiti_migration.get("failed_count", 0) or 0
                     ),
                     "redacted": True,
                 },
@@ -1114,6 +1122,37 @@ class WebServerMode:
                         )
                         return
                     self._send_json(result, status=HTTPStatus.ACCEPTED)
+                    return
+
+                if route_path == "/api/trevor/search":
+                    if self._require_scope("chat") is None:
+                        return
+                    query_text = str(payload.get("query", "") or "").strip()
+                    if not query_text:
+                        self._send_json(
+                            {"ok": False, "error": "search_query_required"},
+                            status=HTTPStatus.BAD_REQUEST,
+                        )
+                        return
+                    try:
+                        search_limit = max(1, min(int(payload.get("limit", 5) or 5), 10))
+                    except (TypeError, ValueError):
+                        self._send_json(
+                            {"ok": False, "error": "invalid_limit"},
+                            status=HTTPStatus.BAD_REQUEST,
+                        )
+                        return
+                    result = server_instance.bridge.search_web(query_text, limit=search_limit)
+                    self._send_json(
+                        {
+                            **result,
+                            "identity": {
+                                "id": TREVOR_AGENT_ID,
+                                "display_name": TREVOR_DISPLAY_NAME,
+                            },
+                        },
+                        status=HTTPStatus.OK if result.get("ok") else HTTPStatus.SERVICE_UNAVAILABLE,
+                    )
                     return
 
                 if route_path == "/api/trevor/tasks":

@@ -22,6 +22,15 @@ class _Bridge:
     def send_message(self, *args, **kwargs):
         return {'ok': True, 'reply': '收到', 'agent': 'trevor', 'role': '崔佛'}
 
+    def search_web(self, query, *, limit=5):
+        return {
+            'ok': True,
+            'query': query,
+            'results': [{'title': 'Result', 'url': 'https://example.invalid', 'snippet': 'Safe'}][
+                :limit
+            ],
+        }
+
 
 class TrevorTaskApiTests(unittest.TestCase):
     def setUp(self):
@@ -113,6 +122,18 @@ class TrevorTaskApiTests(unittest.TestCase):
         self.assertEqual(401, denied_status)
         self.assertEqual('authentication_required', denied['error'])
         self.assertEqual(200, allowed_status)
+
+    def test_web_search_endpoint_runs_only_as_trevor_chat_capability(self):
+        status, payload = self._json(
+            '/api/trevor/search',
+            {'query': '最新 Trevor 狀態', 'limit': 3},
+        )
+
+        self.assertEqual(200, status)
+        self.assertEqual('trevor', payload['identity']['id'])
+        self.assertEqual('崔佛', payload['identity']['display_name'])
+        self.assertTrue(payload['ok'])
+        self.assertEqual('Result', payload['results'][0]['title'])
 
 
 if __name__ == '__main__':

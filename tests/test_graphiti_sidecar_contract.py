@@ -29,6 +29,25 @@ class _FakeGraphiti:
 
 
 class GraphitiSidecarContractTests(unittest.IsolatedAsyncioTestCase):
+    def test_sidecar_adapters_implement_graphiti_client_contracts(self):
+        from services.graphiti_sidecar.trevor_graphiti.gemini_reranker import (
+            TrevorGeminiReranker,
+        )
+        from services.graphiti_sidecar.trevor_graphiti.graphiti_contracts import (
+            CrossEncoderClient,
+            EmbedderClient,
+        )
+        from services.graphiti_sidecar.trevor_graphiti.lexical_reranker import (
+            TrevorLexicalReranker,
+        )
+        from services.graphiti_sidecar.trevor_graphiti.ollama_embedder import (
+            OllamaEmbedder,
+        )
+
+        self.assertTrue(issubclass(OllamaEmbedder, EmbedderClient))
+        self.assertTrue(issubclass(TrevorGeminiReranker, CrossEncoderClient))
+        self.assertTrue(issubclass(TrevorLexicalReranker, CrossEncoderClient))
+
     def test_runtime_secret_prefers_systemd_then_native_keychain(self):
         from services.graphiti_sidecar.trevor_graphiti import runtime
 
@@ -54,6 +73,38 @@ class GraphitiSidecarContractTests(unittest.IsolatedAsyncioTestCase):
             value = runtime.load_runtime_secret('gemini_api_key', 'GEMINI_API_KEY')
 
         self.assertEqual('keychain-secret', value)
+
+    def test_runtime_secret_prefers_environment_without_touching_keychain(self):
+        from services.graphiti_sidecar.trevor_graphiti import runtime
+
+        with mock.patch.dict(
+            os.environ,
+            {'NVIDIA_API_KEY': 'environment-secret'},
+            clear=True,
+        ), mock.patch.object(
+            runtime, '_macos_keychain_secret', return_value='keychain-secret'
+        ) as keychain:
+            value = runtime.load_runtime_secret('nvidia_api_key', 'NVIDIA_API_KEY')
+
+        self.assertEqual('environment-secret', value)
+        keychain.assert_not_called()
+
+    def test_runtime_secret_honors_noninteractive_keychain_disable(self):
+        from services.graphiti_sidecar.trevor_graphiti import runtime
+
+        with mock.patch.dict(
+            os.environ,
+            {'TREVOR_DISABLE_KEYCHAIN': 'true'},
+            clear=True,
+        ), mock.patch.object(
+            runtime.platform, 'system', return_value='Darwin'
+        ), mock.patch.object(
+            runtime, '_macos_keychain_secret', return_value='keychain-secret'
+        ) as keychain:
+            value = runtime.load_runtime_secret('nvidia_api_key', 'NVIDIA_API_KEY')
+
+        self.assertEqual('', value)
+        keychain.assert_not_called()
 
     async def test_runtime_awaits_existing_driver_initialization_once(self):
         from services.graphiti_sidecar.trevor_graphiti.runtime import (
@@ -106,6 +157,11 @@ class GraphitiSidecarContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual('0.10.0', config.falkordblite_version)
         self.assertEqual('gemini-3.7-flash', config.extraction_model)
         self.assertEqual('gemini-3.5-flash-lite', config.rerank_model)
+        self.assertEqual('auto', config.llm_provider)
+        self.assertEqual(
+            'nvidia/nemotron-3-ultra-550b-a55b',
+            config.nvidia_extraction_model,
+        )
         self.assertEqual('nomic-embed-text', config.embedding_model)
         with self.assertRaises(ValueError):
             SidecarConfig.from_env({'TREVOR_GRAPHITI_HOST': '0.0.0.0'})
@@ -118,6 +174,36 @@ class GraphitiSidecarContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(embedded_runtime_supported('Darwin', 'x86_64'))
         self.assertTrue(embedded_runtime_supported('Linux', 'x86_64'))
         self.assertTrue(embedded_runtime_supported('Darwin', 'arm64'))
+
+    def test_graphiti_llm_provider_falls_back_to_nvidia_without_fake_gemini_key(self):
+        from services.graphiti_sidecar.trevor_graphiti.runtime import (
+            select_graphiti_llm_provider,
+        )
+
+        self.assertEqual(
+            'gemini',
+            select_graphiti_llm_provider('auto', 'AIza' + ('x' * 35), 'nvapi-key'),
+        )
+        self.assertEqual(
+            'nvidia',
+            select_graphiti_llm_provider('auto', 'nvapi-duplicated-value', 'nvapi-key'),
+        )
+        with self.assertRaisesRegex(RuntimeError, 'graphiti_llm_credential_missing'):
+            select_graphiti_llm_provider('auto', '', '')
+
+    async def test_lexical_reranker_is_deterministic_and_network_free(self):
+        from services.graphiti_sidecar.trevor_graphiti.lexical_reranker import (
+            TrevorLexicalReranker,
+        )
+
+        reranker = TrevorLexicalReranker()
+        ranked = await reranker.rank(
+            'trevor memory',
+            ['unrelated text', 'trevor persistent memory', 'memory only'],
+        )
+
+        self.assertEqual('trevor persistent memory', ranked[0][0])
+        self.assertGreater(ranked[0][1], ranked[-1][1])
 
     def test_sidecar_dependency_versions_are_isolated_and_pinned(self):
         root = Path(__file__).resolve().parents[1]

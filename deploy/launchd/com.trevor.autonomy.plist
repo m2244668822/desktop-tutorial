@@ -29,6 +29,8 @@
     <string>mac</string>
     <key>TREVOR_MEMORY_ENCRYPTION</key>
     <string>required</string>
+    <key>TREVOR_DISABLE_KEYCHAIN</key>
+    <string>true</string>
   </dict>
   <key>WorkingDirectory</key>
   <string>__TREVOR_ROOT__</string>

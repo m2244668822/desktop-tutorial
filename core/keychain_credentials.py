@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import platform
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -34,6 +35,10 @@ class MacOSKeychainBackend:
             security.kSecReturnData: True,
             security.kSecMatchLimit: security.kSecMatchLimitOne,
         }
+        authentication_ui = getattr(security, "kSecUseAuthenticationUI", None)
+        authentication_ui_fail = getattr(security, "kSecUseAuthenticationUIFail", None)
+        if authentication_ui is not None and authentication_ui_fail is not None:
+            query[authentication_ui] = authentication_ui_fail
         status, data = security.SecItemCopyMatching(query, None)
         if status == security.errSecItemNotFound:
             return None
@@ -84,7 +89,13 @@ class CredentialResult:
 class KeychainCredentialStore:
     def __init__(self, *, backend: CredentialBackend | None = None):
         self.backend = backend
-        if self.backend is None and platform.system() == "Darwin":
+        disabled = str(os.getenv("TREVOR_DISABLE_KEYCHAIN", "") or "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        if self.backend is None and not disabled and platform.system() == "Darwin":
             try:
                 self.backend = MacOSKeychainBackend()
             except Exception:

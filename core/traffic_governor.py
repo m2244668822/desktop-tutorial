@@ -89,9 +89,7 @@ def decide_route(
         )
     )
     bridge_ready = _capability_ready(capability_registry, "desktop_bridge") or True
-    local_model_ready = _capability_ready(capability_registry, "airllm") or _capability_ready(
-        capability_registry, "ollama"
-    )
+    local_model_ready = _capability_ready(capability_registry, "ollama")
     cloud_ready = _capability_ready(capability_registry, "cloud_providers")
 
     if local_memory_ready:

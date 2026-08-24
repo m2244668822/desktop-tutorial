@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+export TREVOR_DISABLE_KEYCHAIN=true
 
 if [[ -z "${PYTHON_BIN:-}" ]]; then
   PYTHON_BIN=""

@@ -15,8 +15,11 @@ class SidecarConfig:
     graph_name: str
     graphiti_version: str
     falkordblite_version: str
+    llm_provider: str
     extraction_model: str
     rerank_model: str
+    nvidia_extraction_model: str
+    nvidia_base_url: str
     embedding_model: str
     ollama_base_url: str
     query_concurrency: int
@@ -43,6 +46,11 @@ class SidecarConfig:
         query_concurrency = max(
             1, min(2, int(values.get('TREVOR_GRAPHITI_QUERY_CONCURRENCY', '1') or '1'))
         )
+        llm_provider = str(
+            values.get('TREVOR_GRAPHITI_LLM_PROVIDER', 'auto') or 'auto'
+        ).strip().lower()
+        if llm_provider not in {'auto', 'gemini', 'nvidia'}:
+            raise ValueError('TREVOR_GRAPHITI_LLM_PROVIDER must be auto, gemini, or nvidia')
         return cls(
             host=host,
             port=int(values.get('TREVOR_GRAPHITI_PORT', '8091') or '8091'),
@@ -50,6 +58,7 @@ class SidecarConfig:
             graph_name=str(values.get('TREVOR_GRAPHITI_GRAPH', 'trevor') or 'trevor'),
             graphiti_version='0.29.3',
             falkordblite_version='0.10.0',
+            llm_provider=llm_provider,
             extraction_model=str(
                 values.get('TREVOR_GRAPHITI_EXTRACTION_MODEL', 'gemini-3.7-flash')
                 or 'gemini-3.7-flash'
@@ -58,6 +67,20 @@ class SidecarConfig:
                 values.get('TREVOR_GRAPHITI_RERANK_MODEL', 'gemini-3.5-flash-lite')
                 or 'gemini-3.5-flash-lite'
             ),
+            nvidia_extraction_model=str(
+                values.get(
+                    'TREVOR_GRAPHITI_NVIDIA_MODEL',
+                    'nvidia/nemotron-3-ultra-550b-a55b',
+                )
+                or 'nvidia/nemotron-3-ultra-550b-a55b'
+            ),
+            nvidia_base_url=str(
+                values.get(
+                    'TREVOR_GRAPHITI_NVIDIA_BASE_URL',
+                    'https://integrate.api.nvidia.com/v1',
+                )
+                or 'https://integrate.api.nvidia.com/v1'
+            ).rstrip('/'),
             embedding_model=str(
                 values.get('TREVOR_GRAPHITI_EMBEDDING_MODEL', 'nomic-embed-text')
                 or 'nomic-embed-text'

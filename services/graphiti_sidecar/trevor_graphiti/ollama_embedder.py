@@ -3,8 +3,10 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
+from .graphiti_contracts import EmbedderClient
 
-class OllamaEmbedder:
+
+class OllamaEmbedder(EmbedderClient):
     def __init__(
         self,
         *,

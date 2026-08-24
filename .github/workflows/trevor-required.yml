@@ -50,3 +50,33 @@ jobs:
           TREVOR_MEMORY_ENCRYPTION: required
           TREVOR_MEMORY_KEY_B64: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
         run: python -m unittest discover -s tests -p 'test_*.py'
+
+      - name: Graphiti Linux smoke
+        env:
+          NVIDIA_API_KEY: ci-placeholder-not-a-real-key
+          TREVOR_DISABLE_KEYCHAIN: 'true'
+          TREVOR_GRAPHITI_LLM_PROVIDER: nvidia
+          TREVOR_GRAPHITI_TOKEN: ci-internal-token
+          TREVOR_DATA_DIR: ${{ runner.temp }}/trevor-data
+        run: |
+          python -m pip install uv==0.10.10
+          UV_PROJECT_ENVIRONMENT="${RUNNER_TEMP}/trevor-graphiti-venv" \
+            uv sync --project services/graphiti_sidecar --frozen --no-dev
+          "${RUNNER_TEMP}/trevor-graphiti-venv/bin/trevor-graphiti" \
+            >"${RUNNER_TEMP}/trevor-graphiti.log" 2>&1 &
+          graphiti_pid=$!
+          trap 'kill "$graphiti_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8091/health \
+              >"${RUNNER_TEMP}/trevor-graphiti-health.json"; then
+              cat "${RUNNER_TEMP}/trevor-graphiti-health.json"
+              exit 0
+            fi
+            if ! kill -0 "$graphiti_pid" 2>/dev/null; then
+              cat "${RUNNER_TEMP}/trevor-graphiti.log"
+              exit 1
+            fi
+            sleep 1
+          done
+          cat "${RUNNER_TEMP}/trevor-graphiti.log"
+          exit 1

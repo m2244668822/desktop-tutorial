@@ -4,8 +4,10 @@ import asyncio
 import re
 from typing import Any
 
+from .graphiti_contracts import CrossEncoderClient
 
-class TrevorGeminiReranker:
+
+class TrevorGeminiReranker(CrossEncoderClient):
     def __init__(self, *, api_key: str, model: str, client: Any | None = None):
         if client is None:
             from google import genai

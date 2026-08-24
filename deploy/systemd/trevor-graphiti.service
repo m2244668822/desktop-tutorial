@@ -17,6 +17,7 @@ Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
 EnvironmentFile=-/etc/trevor/trevor.env
 LoadCredential=gemini_api_key:/etc/trevor/credentials/gemini_api_key
+LoadCredential=nvidia_api_key:/etc/trevor/credentials/nvidia_api_key
 LoadCredential=graphiti_token:/etc/trevor/credentials/graphiti_token
 ExecStart=/opt/trevor/app/services/graphiti_sidecar/.venv/bin/trevor-graphiti
 Restart=on-failure

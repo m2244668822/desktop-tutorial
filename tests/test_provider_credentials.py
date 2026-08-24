@@ -17,7 +17,32 @@ class _Backend:
         self.values.pop((service, account), None)
 
 
+class _FailIfReadBackend(_Backend):
+    def __init__(self):
+        super().__init__()
+        self.called = False
+
+    def get(self, service, account):
+        self.called = True
+        return None
+
+
 class ProviderCredentialTests(unittest.TestCase):
+    def test_staged_credentials_directory_disables_keychain_fallback(self):
+        from core.keychain_credentials import KeychainCredentialStore
+        from core.provider_credentials import ProviderCredentialResolver
+
+        with tempfile.TemporaryDirectory() as tmp:
+            backend = _FailIfReadBackend()
+            resolver = ProviderCredentialResolver(
+                credential_store=KeychainCredentialStore(backend=backend),
+                credentials_directory=tmp,
+            )
+            result = resolver.resolve('groq')
+
+        self.assertFalse(result.configured)
+        self.assertEqual('none', result.source)
+        self.assertFalse(backend.called)
     def test_systemd_credential_precedes_keychain_without_repr_leak(self):
         from core.keychain_credentials import KeychainCredentialStore
         from core.provider_credentials import ProviderCredentialResolver

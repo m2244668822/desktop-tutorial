@@ -4,9 +4,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from pathlib import Path
 from urllib import error as urllib_error
 from urllib import request as urllib_request
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from core.graphiti_migration import GraphitiMigrationRunner
 from core.audit_chain import HashChainAuditLog
@@ -23,11 +28,21 @@ def _credential(name: str, env_name: str) -> str:
             value = ''
         if value:
             return value
+    environment_value = str(os.getenv(env_name, '') or '').strip()
+    if environment_value:
+        return environment_value
+    if str(os.getenv('TREVOR_DISABLE_KEYCHAIN', '') or '').strip().lower() in {
+        '1',
+        'true',
+        'yes',
+        'on',
+    }:
+        return ''
     account = name.replace('_', '-')
     keychain = KeychainCredentialStore().get_secret('trevor.providers', account)
     if keychain.configured:
         return keychain.value
-    return str(os.getenv(env_name, '') or '').strip()
+    return ''
 
 
 def _sender(base_url: str, token: str):

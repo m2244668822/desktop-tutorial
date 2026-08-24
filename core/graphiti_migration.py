@@ -58,6 +58,7 @@ class GraphitiMigrationRunner:
         previous = _read_manifest(self.manifest_path)
         migrated_hashes = set(previous.get('content_hashes', []) or [])
         seen_this_run: set[str] = set()
+        source_hashes: set[str] = set()
         migrated = 0
         skipped = 0
         failed = 0
@@ -70,6 +71,7 @@ class GraphitiMigrationRunner:
                 content_hash = str(
                     (message.get('metadata') or {}).get('content_hash', '') or ''
                 ) or _content_hash(message.get('user'), message.get('assistant'))
+                source_hashes.add(content_hash)
                 if content_hash in migrated_hashes or content_hash in seen_this_run:
                     skipped += 1
                     continue
@@ -109,12 +111,17 @@ class GraphitiMigrationRunner:
                     continue
                 migrated_hashes.add(content_hash)
                 migrated += 1
+        completed = failed == 0
         manifest = {
             'schema_version': 1,
             'graphiti_version': '0.29.3',
             'identity': 'trevor',
             'generated_at': datetime.now(timezone.utc).isoformat(),
             'migrated_count': len(migrated_hashes),
+            'source_count': len(source_hashes),
+            'failed_count': failed,
+            'completed': completed,
+            'status': 'completed' if completed else 'incomplete',
             'content_hashes': sorted(migrated_hashes),
             'deduplication': 'sha256_normalized_turn',
             'redacted_before_upload': True,
@@ -122,7 +129,8 @@ class GraphitiMigrationRunner:
         }
         _atomic_manifest(self.manifest_path, manifest)
         result = {
-            'ok': failed == 0,
+            'ok': completed,
+            'completed': completed,
             'migrated': migrated,
             'skipped': skipped,
             'failed': failed,
@@ -139,6 +147,8 @@ class GraphitiMigrationRunner:
                     'skipped': skipped,
                     'failed': failed,
                     'total_migrated': len(migrated_hashes),
+                    'source_count': len(source_hashes),
+                    'completed': completed,
                     'redacted_before_upload': True,
                     'rerunnable': True,
                 },

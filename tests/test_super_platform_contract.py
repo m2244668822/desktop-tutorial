@@ -38,24 +38,43 @@ class _FakeBridge:
 
 
 class SuperPlatformContractTests(unittest.TestCase):
-    def test_capability_registry_marks_airllm_as_isolated_sidecar_and_n8n_optional(self):
+    def test_capability_registry_uses_trevor_provider_truth_and_single_owner(self):
+        from core.capability_registry import build_capability_registry
+
+        with tempfile.TemporaryDirectory() as td:
+            registry = build_capability_registry(
+                td,
+                provider_status={
+                    "providers": [
+                        {
+                            "provider": "nvidia",
+                            "label": "NVIDIA NIM",
+                            "model": "nvidia/control",
+                            "enabled": True,
+                            "health": "available",
+                        }
+                    ]
+                },
+            )
+
+        self.assertEqual(
+            ["nvidia"],
+            [item["provider"] for item in registry["by_id"]["cloud_providers"]["providers"]],
+        )
+        self.assertTrue(registry["by_id"]["cloud_providers"]["ready"])
+        self.assertEqual({"trevor"}, {item["owner_agent"] for item in registry["capabilities"]})
+
+    def test_capability_registry_excludes_retired_airllm_and_keeps_n8n_optional(self):
         from core.capability_registry import build_capability_registry
 
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             (root / ".git").mkdir()
-            (root / ".venv-airllm" / "bin").mkdir(parents=True)
-            (root / ".venv-airllm" / "bin" / "python").write_text("", encoding="utf-8")
-            (root / "requirements-airllm.txt").write_text("airllm\n", encoding="utf-8")
-            (root / "tools").mkdir()
-            (root / "tools" / "airllm_smoke_test.py").write_text("print('ok')\n", encoding="utf-8")
-
             registry = build_capability_registry(root)
 
         by_id = registry["by_id"]
-        self.assertEqual(by_id["airllm"]["status"], "sidecar_ready")
-        self.assertTrue(by_id["airllm"]["isolated_runtime"])
-        self.assertEqual(by_id["airllm"]["cost_class"], "local")
+        self.assertNotIn("airllm", by_id)
+        self.assertEqual(registry["policy"]["cloud_control_core"], "nvidia")
         self.assertFalse(by_id["n8n"]["required"])
         self.assertFalse(by_id["n8n"]["degrades_core_chat"])
 
@@ -69,7 +88,7 @@ class SuperPlatformContractTests(unittest.TestCase):
             capability_registry={
                 "by_id": {
                     "openclaw": {"ready": True, "task_forwarding_ready": True},
-                    "airllm": {"ready": True},
+                    "ollama": {"ready": True},
                 }
             },
         )

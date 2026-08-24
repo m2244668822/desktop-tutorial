@@ -14,10 +14,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from core.data_paths import resolve_data_root
 from core.trevor_identity import TREVOR_AGENT_ID, TREVOR_DISPLAY_NAME, normalize_trevor_identity
 
 STATUS_KEYS = ("pending", "running", "completed", "failed")
-UNRESOLVED_STATUSES = {"pending", "running", "failed"}
+UNRESOLVED_STATUSES = {"pending", "running"}
 
 STATUS_ALIASES = {
     "todo": "pending",
@@ -119,10 +120,8 @@ def _capability_mode(route: Any) -> str:
 
 def _queue_files(workspace_root: Path) -> list[Path]:
     root = Path(workspace_root).expanduser().resolve()
-    candidates = [
-        root / "data" / "autonomy" / "task_queue.json",
-        root / "data_hdd_storage" / "autonomy" / "task_queue.json",
-    ]
+    data_root = resolve_data_root(root)
+    candidates = [data_root / "autonomy" / "task_queue.json"]
     seen: set[str] = set()
     result: list[Path] = []
     for path in candidates:
@@ -136,10 +135,15 @@ def _queue_files(workspace_root: Path) -> list[Path]:
 
 
 def _workflow_log_files(workspace_root: Path, max_workflow_logs: int = 500) -> list[Path]:
-    logs_dir = Path(workspace_root).expanduser().resolve() / "logs" / "workflow_runs"
-    if not logs_dir.is_dir():
-        return []
-    files = [p for p in logs_dir.glob("*.json") if p.is_file()]
+    data_root = resolve_data_root(Path(workspace_root).expanduser().resolve())
+    log_dirs = (data_root / "workflow_runs", data_root / "logs" / "workflow_runs")
+    files = [
+        path
+        for logs_dir in log_dirs
+        if logs_dir.is_dir()
+        for path in logs_dir.glob("*.json")
+        if path.is_file()
+    ]
     files.sort(key=_path_mtime, reverse=True)
     return files[:max(0, max_workflow_logs)]
 

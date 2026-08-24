@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from core.runtime_capabilities import (
     build_runtime_capability_manifest,
@@ -10,6 +11,16 @@ from core.runtime_capabilities import (
 
 
 class RuntimeCapabilityTruthTests(unittest.TestCase):
+    def test_langgraph_capability_probe_does_not_import_runtime_stack(self):
+        from desktop_chat_app import DesktopBridge
+
+        bridge = DesktopBridge.__new__(DesktopBridge)
+        bridge._langgraph_status_cache = {"checked_at": 0.0, "available": False}
+        with patch("desktop_chat_app.find_spec", return_value=object()) as find_spec:
+            self.assertTrue(bridge._langgraph_available_now(ttl_sec=0))
+
+        find_spec.assert_called_once_with("langgraph")
+
     def test_manifest_and_reply_report_runtime_truth_without_model_seat_denials(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             workspace = Path(temporary_directory)
