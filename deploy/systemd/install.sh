@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export PATH="/usr/local/bin:$PATH"
 
 if [ "${EUID:-$(id -u)}" -ne 0 ]; then
   echo "run as root" >&2

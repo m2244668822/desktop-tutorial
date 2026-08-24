@@ -81,6 +81,7 @@ class DeploymentContractTests(unittest.TestCase):
             encoding='utf-8'
         )
 
+        self.assertIn('export PATH="/usr/local/bin:$PATH"', content)
         self.assertIn('ca-certificates curl git rsync', content)
         self.assertIn('uv python install 3.12', content)
         self.assertIn('uv pip sync', content)
