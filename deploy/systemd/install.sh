@@ -9,6 +9,7 @@ fi
 
 SOURCE_ROOT="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 APP_ROOT="/opt/trevor/app"
+PYTHON_ROOT="/opt/trevor/python"
 DATA_ROOT="/var/lib/trevor"
 CONFIG_ROOT="/etc/trevor"
 CREDENTIAL_ROOT="$CONFIG_ROOT/credentials"
@@ -60,6 +61,7 @@ fi
 
 install -d -o trevor -g trevor -m 0700 "$DATA_ROOT" "$UV_CACHE_ROOT"
 install -d -o root -g root -m 0755 /opt/trevor "$APP_ROOT" "$CONFIG_ROOT"
+install -d -o trevor -g trevor -m 0755 "$PYTHON_ROOT"
 install -d -o root -g root -m 0700 "$CREDENTIAL_ROOT"
 
 if [ "$(realpath "$SOURCE_ROOT")" != "$(realpath "$APP_ROOT")" ]; then
@@ -69,15 +71,30 @@ fi
 chown -R trevor:trevor "$APP_ROOT"
 cd "$APP_ROOT"
 
-uv python install 3.12
-runuser -u trevor -- env UV_CACHE_DIR="$UV_CACHE_ROOT" \
+runuser -u trevor -- env \
+  UV_CACHE_DIR="$UV_CACHE_ROOT" \
+  UV_PYTHON_INSTALL_DIR="$PYTHON_ROOT" \
+  uv python install 3.12
+runuser -u trevor -- env \
+  UV_CACHE_DIR="$UV_CACHE_ROOT" \
+  UV_PYTHON_INSTALL_DIR="$PYTHON_ROOT" \
   uv venv --python 3.12 --clear "$APP_ROOT/.venv"
-runuser -u trevor -- env UV_CACHE_DIR="$UV_CACHE_ROOT" \
+runuser -u trevor -- env \
+  UV_CACHE_DIR="$UV_CACHE_ROOT" \
+  UV_PYTHON_INSTALL_DIR="$PYTHON_ROOT" \
   uv pip sync --python "$APP_ROOT/.venv/bin/python" "$APP_ROOT/requirements.txt"
 runuser -u trevor -- env \
   UV_CACHE_DIR="$UV_CACHE_ROOT" \
+  UV_PYTHON_INSTALL_DIR="$PYTHON_ROOT" \
+  uv venv --python 3.12 --clear "$APP_ROOT/services/graphiti_sidecar/.venv"
+runuser -u trevor -- env \
+  UV_CACHE_DIR="$UV_CACHE_ROOT" \
+  UV_PYTHON_INSTALL_DIR="$PYTHON_ROOT" \
   UV_PROJECT_ENVIRONMENT="$APP_ROOT/services/graphiti_sidecar/.venv" \
   uv sync --project "$APP_ROOT/services/graphiti_sidecar" --frozen --no-dev
+if command -v restorecon >/dev/null 2>&1; then
+  restorecon -RF "$PYTHON_ROOT" "$APP_ROOT"
+fi
 
 audit_deployment() {
   local status="$1"
@@ -156,7 +173,8 @@ install -o root -g root -m 0644 "$APP_ROOT/deploy/systemd/trevor.target" /etc/sy
 systemctl daemon-reload
 systemctl enable --now trevor.target
 
-if command -v tailscale >/dev/null 2>&1; then
+if command -v tailscale >/dev/null 2>&1 \
+  && tailscale status >/dev/null 2>&1; then
   tailscale serve --bg --https=443 http://127.0.0.1:5001
 fi
 
