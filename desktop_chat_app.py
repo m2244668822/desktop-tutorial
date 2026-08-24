@@ -2967,13 +2967,14 @@ class DesktopBridge:
             workflow_payload["llm_live"] = dict(live_llm_meta)
         self.last_live_llm_meta = dict(live_llm_meta)
 
-        reply = self._apply_reply_diversity(
-            message=message,
-            role=role,
-            analysis=analysis,
-            reply=reply,
-            workflow_ran=workflow_ran,
-        )
+        if live_llm_meta.get("fallback_reason") != "runtime_capability_truth":
+            reply = self._apply_reply_diversity(
+                message=message,
+                role=role,
+                analysis=analysis,
+                reply=reply,
+                workflow_ran=workflow_ran,
+            )
 
         completion = self._evaluate_completion(
             should_run_workflow=should_run_workflow,

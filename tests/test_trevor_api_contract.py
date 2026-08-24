@@ -115,22 +115,26 @@ class TrevorApiContractTests(unittest.TestCase):
             {'ok': True, 'attempted': True, 'provider': 'nvidia'},
         )
 
-        result = self.bridge.send_message(
-            '說明技能安裝與缺失能力',
-            role='崔佛',
-            model_key='nvidia',
-            interaction_mode='discussion',
-        )
+        results = [
+            self.bridge.send_message(
+                '說明技能安裝與缺失能力',
+                role='崔佛',
+                model_key='nvidia',
+                interaction_mode='discussion',
+            )
+            for _ in range(2)
+        ]
 
-        self.assertFalse(result['llm_live']['attempted'])
-        self.assertEqual(
-            'runtime_capability_truth',
-            result['llm_live']['fallback_reason'],
-        )
-        self.assertIn('本機技能包', result['reply'])
-        self.assertIn('工作區檔案：可用', result['reply'])
-        self.assertIn('持久記憶：可用', result['reply'])
-        self.assertNotIn('我沒有外掛式技能安裝機制', result['reply'])
+        for result in results:
+            self.assertFalse(result['llm_live']['attempted'])
+            self.assertEqual(
+                'runtime_capability_truth',
+                result['llm_live']['fallback_reason'],
+            )
+            self.assertIn('本機技能包', result['reply'])
+            self.assertIn('工作區檔案：可用', result['reply'])
+            self.assertIn('持久記憶：可用', result['reply'])
+            self.assertNotIn('我沒有外掛式技能安裝機制', result['reply'])
 
     def test_send_route_accepts_new_contract_fields(self):
         source = WEB_SERVER.read_text(encoding='utf-8')
