@@ -65,6 +65,38 @@ class TaskBoardTrevorIdentityTests(unittest.TestCase):
         self.assertEqual('coding', item['capability_mode'])
         self.assertEqual('trevor', item['route'])
 
+    def test_workspace_workflow_logs_remain_visible_with_external_data_root(self):
+        from core.task_board import task_items_payload
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / 'workspace'
+            data_root = root / 'trevor-data'
+            workflow_log = workspace / 'logs' / 'workflow_runs' / 'wf-1.json'
+            workflow_log.parent.mkdir(parents=True)
+            workflow_log.write_text(
+                json.dumps(
+                    {
+                        'task_state': {
+                            'task_id': 'wf-1',
+                            'route': '工程師',
+                            'user_input': '修復工作流程',
+                            'overall_status': 'success',
+                            'completed_steps': 2,
+                            'failed_steps': 0,
+                        }
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding='utf-8',
+            )
+
+            with patch.dict(os.environ, {'TREVOR_DATA_DIR': str(data_root)}):
+                payload = task_items_payload(workspace)
+
+        self.assertEqual(['wf-1'], [item['task_id'] for item in payload['items']])
+        self.assertEqual('workflow_log', payload['items'][0]['source'])
+
 
 if __name__ == '__main__':
     unittest.main()

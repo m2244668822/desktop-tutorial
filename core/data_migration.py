@@ -105,6 +105,7 @@ class TrevorDataMigrator:
         user: Any,
         assistant: Any,
         metadata: Mapping[str, Any] | None = None,
+        thread_id_override: str = "",
     ) -> None:
         user_text = str(user or "").strip()
         assistant_text = str(assistant or "").strip()
@@ -115,7 +116,7 @@ class TrevorDataMigrator:
             return
         self._turns.add(content_hash)
         identity = normalize_trevor_identity(role=source_role)
-        thread_id = hashlib.sha256(
+        thread_id = str(thread_id_override or "").strip() or hashlib.sha256(
             f"{source}:{thread_hint}".encode("utf-8")
         ).hexdigest()[:24]
         thread = self._conversations.setdefault(
@@ -148,7 +149,13 @@ class TrevorDataMigrator:
             thread["last_message_at"] = timestamp
         self._source_counts[source] = self._source_counts.get(source, 0) + 1
 
-    def _ingest_manager_file(self, path: Path, source: str) -> None:
+    def _ingest_manager_file(
+        self,
+        path: Path,
+        source: str,
+        *,
+        preserve_thread_ids: bool = False,
+    ) -> None:
         payload = self._read_private_json(path, {})
         if not isinstance(payload, dict):
             return
@@ -170,6 +177,7 @@ class TrevorDataMigrator:
                     user=message.get("user", ""),
                     assistant=message.get("assistant", ""),
                     metadata=metadata,
+                    thread_id_override=str(thread_id) if preserve_thread_ids else "",
                 )
 
     def _ingest_legacy_list(self, path: Path) -> None:
@@ -319,7 +327,6 @@ class TrevorDataMigrator:
         self._source_counts.clear()
         copied_files = self._copy_runtime_files()
         destination_file = self.destination / "agent_memories" / "conversations.json"
-        self._ingest_manager_file(destination_file, "trevor_runtime")
         self._ingest_manager_file(
             self.workspace / "data" / "agent_memories" / "conversations.json",
             "workspace_data",
@@ -338,6 +345,11 @@ class TrevorDataMigrator:
             / "data"
             / "local_knowledge"
             / "complete_chatgpt_database.json"
+        )
+        self._ingest_manager_file(
+            destination_file,
+            "trevor_runtime",
+            preserve_thread_ids=True,
         )
         self.json_store.write_json(destination_file, self._conversations)
         manifest = {

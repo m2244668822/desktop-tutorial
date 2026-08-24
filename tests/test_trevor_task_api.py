@@ -13,14 +13,24 @@ from core.web_server import WebServerMode
 
 class _Store:
     def authenticate(self, api_key, *, required_scope):
-        if api_key == 'valid' and required_scope in {'tasks', 'chat'}:
+        if api_key == 'valid' and required_scope in {'tasks', 'chat', 'memory'}:
             return {'ok': True, 'key_id': 'task-key'}
         return {'ok': False, 'error': 'scope_denied'}
 
 
 class _Bridge:
+    memory_manager = None
+
     def send_message(self, *args, **kwargs):
         return {'ok': True, 'reply': '收到', 'agent': 'trevor', 'role': '崔佛'}
+
+    def rerun_workflow_step(self, task_id, tool_name, step_index):
+        return {
+            'ok': True,
+            'task_id': task_id,
+            'tool_name': tool_name,
+            'step_index': step_index,
+        }
 
     def search_web(self, query, *, limit=5):
         return {
@@ -134,6 +144,52 @@ class TrevorTaskApiTests(unittest.TestCase):
         self.assertEqual('崔佛', payload['identity']['display_name'])
         self.assertTrue(payload['ok'])
         self.assertEqual('Result', payload['results'][0]['title'])
+
+    def test_history_requires_memory_scope_when_authentication_is_enabled(self):
+        self.mode.api_auth_required = True
+
+        denied_status, denied = self._json('/api/conversations', authorized=False)
+        allowed_status, allowed = self._json('/history', authorized=True)
+
+        self.assertEqual(401, denied_status)
+        self.assertEqual('authentication_required', denied['error'])
+        self.assertEqual(200, allowed_status)
+        self.assertEqual([], allowed)
+
+    def test_workflow_rerun_requires_tasks_scope(self):
+        self.mode.api_auth_required = True
+        payload = {'task_id': 'wf-1', 'tool_name': 'test', 'step_index': 0}
+
+        denied_status, denied = self._json(
+            '/api/rerun_workflow_step', payload, authorized=False
+        )
+        allowed_status, allowed = self._json(
+            '/api/rerun_workflow_step', payload, authorized=True
+        )
+
+        self.assertEqual(401, denied_status)
+        self.assertEqual('authentication_required', denied['error'])
+        self.assertEqual(200, allowed_status)
+        self.assertTrue(allowed['ok'])
+
+    def test_browser_session_exchanges_api_key_for_httponly_cookie(self):
+        self.mode.api_auth_required = True
+        request = urllib_request.Request(
+            self.base + '/api/auth/session',
+            data=json.dumps({'api_key': 'valid'}).encode('utf-8'),
+            headers={'Content-Type': 'application/json'},
+            method='POST',
+        )
+
+        with urllib_request.urlopen(request, timeout=3) as response:
+            payload = json.loads(response.read().decode('utf-8'))
+            cookie = response.headers.get('Set-Cookie', '')
+
+        self.assertTrue(payload['ok'])
+        self.assertIn('trevor_session=valid', cookie)
+        self.assertIn('HttpOnly', cookie)
+        self.assertIn('SameSite=Strict', cookie)
+        self.assertIn('Secure', cookie)
 
 
 if __name__ == '__main__':

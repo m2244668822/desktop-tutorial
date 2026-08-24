@@ -86,7 +86,7 @@ PROVIDER_SPECS: tuple[ProviderSpec, ...] = (
         label='Cloudflare Workers AI',
         key_names=('CLOUDFLARE_API_TOKEN',),
         account_id_name='CLOUDFLARE_ACCOUNT_ID',
-        base_url='https://api.cloudflare.com/client/v4/accounts',
+        base_url='https://api.cloudflare.com/client/v4',
         default_model='@cf/meta/llama-3.3-70b-instruct-fp8-fast',
         model_family='llama',
     ),

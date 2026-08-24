@@ -4,6 +4,7 @@ set -euo pipefail
 ACTION="${1:-status}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DATA_ROOT="${TREVOR_DATA_DIR:-$HOME/Library/Application Support/Trevor}"
+CREDENTIAL_ROOT="${TREVOR_CREDENTIAL_SOURCE_DIR:-$HOME/Library/Application Support/Trevor/credentials}"
 LOG_ROOT="$HOME/Library/Logs/Trevor"
 PID_FILE="$DATA_ROOT/run/autonomy-manual.pid"
 STDOUT_FILE="$LOG_ROOT/autonomy.log"
@@ -24,6 +25,13 @@ do
   fi
 done
 [[ -n "$PYTHON_BIN" ]] || { echo "[error] Python runtime not found" >&2; exit 1; }
+
+for credential in nvidia_api_key trevor_memory_key_b64; do
+  [[ -s "$CREDENTIAL_ROOT/$credential" ]] || {
+    echo "[error] missing private credential: $CREDENTIAL_ROOT/$credential" >&2
+    exit 1
+  }
+done
 
 mkdir -p "$DATA_ROOT/run" "$LOG_ROOT"
 chmod 700 "$DATA_ROOT" "$DATA_ROOT/run" "$LOG_ROOT" 2>/dev/null || true
@@ -66,6 +74,7 @@ start_service() {
     --stdout "$STDOUT_FILE" \
     --stderr "$STDERR_FILE" \
     --env "TREVOR_DATA_DIR=$DATA_ROOT" \
+    --env "CREDENTIALS_DIRECTORY=$CREDENTIAL_ROOT" \
     --env "TREVOR_DEPLOYMENT=mac" \
     --env "TREVOR_MEMORY_ENCRYPTION=required" \
     --env "TREVOR_DISABLE_KEYCHAIN=true" \

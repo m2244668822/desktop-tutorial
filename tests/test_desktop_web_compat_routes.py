@@ -52,6 +52,14 @@ class DesktopWebCompatRoutesTests(unittest.TestCase):
         ]:
             self.assertIn(token, self.web_server)
 
+    def test_remote_ui_uses_httponly_session_instead_of_embedded_api_key(self):
+        for name in ('chat.html', 'chat_shell.html', 'agent_shell.html', 'monitor_shell.html'):
+            template = (ROOT / 'templates' / name).read_text(encoding='utf-8')
+            with self.subTest(template=name):
+                self.assertNotIn("{{ server_api_token", template)
+        self.assertIn('/api/auth/session', self.web_server)
+        self.assertIn('Trevor API access', self.web_server)
+
 
 if __name__ == '__main__':
     unittest.main()

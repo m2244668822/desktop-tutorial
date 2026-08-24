@@ -12,10 +12,11 @@
 
 # 崔佛框架即時狀態總覽
 
-- 產生時間：2026-08-25 04:12 CST
+- 更新時間：2026-08-25 05:10 CST
 - 對外身份：`trevor／崔佛`
-- 本次 GitHub review 修正起點：`bdeacd6815b4`
-- 整體狀態：核心服務可用；Graphiti 歷史記憶遷移暫停以修復安全分片；OCI Tailscale 等待帳戶實體驗證
+- 本次 GitHub review 修正起點：`d6ca3f726637`
+- 整體狀態：GitHub 未結案 review 已完成程式修正與回歸驗證；Graphiti 歷史記憶遷移仍暫停；OCI Tailscale
+  等待帳戶實體驗證
 - 安全狀態：GitHub Dependabot 開啟警示 `0`、Secret Scanning 開啟警示 `0`
 
 ## 狀態圖例
@@ -206,14 +207,14 @@ stderr：        0 bytes
 
 | 驗收 | 結果 |
 | --- | --- |
-| Python 測試 | `305 passed` |
-| 子測試 | `31 passed` |
-| 嚴格完整驗證 | passed |
+| Python 測試 | 目前工作樹完整套件 `328 passed` |
+| Review 回歸測試 | 受影響模組 `126 passed`；最終韌性補測 `11 passed` |
+| 嚴格完整驗證 | `STRICT=1 bash tools/run_full_verification.sh` passed；內含 `36 passed` contracts |
 | Python syntax | passed |
 | Shell syntax | passed |
 | Git whitespace | passed |
 | Git object integrity | passed；只有可回收 dangling objects |
-| Secret scan | passed，掃描 `611` 個檔案 |
+| Secret scan | passed，掃描 `614` 個檔案 |
 | Python dependency audit | 無已知漏洞 |
 | Graphiti lock audit | 無已知漏洞；固定 Graphiti commit 例外為不可推導版本 |
 | npm production audit | `0` vulnerabilities |
@@ -224,8 +225,27 @@ stderr：        0 bytes
 
 ## GitHub Review 回覆修正
 
+本輪重新稽核 PR #1、#2、#9、#16、#17 共 30 個未結案 review thread；已修正仍可重現的問題，已被後續
+架構取代的意見則以現行 private credential 與單一崔佛控制面核對。所有 thread 會在 required CI 合併後附上
+對應測試證據再標記 resolved。
+
 | Review 來源 | GitHub 建議 | 修正結果 |
 | --- | --- | --- |
+| PR #16／#17 | 調整 retry 分片上限後可能重送已上傳 turn | upload journal 改以全域 content hash 對照現行來源；重分片後只傳 pending turn |
+| PR #16 | 在先前 turn 插入內容後 logical batch reflow 會失去 journal 恢復 | journal 恢復不再依賴舊 logical batch hash；新增插入早期 turn 的可重跑測試 |
+| PR #16／#17 | OCI cutover 前失敗會殘留 staging release 與 unit backup | installer exit trap 安全清除 `.staging-*`／`.units-*`，cutover 失敗仍先回滾 |
+| PR #17 | deployment started audit 太早，尚無可用 Python runtime | 先完成主 staging venv 與 dependencies，再以 staging runtime 寫入 started 事件 |
+| PR #17 | systemd active 不代表 API 與 Graphiti 已可服務 | 四項 Trevor service 持續 active，且 API／Graphiti 連續 5 次 readiness 成功才完成 cutover |
+| PR #17 | 自訂 credential path 未做 XML escape，錯誤 plist 會先停服務 | 所有動態值 XML escape；先產生暫存 plist 並 `plutil -lint`，通過後才原子替換與重啟 |
+| PR #1 | 瀏覽器遠端 UI 缺少可用 auth，且不應把 API key 寫入 HTML | 新增 HttpOnly／Secure／SameSite session；模板不再嵌入 token；history 與 rerun 各自要求 scope |
+| PR #1 | Mac 不應自行產生與 OCI HMAC 不相容的管理金鑰 | OCI 端核發並只存 HMAC digest；Mac 透過 Ed25519 SSH 取得一次性明文後只寫入 Keychain |
+| PR #1／#2 | 自治 queue 多程序競爭及 worker crash 會永久卡住 running task | 加入 `flock`、lease expiry 與 stale reclaim；multiprocessing 測試確認無任務遺失 |
+| PR #1 | 資料遷移重跑會改 thread ID、來源與 provenance | 權威來源先匯入、destination 最後合併；保留既有 ID／metadata，內容雜湊去重可重跑 |
+| PR #1 | Stable Horde 圖像 metadata 只在記憶體，重啟後資產消失 | 啟動時由 UUID 檔名、副檔名與 mtime 重建索引，過期／遺失檔案安全清理 |
+| PR #1／#9 | Cloudflare URL、Graphiti health address、task logs 與 optional Transformers 行為不正確 | 修正 URL 與設定式 health；補掃 workspace logs；Transformers 改為按需 lazy import |
+| PR #1 | 外部 payload 去敏漏掉多類 token 與 PEM private key | sanitizer 與 secret scanner token family 對齊，完整私鑰區塊一律遮蔽 |
+| PR #1／#2 | Docker entry 無可執行 app；Linux memory key 與 macOS autonomy credential 可能靜默缺失 | Docker 改用 `system_main.py web`；Linux 與 LaunchAgent 啟動前驗證私密 credential，缺少即 fail closed |
+| PR #18 CI | GitHub hosted runner 警告官方 Action 仍使用 Node.js 20 | 依官方最新 major 將 checkout、setup-python、upload-artifact 升級至 `v7`，並新增防回歸契約 |
 | PR #14／#15 | Graphiti 剩餘數量前後矛盾 | 已統一為 `5,426 - 2,658 = 2,768` |
 | PR #14 | 衝突解析漏寫 priority | 已明列限制性安全值、來源順位、`priority`、`updated_at` 的實際順序 |
 | PR #12 | client timeout 與 sidecar 300 秒上限相同 | 預設改為 `330` 秒並保留 CLI 覆寫 |

@@ -27,6 +27,7 @@ class AIHordeAssetStore:
         'image/jpeg': '.jpg',
         'image/webp': '.webp',
     }
+    EXTENSION_TYPES = {extension: content_type for content_type, extension in CONTENT_TYPES.items()}
 
     def __init__(
         self,
@@ -36,6 +37,7 @@ class AIHordeAssetStore:
         fetcher: Callable[[str, int], Any] | None = None,
         max_bytes: int = 15 * 1024 * 1024,
         allow_test_networks: bool = False,
+        max_age_seconds: int = 24 * 60 * 60,
     ):
         self.asset_dir = Path(data_root).expanduser().resolve() / 'ai_horde' / 'assets'
         self.asset_dir.mkdir(parents=True, exist_ok=True)
@@ -43,7 +45,41 @@ class AIHordeAssetStore:
         self.fetcher = fetcher or self._fetch_once
         self.max_bytes = max_bytes
         self.allow_test_networks = allow_test_networks
+        self.max_age_seconds = max(60, int(max_age_seconds))
         self._assets: dict[str, dict[str, Any]] = {}
+        self._load_assets()
+
+    def _load_assets(self) -> None:
+        now = time.time()
+        for path in self.asset_dir.iterdir():
+            if path.is_symlink() or not path.is_file():
+                continue
+            content_type = self.EXTENSION_TYPES.get(path.suffix.lower())
+            try:
+                asset_id = str(uuid.UUID(path.stem))
+                created_at = float(path.stat().st_mtime)
+            except (ValueError, OSError):
+                continue
+            if not content_type:
+                continue
+            if now - created_at > self.max_age_seconds:
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                continue
+            self._assets[asset_id] = {
+                'path': path,
+                'content_type': content_type,
+                'created_at': created_at,
+            }
+
+    def _remove_asset(self, asset_id: str, record: dict[str, Any]) -> None:
+        self._assets.pop(asset_id, None)
+        try:
+            Path(record['path']).unlink(missing_ok=True)
+        except OSError:
+            pass
 
     @staticmethod
     def _resolve_host(host: str) -> list[str]:
@@ -172,12 +208,16 @@ class AIHordeAssetStore:
         except (ValueError, AttributeError, TypeError):
             return None
         record = self._assets.get(normalized)
-        if not record or time.time() - float(record['created_at']) > 24 * 60 * 60:
+        if not record:
+            return None
+        if time.time() - float(record['created_at']) > self.max_age_seconds:
+            self._remove_asset(normalized, record)
             return None
         path = Path(record['path'])
         try:
             return path.read_bytes(), str(record['content_type'])
         except OSError:
+            self._assets.pop(normalized, None)
             return None
 
 

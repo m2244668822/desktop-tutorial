@@ -135,15 +135,26 @@ def _queue_files(workspace_root: Path) -> list[Path]:
 
 
 def _workflow_log_files(workspace_root: Path, max_workflow_logs: int = 500) -> list[Path]:
-    data_root = resolve_data_root(Path(workspace_root).expanduser().resolve())
-    log_dirs = (data_root / "workflow_runs", data_root / "logs" / "workflow_runs")
-    files = [
-        path
-        for logs_dir in log_dirs
-        if logs_dir.is_dir()
-        for path in logs_dir.glob("*.json")
-        if path.is_file()
-    ]
+    workspace = Path(workspace_root).expanduser().resolve()
+    data_root = resolve_data_root(workspace)
+    log_dirs = (
+        data_root / "workflow_runs",
+        data_root / "logs" / "workflow_runs",
+        workspace / "logs" / "workflow_runs",
+    )
+    seen: set[str] = set()
+    files = []
+    for logs_dir in log_dirs:
+        if not logs_dir.is_dir():
+            continue
+        for path in logs_dir.glob("*.json"):
+            if not path.is_file():
+                continue
+            key = str(path.resolve()).lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            files.append(path)
     files.sort(key=_path_mtime, reverse=True)
     return files[:max(0, max_workflow_logs)]
 
