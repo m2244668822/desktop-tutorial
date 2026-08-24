@@ -12,6 +12,7 @@ class _FakeGraphiti:
         self.max_active_queries = 0
         self.active_writes = 0
         self.max_active_writes = 0
+        self.episode_payloads = []
 
     async def search(self, query, group_ids=None, num_results=10):
         self.active_queries += 1
@@ -21,6 +22,7 @@ class _FakeGraphiti:
         return [{'fact': query, 'group_ids': group_ids, 'limit': num_results}]
 
     async def add_episode(self, **payload):
+        self.episode_payloads.append(payload)
         self.active_writes += 1
         self.max_active_writes = max(self.max_active_writes, self.active_writes)
         await asyncio.sleep(0.01)
@@ -238,6 +240,29 @@ class GraphitiSidecarContractTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertLessEqual(graph.max_active_queries, 2)
         self.assertEqual(1, graph.max_active_writes)
+        self.assertTrue(all('uuid' not in payload for payload in graph.episode_payloads))
+
+    async def test_episode_name_makes_retries_idempotent(self):
+        from services.graphiti_sidecar.trevor_graphiti.gateway import GraphitiGateway
+
+        class Driver:
+            async def execute_query(self, *_args, **_kwargs):
+                return ([{'uuid': 'existing'}], None, None)
+
+        graph = _FakeGraphiti()
+        graph.driver = Driver()
+        gateway = GraphitiGateway(graph, query_concurrency=1)
+
+        result = await gateway.add_episode(
+            name='trevor-content-hash',
+            episode_body='body',
+            source_description='test',
+            reference_time='2026-08-21T00:00:00+00:00',
+            episode_uuid='00000000-0000-5000-8000-000000000001',
+        )
+
+        self.assertTrue(result['duplicate'])
+        self.assertEqual([], graph.episode_payloads)
 
     async def test_gateway_public_results_are_structured(self):
         from services.graphiti_sidecar.trevor_graphiti.gateway import GraphitiGateway
