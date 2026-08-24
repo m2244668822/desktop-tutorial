@@ -89,6 +89,7 @@ class DeploymentContractTests(unittest.TestCase):
         self.assertIn('uv sync --project', content)
         self.assertIn('--frozen --no-dev', content)
         self.assertIn('optional_credentials=', content)
+        self.assertLess(content.index('cd "$APP_ROOT"'), content.index('uv python install'))
 
     def test_oci_deploy_has_non_destructive_preflight_mode(self):
         content = (ROOT / 'deploy_to_oci.sh').read_text(encoding='utf-8')

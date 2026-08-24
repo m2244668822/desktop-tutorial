@@ -63,6 +63,7 @@ if [ "$(realpath "$SOURCE_ROOT")" != "$(realpath "$APP_ROOT")" ]; then
     "$SOURCE_ROOT/" "$APP_ROOT/"
 fi
 chown -R trevor:trevor "$APP_ROOT"
+cd "$APP_ROOT"
 
 uv python install 3.12
 runuser -u trevor -- env UV_CACHE_DIR="$UV_CACHE_ROOT" \
