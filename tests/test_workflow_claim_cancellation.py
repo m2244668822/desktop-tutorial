@@ -238,6 +238,32 @@ class WorkflowClaimCancellationTests(unittest.TestCase):
             self.assertTrue(healthy_finished.is_set())
             self.assertEqual('healthy', output.read_text(encoding='utf-8'))
 
+    def test_atomic_output_replacement_preserves_restrictive_permissions(self):
+        import os
+        import stat
+
+        from core.workflow_runtime import _write_text_with_cancellation
+
+        if os.name != 'posix':
+            self.skipTest('POSIX mode preservation')
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / 'private.json'
+            output.write_text('old', encoding='utf-8')
+            output.chmod(0o600)
+            previous_umask = os.umask(0o022)
+            try:
+                _write_text_with_cancellation(
+                    output,
+                    'new',
+                    cancel_check=None,
+                )
+            finally:
+                os.umask(previous_umask)
+
+            mode = stat.S_IMODE(output.stat().st_mode)
+
+        self.assertEqual(0o600, mode)
+
 
 if __name__ == '__main__':
     unittest.main()

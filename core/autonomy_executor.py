@@ -303,7 +303,11 @@ class TrevorTaskExecutor:
         task: dict[str, Any],
         *,
         cancellation: ClaimCancellation | None = None,
+        before_publish: Callable[[], None] | None = None,
     ) -> dict[str, Any]:
+        self._check_claim(cancellation)
+        if before_publish is not None:
+            before_publish()
         self._check_claim(cancellation)
         category = str(task.get('category', 'maintenance') or 'maintenance').lower()
         self._audit(

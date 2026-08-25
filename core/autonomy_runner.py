@@ -82,8 +82,18 @@ def _renew_running_claim(
         lease_expires_at,
         claim_ttl,
     )
+    deadline_condition = threading.Condition()
     if time.monotonic() >= confirmed_until:
         cancellation.mark_lost()
+
+    def watch_deadline() -> None:
+        with deadline_condition:
+            while not stop.is_set() and not cancellation.is_lost():
+                remaining = confirmed_until - time.monotonic()
+                if remaining <= 0:
+                    cancellation.mark_lost()
+                    return
+                deadline_condition.wait(timeout=remaining)
 
     def renew() -> None:
         nonlocal confirmed_until
@@ -110,20 +120,35 @@ def _renew_running_claim(
                 continue
             if not renewed:
                 cancellation.mark_lost()
+                with deadline_condition:
+                    deadline_condition.notify_all()
                 return
-            confirmed_until = time.monotonic() + claim_ttl
+            if cancellation.is_lost():
+                return
+            with deadline_condition:
+                confirmed_until = time.monotonic() + claim_ttl
+                deadline_condition.notify_all()
             wait_seconds = renewal_interval
 
+    watchdog = threading.Thread(
+        target=watch_deadline,
+        name=f'trevor-claim-deadline-{task_id}',
+        daemon=True,
+    )
     thread = threading.Thread(
         target=renew,
         name=f'trevor-claim-renewal-{task_id}',
         daemon=True,
     )
+    watchdog.start()
     thread.start()
     try:
         yield cancellation
     finally:
         stop.set()
+        with deadline_condition:
+            deadline_condition.notify_all()
+        watchdog.join(timeout=1)
         thread.join(timeout=5)
 
 
@@ -214,18 +239,45 @@ class AutonomyRunner:
                 self.queue.claim_ttl_seconds,
                 str(task.get('lease_expires_at', '') or ''),
             ) as cancellation:
+                finalization_started = False
+
+                def begin_finalization() -> None:
+                    nonlocal finalization_started
+                    cancellation.raise_if_lost()
+                    if finalization_started:
+                        return
+                    if not self.queue.begin_finalization(
+                        task['id'], worker_id=self.worker_id
+                    ):
+                        cancellation.mark_lost()
+                        cancellation.raise_if_lost()
+                    finalization_started = True
+
                 try:
                     cancellation.raise_if_lost()
                     execution_task = dict(task)
+                    executor_options: dict[str, Any] = {}
                     if _supports_keyword_argument(self.executor, 'cancellation'):
-                        result = self.executor(
-                            execution_task,
-                            cancellation=cancellation,
-                        )
-                    else:
-                        result = self.executor(execution_task)
+                        executor_options['cancellation'] = cancellation
+                    if _supports_keyword_argument(self.executor, 'before_publish'):
+                        executor_options['before_publish'] = begin_finalization
+                    result = self.executor(execution_task, **executor_options)
                     cancellation.raise_if_lost()
                 except ClaimLostError:
+                    if finalization_started:
+                        error = 'task_claim_lost_during_finalization'
+                        failed = self.queue.finish(
+                            task['id'],
+                            worker_id=self.worker_id,
+                            success=False,
+                            error=error,
+                        )
+                        if failed:
+                            return {
+                                'status': 'failed',
+                                'error': error,
+                                'task_id': task['id'],
+                            }
                     return {
                         'status': 'lease_lost',
                         'error': 'task_claim_lost',
@@ -233,6 +285,20 @@ class AutonomyRunner:
                     }
                 except Exception as exc:
                     if cancellation.is_lost():
+                        if finalization_started:
+                            error = 'task_claim_lost_during_finalization'
+                            failed = self.queue.finish(
+                                task['id'],
+                                worker_id=self.worker_id,
+                                success=False,
+                                error=error,
+                            )
+                            if failed:
+                                return {
+                                    'status': 'failed',
+                                    'error': error,
+                                    'task_id': task['id'],
+                                }
                         return {
                             'status': 'lease_lost',
                             'error': 'task_claim_lost',

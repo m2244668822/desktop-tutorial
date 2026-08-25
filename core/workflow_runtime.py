@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import stat
 import subprocess
 import uuid
 import contextlib
@@ -126,10 +127,15 @@ def _write_text_with_cancellation(
         _check_cancel(cancel_check)
         encoded = content.encode("utf-8")
         previous = path.read_bytes() if path.is_file() else None
+        previous_mode = (
+            stat.S_IMODE(path.stat().st_mode) if previous is not None else 0o600
+        )
         temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
         installed = False
         try:
             temporary.write_bytes(encoded)
+            if os.name == "posix":
+                temporary.chmod(previous_mode)
             _check_cancel(cancel_check)
             os.replace(temporary, path)
             installed = True
@@ -145,6 +151,8 @@ def _write_text_with_cancellation(
                                 f".{path.name}.{uuid.uuid4().hex}.restore"
                             )
                             restore.write_bytes(previous)
+                            if os.name == "posix":
+                                restore.chmod(previous_mode)
                             os.replace(restore, path)
                 finally:
                     raise

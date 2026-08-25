@@ -301,6 +301,90 @@ class AutonomyRunnerTests(unittest.TestCase):
         self.assertEqual([], renewals)
         self.assertEqual([], side_effects)
 
+    def test_deadline_watchdog_cancels_while_renewal_io_is_blocked(self):
+        from core.autonomy_runner import AutonomyRunner
+
+        renewal_started = threading.Event()
+        release_renewal = threading.Event()
+        cancellation_observed = []
+        with tempfile.TemporaryDirectory() as tmp:
+            data_root = Path(tmp)
+            queue = AutonomyQueue(data_root / 'autonomy' / 'task_queue.json')
+            queue.claim_ttl_seconds = 0.05
+            queue.enqueue('阻塞續租的長任務', category='content')
+
+            def execute(claimed, *, cancellation):
+                self.assertTrue(renewal_started.wait(timeout=1))
+                cancellation_observed.append(cancellation.wait(timeout=0.3))
+                release_renewal.set()
+                if cancellation.is_lost():
+                    cancellation.raise_if_lost()
+                return {'ok': True}
+
+            runner = AutonomyRunner(
+                data_root,
+                worker_id='worker-a',
+                executor=execute,
+                renewal_interval_seconds=0.01,
+            )
+            runner.queue = queue
+
+            def blocked_renewal(task_id, worker_id):
+                renewal_started.set()
+                self.assertTrue(release_renewal.wait(timeout=1))
+                return True
+
+            runner.queue.renew_claim = blocked_renewal
+            result = runner.evaluate_once(
+                {'user_active': False, 'quota_sufficient': True, 'services_healthy': True}
+            )
+
+        self.assertEqual([True], cancellation_observed)
+        self.assertEqual('lease_lost', result['status'])
+
+    def test_finalization_fence_blocks_reclaim_until_result_is_recorded(self):
+        from core.autonomy_runner import AutonomyRunner
+
+        current = [datetime(2026, 8, 25, tzinfo=timezone.utc)]
+        duplicates = []
+        with tempfile.TemporaryDirectory() as tmp:
+            data_root = Path(tmp)
+            queue_path = data_root / 'autonomy' / 'task_queue.json'
+            queue = AutonomyQueue(
+                queue_path,
+                now=lambda: current[0],
+                claim_ttl_seconds=60,
+            )
+            task = queue.enqueue('兩階段發布任務', category='bugfix')
+
+            def execute(claimed, *, cancellation, before_publish):
+                before_publish()
+                current[0] += timedelta(seconds=61)
+                duplicates.append(
+                    AutonomyQueue(
+                        queue_path,
+                        now=lambda: current[0],
+                        claim_ttl_seconds=60,
+                    ).claim_next('worker-b')
+                )
+                return {'ok': True}
+
+            runner = AutonomyRunner(
+                data_root,
+                worker_id='worker-a',
+                executor=execute,
+                renewal_interval_seconds=20,
+            )
+            runner.queue = queue
+            result = runner.evaluate_once(
+                {'user_active': False, 'quota_sufficient': True, 'services_healthy': True}
+            )
+            stored = {item['id']: item for item in queue.tasks()}[task['id']]
+
+        self.assertEqual([None], duplicates)
+        self.assertEqual('completed', result['status'])
+        self.assertEqual('completed', stored['status'])
+
     def test_approved_task_runs_under_single_lease(self):
         from core.autonomy_runner import AutonomyRunner
 
