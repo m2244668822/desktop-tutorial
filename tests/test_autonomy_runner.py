@@ -1,5 +1,7 @@
 import tempfile
+import threading
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from core.autonomy import AutonomyQueue
@@ -47,6 +49,47 @@ class AutonomyRunnerTests(unittest.TestCase):
             self.assertEqual('user_active', stored['pause_reason'])
             self.assertEqual('paused', result['status'])
 
+    def test_paused_policy_reports_lease_lost_if_defer_owner_changed(self):
+        from core.autonomy_runner import AutonomyRunner
+
+        current = [datetime(2026, 8, 25, tzinfo=timezone.utc)]
+        with tempfile.TemporaryDirectory() as tmp:
+            data_root = Path(tmp)
+            queue_path = data_root / 'autonomy' / 'task_queue.json'
+            queue = AutonomyQueue(
+                queue_path,
+                now=lambda: current[0],
+                claim_ttl_seconds=60,
+            )
+            task = queue.enqueue('補上測試', category='test')
+            runner = AutonomyRunner(
+                data_root,
+                worker_id='worker-a',
+                executor=lambda claimed: {'ok': True},
+            )
+            runner.queue = queue
+
+            def evaluate_after_reclaim(claimed, signals):
+                current[0] += timedelta(seconds=61)
+                reclaimed = AutonomyQueue(
+                    queue_path,
+                    now=lambda: current[0],
+                    claim_ttl_seconds=60,
+                ).claim_next('worker-b')
+                self.assertEqual(task['id'], reclaimed['id'])
+                return {'allowed': False, 'reason': 'user_active'}
+
+            runner.policy.evaluate = evaluate_after_reclaim
+            result = runner.evaluate_once(
+                {'user_active': True, 'quota_sufficient': True, 'services_healthy': True}
+            )
+            stored = {item['id']: item for item in queue.tasks()}[task['id']]
+
+        self.assertEqual('lease_lost', result['status'])
+        self.assertEqual('task_claim_lost', result['error'])
+        self.assertEqual('running', stored['status'])
+        self.assertEqual('worker-b', stored['worker_id'])
+
     def test_approved_task_runs_under_single_lease(self):
         from core.autonomy_runner import AutonomyRunner
 
@@ -69,6 +112,81 @@ class AutonomyRunnerTests(unittest.TestCase):
             self.assertEqual(task['id'], stored['result']['task'])
             self.assertFalse((data_root / 'autonomy' / 'task.lease').exists())
             self.assertEqual('completed', result['status'])
+
+    def test_long_running_executor_renews_claim_before_expiry(self):
+        from core.autonomy import AutonomyConfig
+        from core.autonomy_runner import AutonomyRunner
+
+        current = [datetime(2026, 8, 24, tzinfo=timezone.utc)]
+        renewed = threading.Event()
+        renewal_attempts = []
+        with tempfile.TemporaryDirectory() as tmp:
+            data_root = Path(tmp)
+            queue_path = data_root / 'autonomy' / 'task_queue.json'
+            queue = AutonomyQueue(
+                queue_path,
+                now=lambda: current[0],
+                claim_ttl_seconds=60,
+            )
+            task = queue.enqueue('長時間整理', category='content')
+
+            def execute(claimed):
+                current[0] += timedelta(seconds=61)
+                self.assertTrue(renewed.wait(timeout=1))
+                duplicate = AutonomyQueue(
+                    queue_path,
+                    now=lambda: current[0],
+                    claim_ttl_seconds=60,
+                ).claim_next('worker-b')
+                return {'task': claimed['id'], 'duplicate': duplicate is not None}
+
+            runner = AutonomyRunner(
+                data_root,
+                worker_id='worker-a',
+                executor=execute,
+                config=AutonomyConfig(lease_ttl_seconds=60),
+                renewal_interval_seconds=0.01,
+            )
+            runner.queue = queue
+            original_renew = runner.queue.renew_claim
+
+            def track_renewal(task_id, worker_id):
+                renewal_attempts.append((task_id, worker_id))
+                if len(renewal_attempts) == 1:
+                    raise OSError('temporary lock interruption')
+                result = original_renew(task_id, worker_id)
+                renewed.set()
+                return result
+
+            runner.queue.renew_claim = track_renewal
+            result = runner.evaluate_once(
+                {
+                    'user_active': False,
+                    'quota_sufficient': True,
+                    'services_healthy': True,
+                }
+            )
+
+            stored = {item['id']: item for item in queue.tasks()}[task['id']]
+
+        self.assertEqual('completed', result['status'])
+        self.assertFalse(stored['result']['duplicate'])
+        self.assertGreaterEqual(len(renewal_attempts), 2)
+
+    def test_renewal_override_is_clamped_below_effective_claim_ttl(self):
+        from core.autonomy import AutonomyConfig
+        from core.autonomy_runner import AutonomyRunner
+
+        with tempfile.TemporaryDirectory() as tmp:
+            runner = AutonomyRunner(
+                Path(tmp),
+                executor=lambda task: {'ok': True},
+                config=AutonomyConfig(lease_ttl_seconds=60),
+                renewal_interval_seconds=600,
+            )
+
+        self.assertLess(runner.renewal_interval_seconds, 60)
+        self.assertEqual(20, runner.renewal_interval_seconds)
 
 
 if __name__ == '__main__':
