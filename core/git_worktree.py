@@ -94,6 +94,19 @@ class TrevorWorktreeManager:
             raise RuntimeError('task_branch_mismatch')
         return branch, path
 
+    def _compensate_integration_merge(self, merge_commit: str) -> None:
+        try:
+            self._git('revert', '-m', '1', '--no-edit', merge_commit)
+        except subprocess.CalledProcessError as exc:
+            subprocess.run(
+                ['git', 'revert', '--abort'],
+                cwd=self.repository_root,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            raise RuntimeError('integration_merge_compensation_failed') from exc
+
     def finalize(
         self,
         created: dict[str, Any],
@@ -141,6 +154,11 @@ class TrevorWorktreeManager:
             )
             raise RuntimeError('integration_merge_failed') from exc
         commit = self._git('rev-parse', 'HEAD').stdout.strip()
+        try:
+            self._check_cancel(cancel_check)
+        except Exception:
+            self._compensate_integration_merge(commit)
+            raise
         self._git('worktree', 'remove', str(worktree_path))
         self._git('branch', '-d', branch)
         return {'status': 'merged', 'branch': branch, 'commit': commit}

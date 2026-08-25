@@ -183,13 +183,17 @@ def run_daemon(args: argparse.Namespace) -> int:
     if not args.scheduler_only:
         executor_instance = None
 
-        def execute_task(task: dict[str, Any]) -> dict[str, Any]:
+        def execute_task(
+            task: dict[str, Any],
+            *,
+            cancellation: Any = None,
+        ) -> dict[str, Any]:
             nonlocal executor_instance
             if executor_instance is None:
                 from core.autonomy_executor import TrevorTaskExecutor
 
                 executor_instance = TrevorTaskExecutor(ROOT, data_root, audit_log=audit_log)
-            return executor_instance(task)
+            return executor_instance(task, cancellation=cancellation)
 
         runner = AutonomyRunner(data_root, executor=execute_task, config=config)
     stop = threading.Event()
