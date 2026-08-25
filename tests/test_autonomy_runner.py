@@ -49,6 +49,47 @@ class AutonomyRunnerTests(unittest.TestCase):
             self.assertEqual('user_active', stored['pause_reason'])
             self.assertEqual('paused', result['status'])
 
+    def test_paused_policy_reports_lease_lost_if_defer_owner_changed(self):
+        from core.autonomy_runner import AutonomyRunner
+
+        current = [datetime(2026, 8, 25, tzinfo=timezone.utc)]
+        with tempfile.TemporaryDirectory() as tmp:
+            data_root = Path(tmp)
+            queue_path = data_root / 'autonomy' / 'task_queue.json'
+            queue = AutonomyQueue(
+                queue_path,
+                now=lambda: current[0],
+                claim_ttl_seconds=60,
+            )
+            task = queue.enqueue('補上測試', category='test')
+            runner = AutonomyRunner(
+                data_root,
+                worker_id='worker-a',
+                executor=lambda claimed: {'ok': True},
+            )
+            runner.queue = queue
+
+            def evaluate_after_reclaim(claimed, signals):
+                current[0] += timedelta(seconds=61)
+                reclaimed = AutonomyQueue(
+                    queue_path,
+                    now=lambda: current[0],
+                    claim_ttl_seconds=60,
+                ).claim_next('worker-b')
+                self.assertEqual(task['id'], reclaimed['id'])
+                return {'allowed': False, 'reason': 'user_active'}
+
+            runner.policy.evaluate = evaluate_after_reclaim
+            result = runner.evaluate_once(
+                {'user_active': True, 'quota_sufficient': True, 'services_healthy': True}
+            )
+            stored = {item['id']: item for item in queue.tasks()}[task['id']]
+
+        self.assertEqual('lease_lost', result['status'])
+        self.assertEqual('task_claim_lost', result['error'])
+        self.assertEqual('running', stored['status'])
+        self.assertEqual('worker-b', stored['worker_id'])
+
     def test_approved_task_runs_under_single_lease(self):
         from core.autonomy_runner import AutonomyRunner
 
