@@ -90,6 +90,101 @@ class AutonomyRunnerTests(unittest.TestCase):
         self.assertEqual('running', stored['status'])
         self.assertEqual('worker-b', stored['worker_id'])
 
+    def test_rejected_policy_reports_lease_lost_if_finish_owner_changed(self):
+        from core.autonomy_runner import AutonomyRunner
+
+        current = [datetime(2026, 8, 25, tzinfo=timezone.utc)]
+        with tempfile.TemporaryDirectory() as tmp:
+            data_root = Path(tmp)
+            queue_path = data_root / 'autonomy' / 'task_queue.json'
+            queue = AutonomyQueue(
+                queue_path,
+                now=lambda: current[0],
+                claim_ttl_seconds=60,
+            )
+            task = queue.enqueue('禁止任務', category='maintenance')
+            runner = AutonomyRunner(
+                data_root,
+                worker_id='worker-a',
+                executor=lambda claimed: {'ok': True},
+            )
+            runner.queue = queue
+
+            def reject_after_reclaim(claimed, signals):
+                current[0] += timedelta(seconds=61)
+                reclaimed = AutonomyQueue(
+                    queue_path,
+                    now=lambda: current[0],
+                    claim_ttl_seconds=60,
+                ).claim_next('worker-b')
+                self.assertEqual(task['id'], reclaimed['id'])
+                return {'allowed': False, 'reason': 'forbidden_action'}
+
+            runner.policy.evaluate = reject_after_reclaim
+            result = runner.evaluate_once(
+                {'user_active': False, 'quota_sufficient': True, 'services_healthy': True}
+            )
+            stored = {item['id']: item for item in queue.tasks()}[task['id']]
+
+        self.assertEqual('lease_lost', result['status'])
+        self.assertEqual('task_claim_lost', result['error'])
+        self.assertEqual('running', stored['status'])
+        self.assertEqual('worker-b', stored['worker_id'])
+
+    def test_claim_loss_cancels_cooperative_executor_before_side_effect(self):
+        from core.autonomy_runner import AutonomyRunner
+
+        current = [datetime(2026, 8, 25, tzinfo=timezone.utc)]
+        executor_started = threading.Event()
+        side_effects = []
+        with tempfile.TemporaryDirectory() as tmp:
+            data_root = Path(tmp)
+            queue_path = data_root / 'autonomy' / 'task_queue.json'
+            queue = AutonomyQueue(
+                queue_path,
+                now=lambda: current[0],
+                claim_ttl_seconds=60,
+            )
+            task = queue.enqueue('長時間整理', category='content')
+
+            def execute(claimed):
+                executor_started.set()
+                cancellation = claimed['_claim_cancellation']
+                self.assertTrue(cancellation.wait(timeout=1))
+                cancellation.raise_if_lost()
+                side_effects.append(claimed['id'])
+                return {'ok': True}
+
+            runner = AutonomyRunner(
+                data_root,
+                worker_id='worker-a',
+                executor=execute,
+                renewal_interval_seconds=0.01,
+            )
+            runner.queue = queue
+            original_renew = queue.renew_claim
+
+            def lose_claim(task_id, worker_id):
+                self.assertTrue(executor_started.wait(timeout=1))
+                current[0] += timedelta(seconds=61)
+                reclaimed = AutonomyQueue(
+                    queue_path,
+                    now=lambda: current[0],
+                    claim_ttl_seconds=60,
+                ).claim_next('worker-b')
+                self.assertEqual(task['id'], reclaimed['id'])
+                return original_renew(task_id, worker_id)
+
+            queue.renew_claim = lose_claim
+            result = runner.evaluate_once(
+                {'user_active': False, 'quota_sufficient': True, 'services_healthy': True}
+            )
+            stored = {item['id']: item for item in queue.tasks()}[task['id']]
+
+        self.assertEqual('lease_lost', result['status'])
+        self.assertEqual([], side_effects)
+        self.assertEqual('worker-b', stored['worker_id'])
+
     def test_approved_task_runs_under_single_lease(self):
         from core.autonomy_runner import AutonomyRunner
 

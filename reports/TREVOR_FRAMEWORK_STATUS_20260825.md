@@ -12,10 +12,10 @@
 
 # 崔佛框架即時狀態總覽
 
-- 更新時間：2026-08-25 07:59 CST
+- 更新時間：2026-08-25 08:45 CST
 - 對外身份：`trevor／崔佛`
 - 本次 GitHub review 修正起點：`d6ca3f726637`
-- 整體狀態：GitHub 第一輪 review 已合併主線；第二輪 4 項、PR #20 的 7 項及 PR #21 的 1 項提醒均已
+- 整體狀態：GitHub 第一輪 review 已合併主線；第二輪 4 項、PR #20 的 7 項及 PR #21 的 3 項提醒均已
   完成程式修正及
   回歸驗證；Graphiti 歷史記憶遷移仍暫停；OCI Tailscale 等待帳戶實體驗證
 - 安全狀態：GitHub Dependabot 開啟警示 `0`、Secret Scanning 開啟警示 `0`
@@ -208,14 +208,14 @@ stderr：        0 bytes
 
 | 驗收 | 結果 |
 | --- | --- |
-| Python 測試 | 目前工作樹以內建磁碟 Python 3.12 runtime 執行完整套件，`339 passed` |
-| Review 回歸測試 | 第一輪受影響模組 `126 passed`；第二輪權限／readiness／lease 專項 `38 passed` |
+| Python 測試 | 目前工作樹以內建磁碟 Python 3.12 runtime 執行完整套件，`345 passed` |
+| Review 回歸測試 | 第一輪受影響模組 `126 passed`；第二輪權限／readiness／lease 專項 `50 passed` |
 | 嚴格完整驗證 | `STRICT=1 bash tools/run_full_verification.sh` passed；內含 `36 passed` contracts |
 | Python syntax | passed |
 | Shell syntax | passed |
 | Git whitespace | passed |
 | Git object integrity | passed；只有可回收 dangling objects |
-| Secret scan | passed，掃描 `615` 個檔案 |
+| Secret scan | passed，掃描 `617` 個檔案 |
 | Python dependency audit | 無已知漏洞 |
 | Graphiti lock audit | 無已知漏洞；固定 Graphiti commit 例外為不可推導版本 |
 | npm production audit | `0` vulnerabilities |
@@ -228,7 +228,7 @@ stderr：        0 bytes
 
 第一輪重新稽核 PR #1、#2、#9、#16、#17 共 31 個未結案 review thread，已在 main `55d359a` 附上
 對應測試證據並全部標記 resolved。GitHub 隨後在 PR #18 新增 4 個有效提醒；第二輪已先建立失敗測試、完成
-根因修正。PR #20 對最新 commit 執行 Codex review 後再提出 7 個邊界問題，PR #21 主線複審再提出 1 個
+根因修正。PR #20 對最新 commit 執行 Codex review 後再提出 7 個邊界問題，PR #21 主線複審再提出 3 個
 租約競態，也已用失敗測試重現並修正；全部
 變更依 task → integration → main 流程通過 required CI 後再逐項結案。
 
@@ -261,6 +261,8 @@ stderr：        0 bytes
 | PR #20 | `audit_deployment started` 早於舊資料遷移會先失敗 | 遷移提前到 staging 與 EXIT audit trap 之前；legacy host 不會在修復 ownership 前先嘗試寫 audit |
 | PR #20 | 惡意 FIFO 讓 root migration 在 `fstat` 前永久阻塞 | 候選檔案以 `O_NONBLOCK` 開啟後再驗證 regular file；FIFO 回歸測試確認立即拒絕 |
 | PR #21 | defer 時 claim 已由其他 worker 回收仍回報 paused | 檢查 owner-scoped `defer()` 結果；失敗時回報 `lease_lost`，不再覆寫 daemon `last_execution` |
+| PR #21 | 續租 thread 發現 ownership lost 但舊 executor 繼續副作用 | 將 cancellation token 傳入 executor、workflow、validator 與 Git fence；失去 claim 即停止，測試子程序也會 terminate |
+| PR #21 | rejected task 的 owner-scoped finish 失敗仍回報 rejected | 檢查 `finish()` 結果；ownership 已轉移時統一回報 `lease_lost`，不再留下錯誤 daemon 狀態 |
 | PR #14／#15 | Graphiti 剩餘數量前後矛盾 | 已統一為 `5,426 - 2,658 = 2,768` |
 | PR #14 | 衝突解析漏寫 priority | 已明列限制性安全值、來源順位、`priority`、`updated_at` 的實際順序 |
 | PR #12 | client timeout 與 sidecar 300 秒上限相同 | 預設改為 `330` 秒並保留 CLI 覆寫 |

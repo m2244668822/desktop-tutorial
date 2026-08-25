@@ -8,6 +8,11 @@ from pathlib import Path
 from typing import Any, Callable
 
 from core.autonomy import AutonomyConfig, AutonomyLease, AutonomyPolicy, AutonomyQueue
+from core.autonomy_claim import (
+    CLAIM_CANCELLATION_KEY,
+    ClaimCancellation,
+    ClaimLostError,
+)
 
 
 @contextmanager
@@ -18,6 +23,7 @@ def _renew_running_claim(
     interval_seconds: float,
 ):
     stop = threading.Event()
+    cancellation = ClaimCancellation()
     renewal_interval = max(0.01, float(interval_seconds))
     retry_interval = min(5.0, max(0.01, renewal_interval / 4))
 
@@ -30,6 +36,7 @@ def _renew_running_claim(
                 wait_seconds = retry_interval
                 continue
             if not renewed:
+                cancellation.mark_lost()
                 return
             wait_seconds = renewal_interval
 
@@ -40,7 +47,7 @@ def _renew_running_claim(
     )
     thread.start()
     try:
-        yield
+        yield cancellation
     finally:
         stop.set()
         thread.join(timeout=5)
@@ -114,9 +121,15 @@ class AutonomyRunner:
                             'task_id': task['id'],
                         }
                     return {'status': 'paused', 'reason': reason, 'task_id': task['id']}
-                self.queue.finish(
+                finished = self.queue.finish(
                     task['id'], worker_id=self.worker_id, success=False, error=reason
                 )
+                if not finished:
+                    return {
+                        'status': 'lease_lost',
+                        'error': 'task_claim_lost',
+                        'task_id': task['id'],
+                    }
                 return {'status': 'rejected', 'reason': reason, 'task_id': task['id']}
 
             with _renew_running_claim(
@@ -124,10 +137,25 @@ class AutonomyRunner:
                 task['id'],
                 self.worker_id,
                 self.renewal_interval_seconds,
-            ):
+            ) as cancellation:
+                execution_task = dict(task)
+                execution_task[CLAIM_CANCELLATION_KEY] = cancellation
                 try:
-                    result = self.executor(task)
+                    result = self.executor(execution_task)
+                    cancellation.raise_if_lost()
+                except ClaimLostError:
+                    return {
+                        'status': 'lease_lost',
+                        'error': 'task_claim_lost',
+                        'task_id': task['id'],
+                    }
                 except Exception as exc:
+                    if cancellation.is_lost():
+                        return {
+                            'status': 'lease_lost',
+                            'error': 'task_claim_lost',
+                            'task_id': task['id'],
+                        }
                     error = f'{type(exc).__name__}: {exc}'[:1000]
                     finished = self.queue.finish(
                         task['id'],
