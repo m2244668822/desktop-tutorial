@@ -12,10 +12,11 @@
 
 # 崔佛框架即時狀態總覽
 
-- 更新時間：2026-08-25 08:45 CST
+- 更新時間：2026-08-25 11:07 CST
 - 對外身份：`trevor／崔佛`
 - 本次 GitHub review 修正起點：`d6ca3f726637`
-- 整體狀態：GitHub 第一輪 review 已合併主線；第二輪 4 項、PR #20 的 7 項及 PR #21 的 3 項提醒均已
+- 整體狀態：GitHub 第一輪 review 已合併主線；第二輪 4 項、PR #20 的 7 項、PR #21 的 3 項及
+  PR #23 的 5 項提醒均已
   完成程式修正及
   回歸驗證；Graphiti 歷史記憶遷移仍暫停；OCI Tailscale 等待帳戶實體驗證
 - 安全狀態：GitHub Dependabot 開啟警示 `0`、Secret Scanning 開啟警示 `0`
@@ -208,8 +209,8 @@ stderr：        0 bytes
 
 | 驗收 | 結果 |
 | --- | --- |
-| Python 測試 | 目前工作樹以內建磁碟 Python 3.12 runtime 執行完整套件，`345 passed` |
-| Review 回歸測試 | 第一輪受影響模組 `126 passed`；第二輪權限／readiness／lease 專項 `50 passed` |
+| Python 測試 | 目前工作樹以內建磁碟 Python 3.12 runtime 執行完整套件，`352 passed` |
+| Review 回歸測試 | 第一輪受影響模組 `126 passed`；第二輪權限／readiness／lease 專項 `50 passed`；PR #23 取消／TTL／merge 專項 `25 passed` |
 | 嚴格完整驗證 | `STRICT=1 bash tools/run_full_verification.sh` passed；內含 `36 passed` contracts |
 | Python syntax | passed |
 | Shell syntax | passed |
@@ -229,7 +230,7 @@ stderr：        0 bytes
 第一輪重新稽核 PR #1、#2、#9、#16、#17 共 31 個未結案 review thread，已在 main `55d359a` 附上
 對應測試證據並全部標記 resolved。GitHub 隨後在 PR #18 新增 4 個有效提醒；第二輪已先建立失敗測試、完成
 根因修正。PR #20 對最新 commit 執行 Codex review 後再提出 7 個邊界問題，PR #21 主線複審再提出 3 個
-租約競態，也已用失敗測試重現並修正；全部
+租約競態；PR #23 最新 head 複審再找到 5 個取消與補償邊界，也已用失敗測試重現並修正；全部
 變更依 task → integration → main 流程通過 required CI 後再逐項結案。
 
 | Review 來源 | GitHub 建議 | 修正結果 |
@@ -263,6 +264,11 @@ stderr：        0 bytes
 | PR #21 | defer 時 claim 已由其他 worker 回收仍回報 paused | 檢查 owner-scoped `defer()` 結果；失敗時回報 `lease_lost`，不再覆寫 daemon `last_execution` |
 | PR #21 | 續租 thread 發現 ownership lost 但舊 executor 繼續副作用 | 將 cancellation token 傳入 executor、workflow、validator 與 Git fence；失去 claim 即停止，測試子程序也會 terminate |
 | PR #21 | rejected task 的 owner-scoped finish 失敗仍回報 rejected | 檢查 `finish()` 結果；ownership 已轉移時統一回報 `lease_lost`，不再留下錯誤 daemon 狀態 |
+| PR #23 | validation command 的 child processes 在取消後仍可存活 | 每個 validation command 建立獨立 process group；失租時先終止整組，逾時再對整組送出強制終止 |
+| PR #23 | cancellation object 混入 task payload 造成結果無法 JSON 序列化 | token 改為 executor 的獨立 keyword-only 參數；公開 task 保持純 JSON，其他不可序列化結果也會安全標記 failed |
+| PR #23 | `renew_claim()` 持續例外時舊 worker 可越過 TTL 繼續副作用 | 依最後確認的 lease deadline 計時；暫時錯誤可重試，但超過 TTL 即標記 claim lost 並取消 executor |
+| PR #23 | claim 在 integration merge 執行期間遺失仍保留 stale merge | merge 完成後立即再次 fence；若已失租，以 Git revert 產生可稽核補償 commit，不使用 force reset |
+| PR #23 | 長時間 mutating handler 只在 return 後才檢查取消 | `cancel_check` 傳入 handler 與 ingestion 迴圈；共享輸出在寫入前後檢查，失租時原子還原或移除本次寫入 |
 | PR #14／#15 | Graphiti 剩餘數量前後矛盾 | 已統一為 `5,426 - 2,658 = 2,768` |
 | PR #14 | 衝突解析漏寫 priority | 已明列限制性安全值、來源順位、`priority`、`updated_at` 的實際順序 |
 | PR #12 | client timeout 與 sidecar 300 秒上限相同 | 預設改為 `330` 秒並保留 CLI 覆寫 |

@@ -13,11 +13,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -25,6 +27,48 @@ TEXT_SUFFIXES = {".md", ".txt", ".json", ".html", ".jsonl"}
 MAX_FILE_BYTES = 2_000_000
 CHUNK_SIZE = 900
 CHUNK_OVERLAP = 120
+CancellationCheck = Callable[[], None]
+
+
+def _check_cancel(cancel_check: CancellationCheck | None) -> None:
+    if cancel_check is not None:
+        cancel_check()
+
+
+def _write_text(
+    path: Path,
+    content: str,
+    *,
+    cancel_check: CancellationCheck | None,
+) -> None:
+    _check_cancel(cancel_check)
+    encoded = content.encode("utf-8")
+    previous = path.read_bytes() if path.is_file() else None
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    installed = False
+    try:
+        temporary.write_bytes(encoded)
+        _check_cancel(cancel_check)
+        os.replace(temporary, path)
+        installed = True
+        try:
+            _check_cancel(cancel_check)
+        except Exception:
+            try:
+                if path.is_file() and path.read_bytes() == encoded:
+                    if previous is None:
+                        path.unlink(missing_ok=True)
+                    else:
+                        restore = path.with_name(
+                            f".{path.name}.{uuid.uuid4().hex}.restore"
+                        )
+                        restore.write_bytes(previous)
+                        os.replace(restore, path)
+            finally:
+                raise
+    finally:
+        if not installed:
+            temporary.unlink(missing_ok=True)
 
 
 def resolve_data_root(base_dir: Path) -> Path:
@@ -63,9 +107,14 @@ def _doc_id(source: str, path: str) -> str:
     return hashlib.blake2b(raw.encode("utf-8"), digest_size=12).hexdigest()
 
 
-def _iter_text_files(root: Path) -> list[Path]:
+def _iter_text_files(
+    root: Path,
+    *,
+    cancel_check: CancellationCheck | None = None,
+) -> list[Path]:
     paths: list[Path] = []
     for path in root.rglob("*"):
+        _check_cancel(cancel_check)
         if not path.is_file():
             continue
         if path.suffix.lower() not in TEXT_SUFFIXES:
@@ -101,7 +150,12 @@ def _chunk_text(text: str) -> list[str]:
     return chunks
 
 
-def ingest_local_knowledge(local_knowledge_dir: Path) -> list[IngestedDocument]:
+def ingest_local_knowledge(
+    local_knowledge_dir: Path,
+    *,
+    cancel_check: CancellationCheck | None = None,
+) -> list[IngestedDocument]:
+    _check_cancel(cancel_check)
     docs: list[IngestedDocument] = []
     kb_path = local_knowledge_dir / "local_knowledge_base.json"
     if kb_path.exists():
@@ -110,6 +164,7 @@ def ingest_local_knowledge(local_knowledge_dir: Path) -> list[IngestedDocument]:
         except Exception:
             data = []
         for idx, item in enumerate(data):
+            _check_cancel(cancel_check)
             content = _normalize_text(str(item.get("content", "")))
             if len(content) < 20:
                 continue
@@ -131,7 +186,11 @@ def ingest_local_knowledge(local_knowledge_dir: Path) -> list[IngestedDocument]:
                 )
             )
 
-    for path in _iter_text_files(local_knowledge_dir):
+    for path in _iter_text_files(
+        local_knowledge_dir,
+        cancel_check=cancel_check,
+    ):
+        _check_cancel(cancel_check)
         if path.name == "local_knowledge_base.json":
             continue
         text = _normalize_text(_load_text_file(path))
@@ -151,11 +210,18 @@ def ingest_local_knowledge(local_knowledge_dir: Path) -> list[IngestedDocument]:
     return docs
 
 
-def ingest_text_roots(source_name: str, root: Path) -> list[IngestedDocument]:
+def ingest_text_roots(
+    source_name: str,
+    root: Path,
+    *,
+    cancel_check: CancellationCheck | None = None,
+) -> list[IngestedDocument]:
+    _check_cancel(cancel_check)
     docs: list[IngestedDocument] = []
     if not root.exists():
         return docs
-    for path in _iter_text_files(root):
+    for path in _iter_text_files(root, cancel_check=cancel_check):
+        _check_cancel(cancel_check)
         text = _normalize_text(_load_text_file(path))
         if len(text) < 20:
             continue
@@ -173,12 +239,27 @@ def ingest_text_roots(source_name: str, root: Path) -> list[IngestedDocument]:
     return docs
 
 
-def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
+def write_jsonl(
+    path: Path,
+    rows: list[dict[str, Any]],
+    *,
+    cancel_check: CancellationCheck | None = None,
+) -> None:
+    _check_cancel(cancel_check)
     lines = [json.dumps(row, ensure_ascii=False) for row in rows]
-    path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+    _write_text(
+        path,
+        "\n".join(lines) + ("\n" if lines else ""),
+        cancel_check=cancel_check,
+    )
 
 
-def build_pipeline(base_dir: Path = BASE_DIR) -> dict[str, Any]:
+def build_pipeline(
+    base_dir: Path = BASE_DIR,
+    *,
+    cancel_check: CancellationCheck | None = None,
+) -> dict[str, Any]:
+    _check_cancel(cancel_check)
     data_root = resolve_data_root(base_dir)
     hub_dir = data_root / "knowledge_hub"
     ingestion_dir = hub_dir / "ingestion"
@@ -188,24 +269,42 @@ def build_pipeline(base_dir: Path = BASE_DIR) -> dict[str, Any]:
     logs_dir = base_dir / "logs"
 
     documents: list[IngestedDocument] = []
-    documents.extend(ingest_local_knowledge(local_knowledge_dir))
-    documents.extend(ingest_text_roots("docs", docs_dir))
-    documents.extend(ingest_text_roots("reports", reports_dir))
-    documents.extend(ingest_text_roots("logs", logs_dir))
+    documents.extend(
+        ingest_local_knowledge(
+            local_knowledge_dir,
+            cancel_check=cancel_check,
+        )
+    )
+    documents.extend(
+        ingest_text_roots("docs", docs_dir, cancel_check=cancel_check)
+    )
+    documents.extend(
+        ingest_text_roots("reports", reports_dir, cancel_check=cancel_check)
+    )
+    documents.extend(
+        ingest_text_roots("logs", logs_dir, cancel_check=cancel_check)
+    )
 
     deduped: dict[str, IngestedDocument] = {}
     for doc in documents:
+        _check_cancel(cancel_check)
         if doc.doc_id not in deduped:
             deduped[doc.doc_id] = doc
     final_docs = list(deduped.values())
 
+    _check_cancel(cancel_check)
     ingestion_dir.mkdir(parents=True, exist_ok=True)
     document_rows = [asdict(doc) for doc in final_docs]
-    write_jsonl(ingestion_dir / "documents.jsonl", document_rows)
+    write_jsonl(
+        ingestion_dir / "documents.jsonl",
+        document_rows,
+        cancel_check=cancel_check,
+    )
 
     chunk_rows: list[dict[str, Any]] = []
     source_counts: dict[str, int] = {}
     for doc in final_docs:
+        _check_cancel(cancel_check)
         source_counts[doc.source] = source_counts.get(doc.source, 0) + 1
         for idx, chunk in enumerate(_chunk_text(doc.text)):
             chunk_rows.append(
@@ -219,7 +318,11 @@ def build_pipeline(base_dir: Path = BASE_DIR) -> dict[str, Any]:
                     "metadata": doc.metadata,
                 }
             )
-    write_jsonl(ingestion_dir / "chunks.jsonl", chunk_rows)
+    write_jsonl(
+        ingestion_dir / "chunks.jsonl",
+        chunk_rows,
+        cancel_check=cancel_check,
+    )
 
     summary = {
         "generated_at": datetime.now().isoformat(),
@@ -236,9 +339,10 @@ def build_pipeline(base_dir: Path = BASE_DIR) -> dict[str, Any]:
             "這條管線可作為 AnythingLLM 風格的 ingestion 前置層。",
         ],
     }
-    (ingestion_dir / "summary.json").write_text(
+    _write_text(
+        ingestion_dir / "summary.json",
         json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
+        cancel_check=cancel_check,
     )
     return summary
 

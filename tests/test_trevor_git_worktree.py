@@ -118,6 +118,41 @@ class TrevorGitWorktreeTests(unittest.TestCase):
             self.assertEqual('initial\n', (root / 'README.md').read_text(encoding='utf-8'))
             self.assertTrue(created['path'].exists())
 
+    def test_finalize_reverts_merge_if_claim_is_lost_during_merge(self):
+        from core.autonomy_claim import ClaimCancellation, ClaimLostError
+        from core.git_worktree import TrevorWorktreeManager
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._repository(tmp)
+            manager = TrevorWorktreeManager(root, Path(tmp) / 'data')
+            created = manager.create('task-5', 'late cancellation')
+            created['path'].joinpath('README.md').write_text(
+                'stale merge\n', encoding='utf-8'
+            )
+            cancellation = ClaimCancellation()
+            original_git = manager._git
+
+            def git_with_late_cancellation(*arguments, **kwargs):
+                result = original_git(*arguments, **kwargs)
+                if arguments and arguments[0] == 'merge':
+                    cancellation.mark_lost()
+                return result
+
+            manager._git = git_with_late_cancellation
+            with self.assertRaises(ClaimLostError):
+                manager.finalize(
+                    created,
+                    commit_message='feat: stale merge',
+                    validator=lambda path: {'ok': True, 'path': str(path)},
+                    cancel_check=cancellation.raise_if_lost,
+                )
+
+            self.assertEqual('initial\n', (root / 'README.md').read_text(encoding='utf-8'))
+            self.assertTrue(created['path'].exists())
+            self.assertTrue(
+                _git(root, 'log', '-1', '--pretty=%s').stdout.startswith('Revert ')
+            )
+
 
 if __name__ == '__main__':
     unittest.main()

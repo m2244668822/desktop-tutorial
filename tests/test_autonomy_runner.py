@@ -1,5 +1,6 @@
 import tempfile
 import threading
+import time
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -147,9 +148,8 @@ class AutonomyRunnerTests(unittest.TestCase):
             )
             task = queue.enqueue('長時間整理', category='content')
 
-            def execute(claimed):
+            def execute(claimed, *, cancellation):
                 executor_started.set()
-                cancellation = claimed['_claim_cancellation']
                 self.assertTrue(cancellation.wait(timeout=1))
                 cancellation.raise_if_lost()
                 side_effects.append(claimed['id'])
@@ -184,6 +184,86 @@ class AutonomyRunnerTests(unittest.TestCase):
         self.assertEqual('lease_lost', result['status'])
         self.assertEqual([], side_effects)
         self.assertEqual('worker-b', stored['worker_id'])
+
+    def test_executor_task_echo_remains_json_serializable(self):
+        from core.autonomy_runner import AutonomyRunner
+
+        with tempfile.TemporaryDirectory() as tmp:
+            data_root = Path(tmp)
+            queue = AutonomyQueue(data_root / 'autonomy' / 'task_queue.json')
+            task = queue.enqueue('回傳任務內容', category='content')
+            runner = AutonomyRunner(
+                data_root,
+                worker_id='worker-a',
+                executor=lambda claimed: {'task': claimed},
+            )
+
+            result = runner.evaluate_once(
+                {'user_active': False, 'quota_sufficient': True, 'services_healthy': True}
+            )
+            stored = {item['id']: item for item in queue.tasks()}[task['id']]
+
+        self.assertEqual('completed', result['status'])
+        self.assertEqual(task['id'], stored['result']['task']['id'])
+        self.assertNotIn('_claim_cancellation', stored['result']['task'])
+
+    def test_non_serializable_executor_result_fails_task_cleanly(self):
+        from core.autonomy_runner import AutonomyRunner
+
+        with tempfile.TemporaryDirectory() as tmp:
+            data_root = Path(tmp)
+            queue = AutonomyQueue(data_root / 'autonomy' / 'task_queue.json')
+            task = queue.enqueue('回傳無法序列化資料', category='content')
+            runner = AutonomyRunner(
+                data_root,
+                worker_id='worker-a',
+                executor=lambda claimed: {'value': object()},
+            )
+
+            result = runner.evaluate_once(
+                {'user_active': False, 'quota_sufficient': True, 'services_healthy': True}
+            )
+            stored = {item['id']: item for item in queue.tasks()}[task['id']]
+
+        self.assertEqual('failed', result['status'])
+        self.assertEqual('failed', stored['status'])
+        self.assertIn('executor_result_not_serializable', stored['error'])
+
+    def test_repeated_renewal_errors_cancel_after_claim_ttl(self):
+        from core.autonomy_runner import AutonomyRunner
+
+        side_effects = []
+        with tempfile.TemporaryDirectory() as tmp:
+            data_root = Path(tmp)
+            queue = AutonomyQueue(data_root / 'autonomy' / 'task_queue.json')
+            queue.claim_ttl_seconds = 0.05
+            queue.enqueue('長時間整理', category='content')
+
+            def execute(claimed, *, cancellation):
+                if not cancellation.wait(timeout=0.5):
+                    side_effects.append(claimed['id'])
+                    return {'ok': True}
+                cancellation.raise_if_lost()
+
+            runner = AutonomyRunner(
+                data_root,
+                worker_id='worker-a',
+                executor=execute,
+                renewal_interval_seconds=0.01,
+            )
+            runner.queue = queue
+            runner.queue.renew_claim = lambda task_id, worker_id: (_ for _ in ()).throw(
+                OSError('queue temporarily unavailable')
+            )
+            started = time.monotonic()
+            result = runner.evaluate_once(
+                {'user_active': False, 'quota_sufficient': True, 'services_healthy': True}
+            )
+            elapsed = time.monotonic() - started
+
+        self.assertEqual('lease_lost', result['status'])
+        self.assertEqual([], side_effects)
+        self.assertLess(elapsed, 0.5)
 
     def test_approved_task_runs_under_single_lease(self):
         from core.autonomy_runner import AutonomyRunner

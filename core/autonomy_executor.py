@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import inspect
+import os
+import signal
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
 from core.audit_chain import HashChainAuditLog
-from core.autonomy_claim import ClaimCancellation, ClaimLostError, cancellation_from_task
+from core.autonomy_claim import ClaimCancellation, ClaimLostError
 from core.git_worktree import TrevorWorktreeManager
 from core.secret_scanner import SecretScanner
 from core.workflow_runtime import run_task_plan
@@ -71,12 +73,18 @@ class TrevorTaskExecutor:
                 capture_output=True,
                 text=True,
             )
+        popen_options: dict[str, Any] = {}
+        if os.name == 'posix':
+            popen_options['start_new_session'] = True
+        elif hasattr(subprocess, 'CREATE_NEW_PROCESS_GROUP'):
+            popen_options['creationflags'] = subprocess.CREATE_NEW_PROCESS_GROUP
         process = subprocess.Popen(
             arguments,
             cwd=worktree_path,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            **popen_options,
         )
         while True:
             try:
@@ -90,13 +98,40 @@ class TrevorTaskExecutor:
             except subprocess.TimeoutExpired:
                 if not cancellation.is_lost():
                     continue
-                process.terminate()
-                try:
-                    process.communicate(timeout=2)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.communicate()
+                TrevorTaskExecutor._terminate_process_tree(process)
                 cancellation.raise_if_lost()
+
+    @staticmethod
+    def _terminate_process_tree(process: subprocess.Popen[str]) -> None:
+        if os.name == 'posix':
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+        elif os.name == 'nt':
+            subprocess.run(
+                ['taskkill', '/PID', str(process.pid), '/T', '/F'],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        else:
+            if process.poll() is None:
+                process.terminate()
+        try:
+            process.communicate(timeout=2)
+            return
+        except subprocess.TimeoutExpired:
+            pass
+        if os.name == 'posix':
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        else:
+            if process.poll() is None:
+                process.kill()
+        process.communicate(timeout=2)
 
     def _run_workflow(
         self,
@@ -230,8 +265,12 @@ class TrevorTaskExecutor:
         )
         return {'status': 'completed', 'workflow': workflow, 'git': {'status': 'not_required'}}
 
-    def __call__(self, task: dict[str, Any]) -> dict[str, Any]:
-        cancellation = cancellation_from_task(task)
+    def __call__(
+        self,
+        task: dict[str, Any],
+        *,
+        cancellation: ClaimCancellation | None = None,
+    ) -> dict[str, Any]:
         self._check_claim(cancellation)
         category = str(task.get('category', 'maintenance') or 'maintenance').lower()
         self._audit(

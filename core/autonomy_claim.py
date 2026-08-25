@@ -1,10 +1,6 @@
 from __future__ import annotations
 
 import threading
-from typing import Any, Mapping
-
-
-CLAIM_CANCELLATION_KEY = '_claim_cancellation'
 
 
 class ClaimLostError(RuntimeError):
@@ -29,14 +25,7 @@ class ClaimCancellation:
             raise ClaimLostError('task_claim_lost')
 
 
-def cancellation_from_task(task: Mapping[str, Any]) -> ClaimCancellation | None:
-    cancellation = task.get(CLAIM_CANCELLATION_KEY)
-    return cancellation if isinstance(cancellation, ClaimCancellation) else None
-
-
 __all__ = [
-    'CLAIM_CANCELLATION_KEY',
     'ClaimCancellation',
     'ClaimLostError',
-    'cancellation_from_task',
 ]

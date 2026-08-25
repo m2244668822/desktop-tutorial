@@ -101,11 +101,7 @@ class AutonomyExecutorTests(unittest.TestCase):
             self.assertFalse((Path(tmp) / 'data' / 'worktrees').exists())
 
     def test_code_task_does_not_merge_after_claim_cancellation(self):
-        from core.autonomy_claim import (
-            CLAIM_CANCELLATION_KEY,
-            ClaimCancellation,
-            ClaimLostError,
-        )
+        from core.autonomy_claim import ClaimCancellation, ClaimLostError
         from core.autonomy_executor import TrevorTaskExecutor
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -137,8 +133,8 @@ class AutonomyExecutorTests(unittest.TestCase):
                         'category': 'bugfix',
                         'capability_mode': 'coding',
                         'input': '過期任務',
-                        CLAIM_CANCELLATION_KEY: cancellation,
-                    }
+                    },
+                    cancellation=cancellation,
                 )
 
             self.assertEqual(
@@ -171,6 +167,40 @@ class AutonomyExecutorTests(unittest.TestCase):
             elapsed = time.monotonic() - started
 
         self.assertLess(elapsed, 0.8)
+
+    def test_validation_cancellation_terminates_subprocess_tree(self):
+        from core.autonomy_claim import ClaimCancellation, ClaimLostError
+        from core.autonomy_executor import TrevorTaskExecutor
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._repository(tmp)
+            marker = Path(tmp) / 'stale-child-side-effect'
+            child_code = (
+                'import time; from pathlib import Path; '
+                f'time.sleep(0.25); Path({str(marker)!r}).write_text("stale")'
+            )
+            parent_code = (
+                'import subprocess, sys, time; '
+                f'subprocess.Popen([sys.executable, "-c", {child_code!r}], '
+                'stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); '
+                'time.sleep(5)'
+            )
+            cancellation = ClaimCancellation()
+            executor = TrevorTaskExecutor(
+                root,
+                Path(tmp) / 'data',
+                test_commands=((sys.executable, '-c', parent_code),),
+            )
+            timer = threading.Timer(0.05, cancellation.mark_lost)
+            timer.start()
+            try:
+                with self.assertRaises(ClaimLostError):
+                    executor._validate(root, cancellation)
+            finally:
+                timer.cancel()
+            time.sleep(0.35)
+
+            self.assertFalse(marker.exists())
 
 
 if __name__ == '__main__':
