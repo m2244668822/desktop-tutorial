@@ -17,6 +17,7 @@ from typing import Any, Callable
 
 from core.autonomy_claim import ClaimLostError
 from core.data_paths import ProjectPaths, is_link_like, resolve_data_root
+from core.interprocess_lock import exclusive_file_lock
 
 try:
     from core.llm_cns import (
@@ -120,33 +121,36 @@ def _write_text_with_cancellation(
     cancel_check: CancellationCheck | None,
 ) -> None:
     _check_cancel(cancel_check)
-    encoded = content.encode("utf-8")
-    previous = path.read_bytes() if path.is_file() else None
-    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-    installed = False
-    try:
-        temporary.write_bytes(encoded)
+    lock_path = path.parent / ".trevor-write.lock"
+    with exclusive_file_lock(lock_path):
         _check_cancel(cancel_check)
-        os.replace(temporary, path)
-        installed = True
+        encoded = content.encode("utf-8")
+        previous = path.read_bytes() if path.is_file() else None
+        temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+        installed = False
         try:
+            temporary.write_bytes(encoded)
             _check_cancel(cancel_check)
-        except Exception:
+            os.replace(temporary, path)
+            installed = True
             try:
-                if path.is_file() and path.read_bytes() == encoded:
-                    if previous is None:
-                        path.unlink(missing_ok=True)
-                    else:
-                        restore = path.with_name(
-                            f".{path.name}.{uuid.uuid4().hex}.restore"
-                        )
-                        restore.write_bytes(previous)
-                        os.replace(restore, path)
-            finally:
-                raise
-    finally:
-        if not installed:
-            temporary.unlink(missing_ok=True)
+                _check_cancel(cancel_check)
+            except Exception:
+                try:
+                    if path.is_file() and path.read_bytes() == encoded:
+                        if previous is None:
+                            path.unlink(missing_ok=True)
+                        else:
+                            restore = path.with_name(
+                                f".{path.name}.{uuid.uuid4().hex}.restore"
+                            )
+                            restore.write_bytes(previous)
+                            os.replace(restore, path)
+                finally:
+                    raise
+        finally:
+            if not installed:
+                temporary.unlink(missing_ok=True)
 
 
 def _load_json(path: Path, default: Any) -> Any:

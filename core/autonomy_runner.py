@@ -88,8 +88,17 @@ def _renew_running_claim(
     def renew() -> None:
         nonlocal confirmed_until
         wait_seconds = renewal_interval
-        while not stop.wait(wait_seconds):
+        while True:
+            remaining = confirmed_until - time.monotonic()
+            if remaining <= 0:
+                cancellation.mark_lost()
+                return
+            if stop.wait(min(wait_seconds, remaining)):
+                return
             if cancellation.is_lost():
+                return
+            if time.monotonic() >= confirmed_until:
+                cancellation.mark_lost()
                 return
             try:
                 renewed = queue.renew_claim(task_id, worker_id)

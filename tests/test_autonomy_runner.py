@@ -265,6 +265,42 @@ class AutonomyRunnerTests(unittest.TestCase):
         self.assertEqual([], side_effects)
         self.assertLess(elapsed, 0.5)
 
+    def test_renewal_wait_never_crosses_confirmed_deadline(self):
+        from core.autonomy_runner import AutonomyRunner
+
+        renewals = []
+        side_effects = []
+        with tempfile.TemporaryDirectory() as tmp:
+            data_root = Path(tmp)
+            queue = AutonomyQueue(data_root / 'autonomy' / 'task_queue.json')
+            queue.claim_ttl_seconds = 0.05
+            queue.enqueue('短租約長任務', category='content')
+
+            def execute(claimed, *, cancellation):
+                if not cancellation.wait(timeout=0.3):
+                    side_effects.append(claimed['id'])
+                    return {'ok': True}
+                cancellation.raise_if_lost()
+
+            runner = AutonomyRunner(
+                data_root,
+                worker_id='worker-a',
+                executor=execute,
+                renewal_interval_seconds=0.2,
+            )
+            runner.queue = queue
+            runner.queue.renew_claim = lambda task_id, worker_id: (
+                renewals.append((task_id, worker_id)) or True
+            )
+
+            result = runner.evaluate_once(
+                {'user_active': False, 'quota_sufficient': True, 'services_healthy': True}
+            )
+
+        self.assertEqual('lease_lost', result['status'])
+        self.assertEqual([], renewals)
+        self.assertEqual([], side_effects)
+
     def test_approved_task_runs_under_single_lease(self):
         from core.autonomy_runner import AutonomyRunner
 
@@ -306,8 +342,9 @@ class AutonomyRunnerTests(unittest.TestCase):
             task = queue.enqueue('長時間整理', category='content')
 
             def execute(claimed):
-                current[0] += timedelta(seconds=61)
+                current[0] += timedelta(seconds=40)
                 self.assertTrue(renewed.wait(timeout=1))
+                current[0] += timedelta(seconds=21)
                 duplicate = AutonomyQueue(
                     queue_path,
                     now=lambda: current[0],
