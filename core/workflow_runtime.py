@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
+from core.autonomy_claim import ClaimLostError
 from core.data_paths import ProjectPaths, is_link_like, resolve_data_root
 
 try:
@@ -813,6 +814,7 @@ def _execute_steps(
     steps: list[tuple[str, dict[str, Any]]],
     parent_task_id: str = "",
     rerun_from: str = "",
+    cancel_check: Callable[[], None] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     registry = build_tool_registry()
     tool_outputs: dict[str, Any] = {}
@@ -821,6 +823,8 @@ def _execute_steps(
     retried_tools: list[str] = []
 
     for tool_name, payload in steps:
+        if cancel_check is not None:
+            cancel_check()
         spec = registry.get(tool_name)
         row = TaskStepState(
             tool_name=tool_name,
@@ -838,10 +842,14 @@ def _execute_steps(
 
         attempts = max(1, int(spec.max_retries or 1))
         for attempt in range(1, attempts + 1):
+            if cancel_check is not None:
+                cancel_check()
             row.attempts = attempt
             attempt_started = datetime.now()
             try:
                 output = spec.handler(workspace, dict(payload or {}))
+                if cancel_check is not None:
+                    cancel_check()
                 ok, note = spec.verifier(output)
                 row.output_payload = output
                 row.verified = bool(ok)
@@ -853,6 +861,8 @@ def _execute_steps(
                 row.status = "failed"
                 row.error = str(note)
                 row.error_class = _classify_error(note)
+            except ClaimLostError:
+                raise
             except Exception as exc:
                 row.status = "failed"
                 row.error = str(exc)
@@ -979,7 +989,15 @@ def build_action_steps(
     ]
 
 
-def run_task_plan(workspace: str | Path, route: str, user_input: str) -> dict[str, Any]:
+def run_task_plan(
+    workspace: str | Path,
+    route: str,
+    user_input: str,
+    *,
+    cancel_check: Callable[[], None] | None = None,
+) -> dict[str, Any]:
+    if cancel_check is not None:
+        cancel_check()
     workspace_path = Path(workspace).expanduser().resolve()
     task_id = f"wf-{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
     steps = choose_task_steps(route, user_input)
@@ -989,6 +1007,7 @@ def run_task_plan(workspace: str | Path, route: str, user_input: str) -> dict[st
         user_input=user_input,
         task_id=task_id,
         steps=steps,
+        cancel_check=cancel_check,
     )
 
     memory_write_allowed = (
@@ -998,6 +1017,8 @@ def run_task_plan(workspace: str | Path, route: str, user_input: str) -> dict[st
     )
 
     if memory_write_allowed:
+        if cancel_check is not None:
+            cancel_check()
         action_steps = build_action_steps(route, user_input, preview_outputs, task_id)
         action_state, action_outputs = _execute_steps(
             workspace=workspace_path,
@@ -1006,6 +1027,7 @@ def run_task_plan(workspace: str | Path, route: str, user_input: str) -> dict[st
             task_id=task_id,
             steps=action_steps,
             parent_task_id=task_id,
+            cancel_check=cancel_check,
         )
         merged_outputs = dict(preview_outputs)
         merged_outputs.update(action_outputs)
@@ -1033,6 +1055,8 @@ def run_task_plan(workspace: str | Path, route: str, user_input: str) -> dict[st
         preview_state["memory_layers"] = "L0/L1/L2"
         tool_outputs = preview_outputs
 
+    if cancel_check is not None:
+        cancel_check()
     _write_task_log(workspace_path, user_input, preview_state)
     return {"task_state": preview_state, "tool_outputs": tool_outputs}
 
@@ -1118,4 +1142,3 @@ __all__ = [
     "run_task_plan",
     "rerun_task_step",
 ]
-

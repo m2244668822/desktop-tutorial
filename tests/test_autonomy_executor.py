@@ -1,5 +1,8 @@
 import subprocess
+import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -96,6 +99,78 @@ class AutonomyExecutorTests(unittest.TestCase):
             self.assertEqual(root.resolve(), called[0][0])
             self.assertEqual('completed', result['status'])
             self.assertFalse((Path(tmp) / 'data' / 'worktrees').exists())
+
+    def test_code_task_does_not_merge_after_claim_cancellation(self):
+        from core.autonomy_claim import (
+            CLAIM_CANCELLATION_KEY,
+            ClaimCancellation,
+            ClaimLostError,
+        )
+        from core.autonomy_executor import TrevorTaskExecutor
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._repository(tmp)
+            cancellation = ClaimCancellation()
+
+            def workflow(workspace, capability_mode, instruction):
+                Path(workspace, 'README.md').write_text('stale worker\n', encoding='utf-8')
+                cancellation.mark_lost()
+                return {
+                    'task_state': {
+                        'task_id': 'workflow-cancelled',
+                        'overall_status': 'success',
+                        'completed_steps': 1,
+                        'failed_steps': 0,
+                    }
+                }
+
+            executor = TrevorTaskExecutor(
+                root,
+                Path(tmp) / 'data',
+                workflow=workflow,
+                test_commands=(),
+            )
+            with self.assertRaises(ClaimLostError):
+                executor(
+                    {
+                        'id': 'trevor-task-cancelled',
+                        'category': 'bugfix',
+                        'capability_mode': 'coding',
+                        'input': '過期任務',
+                        CLAIM_CANCELLATION_KEY: cancellation,
+                    }
+                )
+
+            self.assertEqual(
+                'initial\n',
+                (root / 'README.md').read_text(encoding='utf-8'),
+            )
+
+    def test_validation_subprocess_stops_after_claim_cancellation(self):
+        from core.autonomy_claim import ClaimCancellation, ClaimLostError
+        from core.autonomy_executor import TrevorTaskExecutor
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._repository(tmp)
+            cancellation = ClaimCancellation()
+            executor = TrevorTaskExecutor(
+                root,
+                Path(tmp) / 'data',
+                test_commands=(
+                    (sys.executable, '-c', 'import time; time.sleep(1)'),
+                ),
+            )
+            timer = threading.Timer(0.05, cancellation.mark_lost)
+            started = time.monotonic()
+            timer.start()
+            try:
+                with self.assertRaises(ClaimLostError):
+                    executor._validate(root, cancellation)
+            finally:
+                timer.cancel()
+            elapsed = time.monotonic() - started
+
+        self.assertLess(elapsed, 0.8)
 
 
 if __name__ == '__main__':

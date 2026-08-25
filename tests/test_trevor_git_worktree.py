@@ -90,6 +90,34 @@ class TrevorGitWorktreeTests(unittest.TestCase):
             self.assertEqual('initial\n', (root / 'README.md').read_text(encoding='utf-8'))
             self.assertTrue(created['path'].exists())
 
+    def test_finalize_does_not_merge_after_claim_cancellation(self):
+        from core.autonomy_claim import ClaimCancellation, ClaimLostError
+        from core.git_worktree import TrevorWorktreeManager
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._repository(tmp)
+            manager = TrevorWorktreeManager(root, Path(tmp) / 'data')
+            created = manager.create('task-4', 'cancelled change')
+            created['path'].joinpath('README.md').write_text(
+                'cancelled\n', encoding='utf-8'
+            )
+            cancellation = ClaimCancellation()
+
+            def validate(path):
+                cancellation.mark_lost()
+                return {'ok': True, 'path': str(path)}
+
+            with self.assertRaises(ClaimLostError):
+                manager.finalize(
+                    created,
+                    commit_message='feat: cancelled',
+                    validator=validate,
+                    cancel_check=cancellation.raise_if_lost,
+                )
+
+            self.assertEqual('initial\n', (root / 'README.md').read_text(encoding='utf-8'))
+            self.assertTrue(created['path'].exists())
+
 
 if __name__ == '__main__':
     unittest.main()

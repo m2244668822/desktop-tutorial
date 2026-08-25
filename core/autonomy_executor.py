@@ -1,17 +1,19 @@
 from __future__ import annotations
 
+import inspect
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
 from core.audit_chain import HashChainAuditLog
+from core.autonomy_claim import ClaimCancellation, ClaimLostError, cancellation_from_task
 from core.git_worktree import TrevorWorktreeManager
 from core.secret_scanner import SecretScanner
 from core.workflow_runtime import run_task_plan
 
 
-Workflow = Callable[[str | Path, str, str], dict[str, Any]]
+Workflow = Callable[..., dict[str, Any]]
 
 
 class TrevorTaskExecutor:
@@ -49,58 +51,159 @@ class TrevorTaskExecutor:
             'failed_steps': int(state.get('failed_steps', 0) or 0),
         }
 
-    def _run_workflow(self, workspace: Path, task: dict[str, Any]) -> dict[str, Any]:
-        result = self.workflow(
-            workspace,
-            str(task.get('capability_mode', 'general') or 'general'),
-            str(task.get('input', '') or ''),
-        )
-        summary = self._workflow_summary(result)
-        if summary['overall_status'].lower() != 'success' or summary['failed_steps']:
-            raise RuntimeError('workflow_failed')
-        return summary
+    @staticmethod
+    def _check_claim(cancellation: ClaimCancellation | None) -> None:
+        if cancellation is not None:
+            cancellation.raise_if_lost()
 
-    def _validate(self, worktree_path: Path) -> dict[str, Any]:
-        scan = SecretScanner(worktree_path).scan_repository()
-        if not scan['ok']:
-            return {'ok': False, 'reason': 'secret_scan_failed', 'findings': scan['findings']}
-        checks = []
-        for command in self.test_commands:
-            process = subprocess.run(
-                list(command),
+    @staticmethod
+    def _run_validation_command(
+        command: Sequence[str],
+        worktree_path: Path,
+        cancellation: ClaimCancellation | None,
+    ) -> subprocess.CompletedProcess[str]:
+        arguments = list(command)
+        if cancellation is None:
+            return subprocess.run(
+                arguments,
                 cwd=worktree_path,
                 check=False,
                 capture_output=True,
                 text=True,
             )
+        process = subprocess.Popen(
+            arguments,
+            cwd=worktree_path,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        while True:
+            try:
+                stdout, stderr = process.communicate(timeout=0.1)
+                return subprocess.CompletedProcess(
+                    arguments,
+                    process.returncode,
+                    stdout,
+                    stderr,
+                )
+            except subprocess.TimeoutExpired:
+                if not cancellation.is_lost():
+                    continue
+                process.terminate()
+                try:
+                    process.communicate(timeout=2)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.communicate()
+                cancellation.raise_if_lost()
+
+    def _run_workflow(
+        self,
+        workspace: Path,
+        task: dict[str, Any],
+        cancellation: ClaimCancellation | None,
+    ) -> dict[str, Any]:
+        self._check_claim(cancellation)
+        arguments = (
+            workspace,
+            str(task.get('capability_mode', 'general') or 'general'),
+            str(task.get('input', '') or ''),
+        )
+        try:
+            supports_cancel_check = 'cancel_check' in inspect.signature(
+                self.workflow
+            ).parameters
+        except (TypeError, ValueError):
+            supports_cancel_check = False
+        result = (
+            self.workflow(
+                *arguments,
+                cancel_check=(
+                    cancellation.raise_if_lost if cancellation is not None else None
+                ),
+            )
+            if supports_cancel_check
+            else self.workflow(*arguments)
+        )
+        self._check_claim(cancellation)
+        summary = self._workflow_summary(result)
+        if summary['overall_status'].lower() != 'success' or summary['failed_steps']:
+            raise RuntimeError('workflow_failed')
+        return summary
+
+    def _validate(
+        self,
+        worktree_path: Path,
+        cancellation: ClaimCancellation | None,
+    ) -> dict[str, Any]:
+        self._check_claim(cancellation)
+        scan = SecretScanner(worktree_path).scan_repository()
+        self._check_claim(cancellation)
+        if not scan['ok']:
+            return {'ok': False, 'reason': 'secret_scan_failed', 'findings': scan['findings']}
+        checks = []
+        for command in self.test_commands:
+            self._check_claim(cancellation)
+            process = self._run_validation_command(
+                command,
+                worktree_path,
+                cancellation,
+            )
+            self._check_claim(cancellation)
             checks.append({'command': list(command), 'returncode': process.returncode})
             if process.returncode != 0:
                 return {'ok': False, 'reason': 'tests_failed', 'checks': checks}
         return {'ok': True, 'checks': checks, 'secret_scan': {'scanned_files': scan['scanned_files']}}
 
-    def _execute_code_task(self, task: dict[str, Any]) -> dict[str, Any]:
+    def _execute_code_task(
+        self,
+        task: dict[str, Any],
+        cancellation: ClaimCancellation | None,
+    ) -> dict[str, Any]:
+        self._check_claim(cancellation)
         created = self.worktrees.create(
             str(task.get('id', '') or 'task'),
             str(task.get('input', '') or 'task'),
+            cancel_check=(
+                cancellation.raise_if_lost if cancellation is not None else None
+            ),
         )
         worktree_path = Path(created['path'])
-        self._audit(
-            'autonomy_worktree_created',
-            {'task_id': task.get('id', ''), 'branch': created['branch']},
-        )
-        workflow = self._run_workflow(worktree_path, task)
-        git_result = self.worktrees.finalize(
-            created,
-            commit_message=f"trevor: task {str(task.get('id', '') or 'unknown')[:80]}",
-            validator=self._validate,
-        )
+        try:
+            self._check_claim(cancellation)
+            self._audit(
+                'autonomy_worktree_created',
+                {'task_id': task.get('id', ''), 'branch': created['branch']},
+            )
+            workflow = self._run_workflow(worktree_path, task, cancellation)
+            self._check_claim(cancellation)
+            git_result = self.worktrees.finalize(
+                created,
+                commit_message=f"trevor: task {str(task.get('id', '') or 'unknown')[:80]}",
+                validator=lambda path: self._validate(path, cancellation),
+                cancel_check=(
+                    cancellation.raise_if_lost if cancellation is not None else None
+                ),
+            )
+        except ClaimLostError:
+            try:
+                self.worktrees.discard(created)
+            except Exception:
+                pass
+            raise
         self._audit(
             'autonomy_task_merged',
             {'task_id': task.get('id', ''), 'git': git_result, 'workflow': workflow},
         )
         return {'status': 'completed', 'workflow': workflow, 'git': git_result}
 
-    def _execute_non_code_task(self, task: dict[str, Any]) -> dict[str, Any]:
+    def _execute_non_code_task(
+        self,
+        task: dict[str, Any],
+        cancellation: ClaimCancellation | None,
+    ) -> dict[str, Any]:
+        self._check_claim(cancellation)
         before = subprocess.run(
             ['git', 'status', '--porcelain'],
             cwd=self.repository_root,
@@ -108,7 +211,9 @@ class TrevorTaskExecutor:
             capture_output=True,
             text=True,
         ).stdout
-        workflow = self._run_workflow(self.repository_root, task)
+        self._check_claim(cancellation)
+        workflow = self._run_workflow(self.repository_root, task, cancellation)
+        self._check_claim(cancellation)
         after = subprocess.run(
             ['git', 'status', '--porcelain'],
             cwd=self.repository_root,
@@ -116,6 +221,7 @@ class TrevorTaskExecutor:
             capture_output=True,
             text=True,
         ).stdout
+        self._check_claim(cancellation)
         if after != before:
             raise RuntimeError('non_code_task_modified_repository')
         self._audit(
@@ -125,14 +231,17 @@ class TrevorTaskExecutor:
         return {'status': 'completed', 'workflow': workflow, 'git': {'status': 'not_required'}}
 
     def __call__(self, task: dict[str, Any]) -> dict[str, Any]:
+        cancellation = cancellation_from_task(task)
+        self._check_claim(cancellation)
         category = str(task.get('category', 'maintenance') or 'maintenance').lower()
         self._audit(
             'autonomy_task_started',
             {'task_id': task.get('id', ''), 'category': category},
         )
+        self._check_claim(cancellation)
         if category in self.CODE_CATEGORIES:
-            return self._execute_code_task(task)
-        return self._execute_non_code_task(task)
+            return self._execute_code_task(task, cancellation)
+        return self._execute_non_code_task(task, cancellation)
 
 
 __all__ = ['TrevorTaskExecutor']

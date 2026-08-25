@@ -6,6 +6,9 @@ from pathlib import Path
 from typing import Any, Callable
 
 
+CancellationCheck = Callable[[], None]
+
+
 class TrevorWorktreeManager:
     def __init__(self, repository_root: Path, data_root: Path) -> None:
         self.repository_root = Path(repository_root).resolve()
@@ -25,7 +28,19 @@ class TrevorWorktreeManager:
         normalized = re.sub(r'[^a-z0-9]+', '-', value.lower()).strip('-')
         return normalized[:48] or 'task'
 
-    def create(self, task_id: str, title: str) -> dict[str, str | Path]:
+    @staticmethod
+    def _check_cancel(cancel_check: CancellationCheck | None) -> None:
+        if cancel_check is not None:
+            cancel_check()
+
+    def create(
+        self,
+        task_id: str,
+        title: str,
+        *,
+        cancel_check: CancellationCheck | None = None,
+    ) -> dict[str, str | Path]:
+        self._check_cancel(cancel_check)
         branch = self._git('branch', '--show-current').stdout.strip()
         if branch != 'trevor/integration':
             raise RuntimeError('integration_branch_required')
@@ -47,7 +62,18 @@ class TrevorWorktreeManager:
             str(worktree_path),
             'trevor/integration',
         )
+        try:
+            self._check_cancel(cancel_check)
+        except Exception:
+            self._git('worktree', 'remove', '--force', str(worktree_path))
+            self._git('branch', '-D', task_branch)
+            raise
         return {'branch': task_branch, 'path': worktree_path}
+
+    def discard(self, created: dict[str, Any]) -> None:
+        branch, worktree_path = self._validated_worktree(created)
+        self._git('worktree', 'remove', '--force', str(worktree_path))
+        self._git('branch', '-D', branch)
 
     def _integration_ready(self) -> None:
         branch = self._git('branch', '--show-current').stdout.strip()
@@ -74,16 +100,21 @@ class TrevorWorktreeManager:
         *,
         commit_message: str,
         validator: Callable[[Path], dict[str, Any] | bool],
+        cancel_check: CancellationCheck | None = None,
     ) -> dict[str, Any]:
+        self._check_cancel(cancel_check)
         branch, worktree_path = self._validated_worktree(created)
         self._git('diff', '--check', 'HEAD', cwd=worktree_path)
+        self._check_cancel(cancel_check)
         validation = validator(worktree_path)
+        self._check_cancel(cancel_check)
         valid = validation if isinstance(validation, bool) else bool(validation.get('ok'))
         if not valid:
             raise RuntimeError('validation_failed')
 
         status = self._git('status', '--porcelain', cwd=worktree_path).stdout.strip()
         if not status:
+            self._check_cancel(cancel_check)
             self._git('worktree', 'remove', str(worktree_path))
             self._git('branch', '-D', branch)
             return {'status': 'no_changes', 'branch': branch}
@@ -91,9 +122,13 @@ class TrevorWorktreeManager:
         message = str(commit_message or '').strip()
         if not message:
             raise ValueError('commit_message_required')
+        self._check_cancel(cancel_check)
         self._git('add', '--all', cwd=worktree_path)
+        self._check_cancel(cancel_check)
         self._git('commit', '-m', message[:200], cwd=worktree_path)
+        self._check_cancel(cancel_check)
         self._integration_ready()
+        self._check_cancel(cancel_check)
         try:
             self._git('merge', '--no-ff', '--no-edit', branch)
         except subprocess.CalledProcessError as exc:
