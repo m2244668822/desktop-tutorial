@@ -291,7 +291,8 @@ class AutonomyQueue:
                 task['reclaimed_at'] = now.isoformat()
                 task['updated_at'] = now.isoformat()
             if any(
-                isinstance(task, dict) and task.get('status') == 'running'
+                isinstance(task, dict)
+                and task.get('status') in {'running', 'finalizing'}
                 for task in tasks
             ):
                 return None
@@ -329,7 +330,7 @@ class AutonomyQueue:
                 if not isinstance(task, dict) or task.get('id') != target:
                     continue
                 if (
-                    task.get('status') != 'running'
+                    task.get('status') not in {'running', 'finalizing'}
                     or task.get('worker_id') != worker
                 ):
                     return False
@@ -341,6 +342,35 @@ class AutonomyQueue:
                 task['lease_expires_at'] = (
                     now + timedelta(seconds=self.claim_ttl_seconds)
                 ).isoformat()
+                payload['updated_at'] = task['updated_at']
+                _atomic_json(self.path, payload)
+                return True
+        return False
+
+    def begin_finalization(self, task_id: str, *, worker_id: str) -> bool:
+        target = str(task_id or '').strip()
+        worker = str(worker_id or '').strip()
+        if not target:
+            raise ValueError('task_id_required')
+        if not worker:
+            raise ValueError('worker_id_required')
+        with self._mutation_lock():
+            payload = self._load()
+            for task in payload.get('tasks', []):
+                if not isinstance(task, dict) or task.get('id') != target:
+                    continue
+                if task.get('worker_id') != worker:
+                    return False
+                if task.get('status') == 'finalizing':
+                    return True
+                if task.get('status') != 'running':
+                    return False
+                now = self.now().astimezone(timezone.utc)
+                if self._claim_expires_at(task, now) <= now:
+                    return False
+                task['status'] = 'finalizing'
+                task['finalization_started_at'] = now.isoformat()
+                task['updated_at'] = now.isoformat()
                 payload['updated_at'] = task['updated_at']
                 _atomic_json(self.path, payload)
                 return True
@@ -364,13 +394,14 @@ class AutonomyQueue:
             for task in payload.get('tasks', []):
                 if not isinstance(task, dict) or task.get('id') != target:
                     continue
+                status = task.get('status')
                 if (
-                    task.get('status') != 'running'
+                    status not in {'running', 'finalizing'}
                     or task.get('worker_id') != worker
                 ):
                     return False
                 now = self.now().astimezone(timezone.utc)
-                if self._claim_expires_at(task, now) <= now:
+                if status == 'running' and self._claim_expires_at(task, now) <= now:
                     return False
                 task['status'] = 'completed' if success else 'failed'
                 task['result'] = dict(result or {})
@@ -378,6 +409,7 @@ class AutonomyQueue:
                 task.pop('worker_id', None)
                 task.pop('lease_expires_at', None)
                 task.pop('claim_attempt_id', None)
+                task.pop('finalization_started_at', None)
                 task['updated_at'] = now.isoformat()
                 payload['updated_at'] = task['updated_at']
                 _atomic_json(self.path, payload)

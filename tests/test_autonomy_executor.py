@@ -113,6 +113,45 @@ class AutonomyExecutorTests(unittest.TestCase):
 
         self.assertNotEqual(first['git']['branch'], second['git']['branch'])
 
+    def test_code_task_enters_finalization_before_workflow_side_effects(self):
+        from core.autonomy_executor import TrevorTaskExecutor
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._repository(tmp)
+            events = []
+
+            def workflow(workspace, capability_mode, instruction):
+                self.assertEqual(['finalizing'], events)
+                Path(workspace, 'README.md').write_text('fenced\n', encoding='utf-8')
+                return {
+                    'task_state': {
+                        'task_id': 'workflow-fenced',
+                        'overall_status': 'success',
+                        'completed_steps': 1,
+                        'failed_steps': 0,
+                    }
+                }
+
+            executor = TrevorTaskExecutor(
+                root,
+                Path(tmp) / 'data',
+                workflow=workflow,
+                test_commands=(),
+            )
+            result = executor(
+                {
+                    'id': 'trevor-fenced-task',
+                    'claim_attempt_id': 'attempt-fenced',
+                    'category': 'bugfix',
+                    'capability_mode': 'coding',
+                    'input': 'publish only after fencing',
+                },
+                before_publish=lambda: events.append('finalizing'),
+            )
+
+        self.assertEqual('merged', result['git']['status'])
+        self.assertEqual(['finalizing'], events)
+
     def test_content_task_uses_external_data_without_git_worktree(self):
         from core.autonomy_executor import TrevorTaskExecutor
 
