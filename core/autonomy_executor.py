@@ -6,6 +6,7 @@ import signal
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
@@ -223,8 +224,14 @@ class TrevorTaskExecutor:
         cancellation: ClaimCancellation | None,
     ) -> dict[str, Any]:
         self._check_claim(cancellation)
+        claim_attempt_id = str(task.get('claim_attempt_id', '') or '').strip()
+        if not claim_attempt_id:
+            claim_attempt_id = uuid.uuid4().hex
+        worktree_task_id = (
+            f"{claim_attempt_id}-{str(task.get('id', '') or 'task')}"
+        )
         created = self.worktrees.create(
-            str(task.get('id', '') or 'task'),
+            worktree_task_id,
             str(task.get('input', '') or 'task'),
             cancel_check=(
                 cancellation.raise_if_lost if cancellation is not None else None

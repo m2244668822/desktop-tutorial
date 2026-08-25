@@ -12,13 +12,12 @@
 
 # 崔佛框架即時狀態總覽
 
-- 更新時間：2026-08-25 12:51 CST
+- 更新時間：2026-08-25 13:18 CST
 - 對外身份：`trevor／崔佛`
 - 本次 GitHub review 修正起點：`d6ca3f726637`
 - 整體狀態：GitHub 第一輪 review 已合併主線；第二輪 4 項、PR #20 的 7 項、PR #21 的 3 項及
-  PR #23 的 14 項提醒均已
-  完成程式修正及
-  回歸驗證；Graphiti 歷史記憶遷移仍暫停；OCI Tailscale 等待帳戶實體驗證
+  PR #23 的 16 項提醒均已完成程式修正與回歸驗證；Graphiti 歷史記憶遷移仍暫停；OCI Tailscale
+  等待帳戶實體驗證
 - 安全狀態：GitHub Dependabot 開啟警示 `0`、Secret Scanning 開啟警示 `0`
 
 ## 狀態圖例
@@ -209,8 +208,8 @@ stderr：        0 bytes
 
 | 驗收 | 結果 |
 | --- | --- |
-| Python 測試 | 目前工作樹以內建磁碟 Python 3.12 runtime 執行完整套件，`360 passed` |
-| Review 回歸測試 | 第一輪受影響模組 `126 passed`；第二輪權限／readiness／lease 專項 `50 passed`；PR #23 取消／TTL／merge 專項 `33 passed` |
+| Python 測試 | 目前工作樹以內建磁碟 Python 3.12 runtime 執行完整套件，`364 passed` |
+| Review 回歸測試 | 第一輪受影響模組 `126 passed`；第二輪權限／readiness／lease 專項 `50 passed`；PR #23 取消／TTL／merge 專項 `43 passed` |
 | 嚴格完整驗證 | `STRICT=1 bash tools/run_full_verification.sh` passed；內含 `36 passed` contracts |
 | Python syntax | passed |
 | Shell syntax | passed |
@@ -230,7 +229,7 @@ stderr：        0 bytes
 第一輪重新稽核 PR #1、#2、#9、#16、#17 共 31 個未結案 review thread，已在 main `55d359a` 附上
 對應測試證據並全部標記 resolved。GitHub 隨後在 PR #18 新增 4 個有效提醒；第二輪已先建立失敗測試、完成
 根因修正。PR #20 對最新 commit 執行 Codex review 後再提出 7 個邊界問題，PR #21 主線複審再提出 3 個
-租約競態；PR #23 四次最新 head 複審再找到 14 個取消與補償邊界，也已用失敗測試重現並修正；全部
+租約競態；PR #23 五次最新 head 複審再找到 16 個取消與補償邊界，也已用失敗測試重現並修正；全部
 變更依 task → integration → main 流程通過 required CI 後再逐項結案。
 
 | Review 來源 | GitHub 建議 | 修正結果 |
@@ -278,6 +277,8 @@ stderr：        0 bytes
 | PR #23 | process group 已消失仍對舊 PGID 送 SIGKILL | grace period 後做 final existence probe；只有同一群組仍存活才升級，避免快速 PGID reuse 誤殺無關群組 |
 | PR #23 | stale output rollback 可在檢查後覆蓋健康 worker 新內容 | 共享輸出 publication、post-check 與 rollback 全部置於相同父目錄跨程序鎖；健康 publisher 只會在 stale rollback 完成後發布 |
 | PR #23 | renewal sleep 越過 confirmed deadline 後仍可復活過期 claim | 每次 wait 以剩餘租期封頂，deadline 到期前先取消；queue 亦拒絕任何已過期 lease 的 `renew_claim()` |
+| PR #23 | executor 在 lease deadline 後返回仍可接受 stale 結果 | `finish()` 在 queue mutation lock 內原子核對儲存期限；過期 claim 的 finish 與 defer 均 fail closed |
+| PR #23 | 任務重領時新舊 worker 沿用同一 branch 與 worktree | 每次 `claim_next()` 核發新 `claim_attempt_id`；程式任務以該識別碼隔離 Git branch 與 worktree 資源 |
 | PR #14／#15 | Graphiti 剩餘數量前後矛盾 | 已統一為 `5,426 - 2,658 = 2,768` |
 | PR #14 | 衝突解析漏寫 priority | 已明列限制性安全值、來源順位、`priority`、`updated_at` 的實際順序 |
 | PR #12 | client timeout 與 sidecar 300 秒上限相同 | 預設改為 `330` 秒並保留 CLI 覆寫 |

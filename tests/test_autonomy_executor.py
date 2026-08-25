@@ -65,6 +65,54 @@ class AutonomyExecutorTests(unittest.TestCase):
             self.assertEqual('autonomous\n', (root / 'README.md').read_text(encoding='utf-8'))
             self.assertEqual([], list((Path(tmp) / 'data' / 'worktrees').glob('*')))
 
+    def test_reclaimed_code_task_uses_claim_unique_worktree_resources(self):
+        from core.autonomy_executor import TrevorTaskExecutor
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._repository(tmp)
+            attempts = []
+
+            def workflow(workspace, capability_mode, instruction):
+                attempts.append(instruction)
+                Path(workspace, 'README.md').write_text(
+                    f'attempt {len(attempts)}\n', encoding='utf-8'
+                )
+                return {
+                    'task_state': {
+                        'task_id': instruction,
+                        'overall_status': 'success',
+                        'completed_steps': 1,
+                        'failed_steps': 0,
+                    }
+                }
+
+            executor = TrevorTaskExecutor(
+                root,
+                Path(tmp) / 'data',
+                workflow=workflow,
+                test_commands=(),
+            )
+            first = executor(
+                {
+                    'id': 'trevor-reclaimed-task',
+                    'claim_attempt_id': 'attempt-one',
+                    'category': 'bugfix',
+                    'capability_mode': 'coding',
+                    'input': 'same reclaimed task',
+                }
+            )
+            second = executor(
+                {
+                    'id': 'trevor-reclaimed-task',
+                    'claim_attempt_id': 'attempt-two',
+                    'category': 'bugfix',
+                    'capability_mode': 'coding',
+                    'input': 'same reclaimed task',
+                }
+            )
+
+        self.assertNotEqual(first['git']['branch'], second['git']['branch'])
+
     def test_content_task_uses_external_data_without_git_worktree(self):
         from core.autonomy_executor import TrevorTaskExecutor
 
