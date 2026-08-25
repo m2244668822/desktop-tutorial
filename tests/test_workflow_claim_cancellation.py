@@ -134,6 +134,51 @@ class WorkflowClaimCancellationTests(unittest.TestCase):
                 (workspace / 'data' / 'knowledge_hub' / 'aeg_keyword_graph.json').exists()
             )
 
+    def test_ingestion_generation_rolls_back_all_files_on_cancellation(self):
+        import os
+
+        from core.autonomy_claim import ClaimCancellation, ClaimLostError
+        from tools.build_knowledge_ingestion import _publish_generation
+
+        cancellation = ClaimCancellation()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = {
+                root / 'documents.jsonl': b'old documents\n',
+                root / 'chunks.jsonl': b'old chunks\n',
+                root / 'summary.json': b'{"generation":"old"}\n',
+            }
+            for path, content in paths.items():
+                path.write_bytes(content)
+            replacements = {
+                path: content.replace(b'old', b'new')
+                for path, content in paths.items()
+            }
+            resolved_replacements = {path.resolve() for path in replacements}
+            original_replace = os.replace
+            published_targets = 0
+
+            def cancel_after_first_publish(source, destination):
+                nonlocal published_targets
+                result = original_replace(source, destination)
+                if Path(destination).resolve() in resolved_replacements:
+                    published_targets += 1
+                    if published_targets == 1:
+                        cancellation.mark_lost()
+                return result
+
+            with patch(
+                'tools.build_knowledge_ingestion.os.replace',
+                side_effect=cancel_after_first_publish,
+            ):
+                with self.assertRaises(ClaimLostError):
+                    _publish_generation(
+                        replacements,
+                        cancel_check=cancellation.raise_if_lost,
+                    )
+
+            self.assertEqual(paths, {path: path.read_bytes() for path in paths})
+
 
 if __name__ == '__main__':
     unittest.main()

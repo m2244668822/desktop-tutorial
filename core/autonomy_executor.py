@@ -5,6 +5,7 @@ import os
 import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
@@ -104,8 +105,20 @@ class TrevorTaskExecutor:
     @staticmethod
     def _terminate_process_tree(process: subprocess.Popen[str]) -> None:
         if os.name == 'posix':
+            process_group = process.pid
             try:
-                os.killpg(process.pid, signal.SIGTERM)
+                os.killpg(process_group, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            deadline = time.monotonic() + 0.25
+            while time.monotonic() < deadline:
+                try:
+                    os.killpg(process_group, 0)
+                except ProcessLookupError:
+                    break
+                time.sleep(0.02)
+            try:
+                os.killpg(process_group, signal.SIGKILL)
             except ProcessLookupError:
                 pass
         elif os.name == 'nt':
@@ -122,13 +135,14 @@ class TrevorTaskExecutor:
             process.communicate(timeout=2)
             return
         except subprocess.TimeoutExpired:
-            pass
-        if os.name == 'posix':
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-        else:
+            if os.name == 'posix':
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            elif process.poll() is None:
+                process.kill()
+        if os.name != 'posix':
             if process.poll() is None:
                 process.kill()
         process.communicate(timeout=2)
@@ -146,9 +160,19 @@ class TrevorTaskExecutor:
             str(task.get('input', '') or ''),
         )
         try:
-            supports_cancel_check = 'cancel_check' in inspect.signature(
-                self.workflow
-            ).parameters
+            parameters = inspect.signature(self.workflow).parameters.values()
+            supports_cancel_check = any(
+                parameter.kind is inspect.Parameter.VAR_KEYWORD
+                or (
+                    parameter.name == 'cancel_check'
+                    and parameter.kind
+                    in {
+                        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                        inspect.Parameter.KEYWORD_ONLY,
+                    }
+                )
+                for parameter in parameters
+            )
         except (TypeError, ValueError):
             supports_cancel_check = False
         result = (

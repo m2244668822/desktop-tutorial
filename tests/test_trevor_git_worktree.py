@@ -135,6 +135,11 @@ class TrevorGitWorktreeTests(unittest.TestCase):
             def git_with_late_cancellation(*arguments, **kwargs):
                 result = original_git(*arguments, **kwargs)
                 if arguments and arguments[0] == 'merge':
+                    (root / 'HEALTHY.md').write_text(
+                        'healthy worker\n', encoding='utf-8'
+                    )
+                    original_git('add', 'HEALTHY.md')
+                    original_git('commit', '-m', 'healthy concurrent merge')
                     cancellation.mark_lost()
                 return result
 
@@ -148,10 +153,14 @@ class TrevorGitWorktreeTests(unittest.TestCase):
                 )
 
             self.assertEqual('initial\n', (root / 'README.md').read_text(encoding='utf-8'))
-            self.assertTrue(created['path'].exists())
-            self.assertTrue(
-                _git(root, 'log', '-1', '--pretty=%s').stdout.startswith('Revert ')
+            self.assertEqual(
+                'healthy worker\n',
+                (root / 'HEALTHY.md').read_text(encoding='utf-8'),
             )
+            self.assertTrue(created['path'].exists())
+            log_subjects = _git(root, 'log', '-2', '--pretty=%s').stdout.splitlines()
+            self.assertTrue(log_subjects[0].startswith('Revert '))
+            self.assertEqual('healthy concurrent merge', log_subjects[1])
 
 
 if __name__ == '__main__':
