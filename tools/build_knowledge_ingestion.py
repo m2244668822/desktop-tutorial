@@ -15,11 +15,18 @@ import hashlib
 import json
 import os
 import re
+import threading
 import uuid
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -28,6 +35,7 @@ MAX_FILE_BYTES = 2_000_000
 CHUNK_SIZE = 900
 CHUNK_OVERLAP = 120
 CancellationCheck = Callable[[], None]
+_GENERATION_THREAD_LOCK = threading.Lock()
 
 
 def _check_cancel(cancel_check: CancellationCheck | None) -> None:
@@ -69,6 +77,83 @@ def _write_text(
     finally:
         if not installed:
             temporary.unlink(missing_ok=True)
+
+
+@contextmanager
+def _exclusive_generation_lock(path: Path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with _GENERATION_THREAD_LOCK:
+            if fcntl is not None:
+                fcntl.flock(descriptor, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                if fcntl is not None:
+                    fcntl.flock(descriptor, fcntl.LOCK_UN)
+    finally:
+        os.close(descriptor)
+
+
+def _restore_generation(previous: dict[Path, bytes | None]) -> None:
+    for path, content in previous.items():
+        if content is None:
+            path.unlink(missing_ok=True)
+            continue
+        temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.restore")
+        try:
+            temporary.write_bytes(content)
+            os.replace(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+
+def _publish_generation(
+    outputs: dict[Path, bytes],
+    *,
+    cancel_check: CancellationCheck | None = None,
+) -> None:
+    if not outputs:
+        return
+    normalized = {
+        Path(path).resolve(): bytes(content)
+        for path, content in outputs.items()
+    }
+    parents = {path.parent.resolve() for path in normalized}
+    if len(parents) != 1:
+        raise ValueError("generation_outputs_must_share_directory")
+    output_dir = next(iter(parents))
+    _check_cancel(cancel_check)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = output_dir / ".generation.lock"
+    with _exclusive_generation_lock(lock_path):
+        _check_cancel(cancel_check)
+        previous = {
+            path: path.read_bytes() if path.is_file() else None
+            for path in normalized
+        }
+        staged = {
+            path: path.with_name(f".{path.name}.{uuid.uuid4().hex}.staged")
+            for path in normalized
+        }
+        replaced: list[Path] = []
+        try:
+            for path, content in normalized.items():
+                staged[path].write_bytes(content)
+            _check_cancel(cancel_check)
+            for path in normalized:
+                os.replace(staged[path], path)
+                replaced.append(path)
+            _check_cancel(cancel_check)
+        except Exception:
+            if replaced:
+                _restore_generation(previous)
+            raise
+        finally:
+            for temporary in staged.values():
+                temporary.unlink(missing_ok=True)
 
 
 def resolve_data_root(base_dir: Path) -> Path:
@@ -292,14 +377,10 @@ def build_pipeline(
             deduped[doc.doc_id] = doc
     final_docs = list(deduped.values())
 
-    _check_cancel(cancel_check)
-    ingestion_dir.mkdir(parents=True, exist_ok=True)
-    document_rows = [asdict(doc) for doc in final_docs]
-    write_jsonl(
-        ingestion_dir / "documents.jsonl",
-        document_rows,
-        cancel_check=cancel_check,
-    )
+    document_rows: list[dict[str, Any]] = []
+    for doc in final_docs:
+        _check_cancel(cancel_check)
+        document_rows.append(asdict(doc))
 
     chunk_rows: list[dict[str, Any]] = []
     source_counts: dict[str, int] = {}
@@ -318,12 +399,6 @@ def build_pipeline(
                     "metadata": doc.metadata,
                 }
             )
-    write_jsonl(
-        ingestion_dir / "chunks.jsonl",
-        chunk_rows,
-        cancel_check=cancel_check,
-    )
-
     summary = {
         "generated_at": datetime.now().isoformat(),
         "data_root": str(data_root),
@@ -339,9 +414,24 @@ def build_pipeline(
             "這條管線可作為 AnythingLLM 風格的 ingestion 前置層。",
         ],
     }
-    _write_text(
-        ingestion_dir / "summary.json",
-        json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
+    document_text = "\n".join(
+        json.dumps(row, ensure_ascii=False) for row in document_rows
+    )
+    chunk_text = "\n".join(
+        json.dumps(row, ensure_ascii=False) for row in chunk_rows
+    )
+    _publish_generation(
+        {
+            ingestion_dir / "documents.jsonl": (
+                document_text + ("\n" if document_text else "")
+            ).encode("utf-8"),
+            ingestion_dir / "chunks.jsonl": (
+                chunk_text + ("\n" if chunk_text else "")
+            ).encode("utf-8"),
+            ingestion_dir / "summary.json": (
+                json.dumps(summary, ensure_ascii=False, indent=2) + "\n"
+            ).encode("utf-8"),
+        },
         cancel_check=cancel_check,
     )
     return summary

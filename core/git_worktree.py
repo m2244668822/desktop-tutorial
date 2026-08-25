@@ -1,18 +1,50 @@
 from __future__ import annotations
 
+import os
 import re
 import subprocess
+import threading
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable
 
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
+
 
 CancellationCheck = Callable[[], None]
+_INTEGRATION_THREAD_LOCK = threading.Lock()
+
+
+@contextmanager
+def _exclusive_repository_lock(path: Path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with _INTEGRATION_THREAD_LOCK:
+            if fcntl is not None:
+                fcntl.flock(descriptor, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                if fcntl is not None:
+                    fcntl.flock(descriptor, fcntl.LOCK_UN)
+    finally:
+        os.close(descriptor)
 
 
 class TrevorWorktreeManager:
     def __init__(self, repository_root: Path, data_root: Path) -> None:
         self.repository_root = Path(repository_root).resolve()
         self.worktrees_root = Path(data_root).resolve() / 'worktrees'
+        git_common_dir = self._git('rev-parse', '--git-common-dir').stdout.strip()
+        common_path = Path(git_common_dir)
+        if not common_path.is_absolute():
+            common_path = self.repository_root / common_path
+        self.integration_lock_path = common_path.resolve() / 'trevor-integration.lock'
 
     def _git(self, *arguments: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
@@ -107,6 +139,32 @@ class TrevorWorktreeManager:
             )
             raise RuntimeError('integration_merge_compensation_failed') from exc
 
+    def _find_task_merge_commit(
+        self,
+        integration_parent: str,
+        task_parent: str,
+    ) -> str:
+        candidates = self._git(
+            'rev-list',
+            '--ancestry-path',
+            f'{integration_parent}..HEAD',
+        ).stdout.splitlines()
+        for candidate in candidates:
+            parts = self._git(
+                'rev-list',
+                '--parents',
+                '-n',
+                '1',
+                candidate,
+            ).stdout.split()
+            if (
+                len(parts) == 3
+                and parts[1] == integration_parent
+                and parts[2] == task_parent
+            ):
+                return parts[0]
+        raise RuntimeError('integration_merge_commit_not_found')
+
     def finalize(
         self,
         created: dict[str, Any],
@@ -140,25 +198,31 @@ class TrevorWorktreeManager:
         self._check_cancel(cancel_check)
         self._git('commit', '-m', message[:200], cwd=worktree_path)
         self._check_cancel(cancel_check)
-        self._integration_ready()
-        self._check_cancel(cancel_check)
-        try:
-            self._git('merge', '--no-ff', '--no-edit', branch)
-        except subprocess.CalledProcessError as exc:
-            subprocess.run(
-                ['git', 'merge', '--abort'],
-                cwd=self.repository_root,
-                check=False,
-                capture_output=True,
-                text=True,
-            )
-            raise RuntimeError('integration_merge_failed') from exc
-        commit = self._git('rev-parse', 'HEAD').stdout.strip()
-        try:
+        with _exclusive_repository_lock(self.integration_lock_path):
+            self._integration_ready()
             self._check_cancel(cancel_check)
-        except Exception:
-            self._compensate_integration_merge(commit)
-            raise
+            integration_parent = self._git('rev-parse', 'HEAD').stdout.strip()
+            task_parent = self._git('rev-parse', branch).stdout.strip()
+            try:
+                self._git('merge', '--no-ff', '--no-edit', branch)
+            except subprocess.CalledProcessError as exc:
+                subprocess.run(
+                    ['git', 'merge', '--abort'],
+                    cwd=self.repository_root,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                raise RuntimeError('integration_merge_failed') from exc
+            commit = self._find_task_merge_commit(
+                integration_parent,
+                task_parent,
+            )
+            try:
+                self._check_cancel(cancel_check)
+            except Exception:
+                self._compensate_integration_merge(commit)
+                raise
         self._git('worktree', 'remove', str(worktree_path))
         self._git('branch', '-d', branch)
         return {'status': 'merged', 'branch': branch, 'commit': commit}

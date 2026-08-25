@@ -1,3 +1,4 @@
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -201,6 +202,83 @@ class AutonomyExecutorTests(unittest.TestCase):
             time.sleep(0.35)
 
             self.assertFalse(marker.exists())
+
+    def test_validation_cancellation_kills_sigterm_ignoring_descendant(self):
+        from core.autonomy_claim import ClaimCancellation, ClaimLostError
+        from core.autonomy_executor import TrevorTaskExecutor
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._repository(tmp)
+            marker = Path(tmp) / 'sigterm-ignoring-child-side-effect'
+            ready = Path(tmp) / 'sigterm-ignoring-child-ready'
+            child_script = (
+                "trap '' TERM; "
+                f"printf ready > {shlex.quote(str(ready))}; "
+                "sleep 0.6; "
+                f"printf stale > {shlex.quote(str(marker))}"
+            )
+            parent_script = (
+                f"/bin/sh -c {shlex.quote(child_script)} >/dev/null 2>&1 & "
+                "sleep 5"
+            )
+            cancellation = ClaimCancellation()
+            executor = TrevorTaskExecutor(
+                root,
+                Path(tmp) / 'data',
+                test_commands=(),
+            )
+
+            def cancel_when_descendant_is_ready():
+                deadline = time.monotonic() + 2
+                while time.monotonic() < deadline:
+                    if ready.exists():
+                        cancellation.mark_lost()
+                        return
+                    time.sleep(0.01)
+
+            canceller = threading.Thread(target=cancel_when_descendant_is_ready)
+            canceller.start()
+            try:
+                with self.assertRaises(ClaimLostError):
+                    executor._run_validation_command(
+                        ('/bin/sh', '-c', parent_script),
+                        root,
+                        cancellation,
+                    )
+            finally:
+                canceller.join(timeout=2)
+            time.sleep(0.7)
+
+            self.assertFalse(marker.exists())
+
+    def test_variadic_workflow_receives_cancel_check(self):
+        from core.autonomy_claim import ClaimCancellation, ClaimLostError
+        from core.autonomy_executor import TrevorTaskExecutor
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._repository(tmp)
+            cancellation = ClaimCancellation()
+
+            def workflow(*args, **kwargs):
+                cancellation.mark_lost()
+                kwargs['cancel_check']()
+
+            executor = TrevorTaskExecutor(
+                root,
+                Path(tmp) / 'data',
+                workflow=workflow,
+                test_commands=(),
+            )
+            with self.assertRaises(ClaimLostError):
+                executor(
+                    {
+                        'id': 'trevor-variadic-workflow',
+                        'category': 'content',
+                        'capability_mode': 'content',
+                        'input': '取消包裝 workflow',
+                    },
+                    cancellation=cancellation,
+                )
 
 
 if __name__ == '__main__':
