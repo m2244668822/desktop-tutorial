@@ -104,9 +104,15 @@ class AutonomyRunner:
                     'quota_insufficient',
                     'service_unhealthy',
                 }:
-                    self.queue.defer(
+                    deferred = self.queue.defer(
                         task['id'], worker_id=self.worker_id, reason=reason
                     )
+                    if not deferred:
+                        return {
+                            'status': 'lease_lost',
+                            'error': 'task_claim_lost',
+                            'task_id': task['id'],
+                        }
                     return {'status': 'paused', 'reason': reason, 'task_id': task['id']}
                 self.queue.finish(
                     task['id'], worker_id=self.worker_id, success=False, error=reason
