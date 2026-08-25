@@ -1,39 +1,14 @@
 from __future__ import annotations
 
-import os
 import re
 import subprocess
-import threading
-from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable
 
-try:
-    import fcntl
-except ImportError:
-    fcntl = None
+from core.interprocess_lock import exclusive_file_lock
 
 
 CancellationCheck = Callable[[], None]
-_INTEGRATION_THREAD_LOCK = threading.Lock()
-
-
-@contextmanager
-def _exclusive_repository_lock(path: Path):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
-    try:
-        os.fchmod(descriptor, 0o600)
-        with _INTEGRATION_THREAD_LOCK:
-            if fcntl is not None:
-                fcntl.flock(descriptor, fcntl.LOCK_EX)
-            try:
-                yield
-            finally:
-                if fcntl is not None:
-                    fcntl.flock(descriptor, fcntl.LOCK_UN)
-    finally:
-        os.close(descriptor)
 
 
 class TrevorWorktreeManager:
@@ -198,7 +173,7 @@ class TrevorWorktreeManager:
         self._check_cancel(cancel_check)
         self._git('commit', '-m', message[:200], cwd=worktree_path)
         self._check_cancel(cancel_check)
-        with _exclusive_repository_lock(self.integration_lock_path):
+        with exclusive_file_lock(self.integration_lock_path):
             self._integration_ready()
             self._check_cancel(cancel_check)
             integration_parent = self._git('rev-parse', 'HEAD').stdout.strip()

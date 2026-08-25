@@ -108,18 +108,18 @@ class TrevorTaskExecutor:
             process_group = process.pid
             try:
                 os.killpg(process_group, signal.SIGTERM)
-            except ProcessLookupError:
+            except (ProcessLookupError, PermissionError):
                 pass
             deadline = time.monotonic() + 0.25
             while time.monotonic() < deadline:
                 try:
                     os.killpg(process_group, 0)
-                except ProcessLookupError:
+                except (ProcessLookupError, PermissionError):
                     break
                 time.sleep(0.02)
             try:
                 os.killpg(process_group, signal.SIGKILL)
-            except ProcessLookupError:
+            except (ProcessLookupError, PermissionError):
                 pass
         elif os.name == 'nt':
             subprocess.run(
@@ -138,13 +138,12 @@ class TrevorTaskExecutor:
             if os.name == 'posix':
                 try:
                     os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
+                except (ProcessLookupError, PermissionError):
                     pass
-            elif process.poll() is None:
-                process.kill()
-        if os.name != 'posix':
             if process.poll() is None:
                 process.kill()
+        if process.poll() is None:
+            process.kill()
         process.communicate(timeout=2)
 
     def _run_workflow(

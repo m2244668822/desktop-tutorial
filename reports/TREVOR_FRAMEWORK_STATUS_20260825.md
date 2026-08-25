@@ -12,11 +12,11 @@
 
 # 崔佛框架即時狀態總覽
 
-- 更新時間：2026-08-25 12:15 CST
+- 更新時間：2026-08-25 12:33 CST
 - 對外身份：`trevor／崔佛`
 - 本次 GitHub review 修正起點：`d6ca3f726637`
 - 整體狀態：GitHub 第一輪 review 已合併主線；第二輪 4 項、PR #20 的 7 項、PR #21 的 3 項及
-  PR #23 的 9 項提醒均已
+  PR #23 的 11 項提醒均已
   完成程式修正及
   回歸驗證；Graphiti 歷史記憶遷移仍暫停；OCI Tailscale 等待帳戶實體驗證
 - 安全狀態：GitHub Dependabot 開啟警示 `0`、Secret Scanning 開啟警示 `0`
@@ -209,14 +209,14 @@ stderr：        0 bytes
 
 | 驗收 | 結果 |
 | --- | --- |
-| Python 測試 | 目前工作樹以內建磁碟 Python 3.12 runtime 執行完整套件，`355 passed` |
-| Review 回歸測試 | 第一輪受影響模組 `126 passed`；第二輪權限／readiness／lease 專項 `50 passed`；PR #23 取消／TTL／merge 專項 `28 passed` |
+| Python 測試 | 目前工作樹以內建磁碟 Python 3.12 runtime 執行完整套件，`356 passed` |
+| Review 回歸測試 | 第一輪受影響模組 `126 passed`；第二輪權限／readiness／lease 專項 `50 passed`；PR #23 取消／TTL／merge 專項 `29 passed` |
 | 嚴格完整驗證 | `STRICT=1 bash tools/run_full_verification.sh` passed；內含 `36 passed` contracts |
 | Python syntax | passed |
 | Shell syntax | passed |
 | Git whitespace | passed |
 | Git object integrity | passed；只有可回收 dangling objects |
-| Secret scan | passed，掃描 `617` 個檔案 |
+| Secret scan | passed，掃描 `619` 個檔案 |
 | Python dependency audit | 無已知漏洞 |
 | Graphiti lock audit | 無已知漏洞；固定 Graphiti commit 例外為不可推導版本 |
 | npm production audit | `0` vulnerabilities |
@@ -230,7 +230,7 @@ stderr：        0 bytes
 第一輪重新稽核 PR #1、#2、#9、#16、#17 共 31 個未結案 review thread，已在 main `55d359a` 附上
 對應測試證據並全部標記 resolved。GitHub 隨後在 PR #18 新增 4 個有效提醒；第二輪已先建立失敗測試、完成
 根因修正。PR #20 對最新 commit 執行 Codex review 後再提出 7 個邊界問題，PR #21 主線複審再提出 3 個
-租約競態；PR #23 兩次最新 head 複審再找到 9 個取消與補償邊界，也已用失敗測試重現並修正；全部
+租約競態；PR #23 三次最新 head 複審再找到 11 個取消與補償邊界，也已用失敗測試重現並修正；全部
 變更依 task → integration → main 流程通過 required CI 後再逐項結案。
 
 | Review 來源 | GitHub 建議 | 修正結果 |
@@ -273,6 +273,8 @@ stderr：        0 bytes
 | PR #23 | ingestion 三個檔案逐一發布會留下跨 generation 混合狀態 | documents、chunks、summary 全部先 staging；持有 generation lock 批次發布，任一取消或錯誤即依快照整批還原 |
 | PR #23 | process leader 結束後忽略 SIGTERM 的 descendant 仍存活 | grace period 改以 process-group 存活狀態判定；群組仍存在即送 SIGKILL，不以 direct process 的 `communicate()` 當作完成 |
 | PR #23 | `*args, **kwargs` workflow wrapper 沒收到取消 callback | signature 判定納入 `VAR_KEYWORD`；decorator／adapter 也會取得 `cancel_check` 並能在共享寫入前停止 |
+| PR #23 | Windows Git finalization 無 `fchmod`／`fcntl` 而無法合併或跨程序鎖定 | 共用 interprocess lock 在 POSIX 使用 `flock`、Windows 使用 `msvcrt.locking`；Unix 權限呼叫只在支援時執行 |
+| PR #23 | Windows ingestion generation lock 同樣會失敗或只剩 process-local lock | generation publisher 改用相同跨平台鎖；Windows backend 契約測試確認不呼叫 `fchmod` 且確實 lock／unlock 1 byte |
 | PR #14／#15 | Graphiti 剩餘數量前後矛盾 | 已統一為 `5,426 - 2,658 = 2,768` |
 | PR #14 | 衝突解析漏寫 priority | 已明列限制性安全值、來源順位、`priority`、`updated_at` 的實際順序 |
 | PR #12 | client timeout 與 sidecar 300 秒上限相同 | 預設改為 `330` 秒並保留 CLI 覆寫 |
