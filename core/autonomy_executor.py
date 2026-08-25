@@ -106,21 +106,29 @@ class TrevorTaskExecutor:
     def _terminate_process_tree(process: subprocess.Popen[str]) -> None:
         if os.name == 'posix':
             process_group = process.pid
+            group_survived = True
             try:
                 os.killpg(process_group, signal.SIGTERM)
             except (ProcessLookupError, PermissionError):
-                pass
+                group_survived = False
             deadline = time.monotonic() + 0.25
-            while time.monotonic() < deadline:
+            while group_survived and time.monotonic() < deadline:
                 try:
                     os.killpg(process_group, 0)
                 except (ProcessLookupError, PermissionError):
+                    group_survived = False
                     break
                 time.sleep(0.02)
-            try:
-                os.killpg(process_group, signal.SIGKILL)
-            except (ProcessLookupError, PermissionError):
-                pass
+            if group_survived:
+                try:
+                    os.killpg(process_group, 0)
+                except (ProcessLookupError, PermissionError):
+                    group_survived = False
+            if group_survived:
+                try:
+                    os.killpg(process_group, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
         elif os.name == 'nt':
             subprocess.run(
                 ['taskkill', '/PID', str(process.pid), '/T', '/F'],
@@ -135,11 +143,6 @@ class TrevorTaskExecutor:
             process.communicate(timeout=2)
             return
         except subprocess.TimeoutExpired:
-            if os.name == 'posix':
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except (ProcessLookupError, PermissionError):
-                    pass
             if process.poll() is None:
                 process.kill()
         if process.poll() is None:

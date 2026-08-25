@@ -179,6 +179,65 @@ class WorkflowClaimCancellationTests(unittest.TestCase):
 
             self.assertEqual(paths, {path: path.read_bytes() for path in paths})
 
+    def test_shared_output_rollback_cannot_overwrite_newer_publisher(self):
+        import os
+        import threading
+        import time
+
+        from core.autonomy_claim import ClaimCancellation, ClaimLostError
+        from core.workflow_runtime import _write_text_with_cancellation
+
+        cancellation = ClaimCancellation()
+        restore_started = threading.Event()
+        healthy_finished = threading.Event()
+        stale_thread = threading.current_thread()
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / 'shared.json'
+            output.write_text('old', encoding='utf-8')
+            original_replace = os.replace
+
+            def delayed_replace(source, destination):
+                source_path = Path(source)
+                if (
+                    threading.current_thread() is stale_thread
+                    and source_path.name.endswith('.restore')
+                ):
+                    restore_started.set()
+                    time.sleep(0.1)
+                result = original_replace(source, destination)
+                if (
+                    threading.current_thread() is stale_thread
+                    and source_path.name.endswith('.tmp')
+                ):
+                    cancellation.mark_lost()
+                return result
+
+            def publish_healthy_output():
+                self.assertTrue(restore_started.wait(timeout=2))
+                _write_text_with_cancellation(
+                    output,
+                    'healthy',
+                    cancel_check=None,
+                )
+                healthy_finished.set()
+
+            publisher = threading.Thread(target=publish_healthy_output)
+            publisher.start()
+            with patch(
+                'core.workflow_runtime.os.replace',
+                side_effect=delayed_replace,
+            ):
+                with self.assertRaises(ClaimLostError):
+                    _write_text_with_cancellation(
+                        output,
+                        'stale',
+                        cancel_check=cancellation.raise_if_lost,
+                    )
+            publisher.join(timeout=2)
+
+            self.assertTrue(healthy_finished.is_set())
+            self.assertEqual('healthy', output.read_text(encoding='utf-8'))
+
 
 if __name__ == '__main__':
     unittest.main()

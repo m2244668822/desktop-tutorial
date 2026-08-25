@@ -121,6 +121,24 @@ class TrevorAutonomyTests(unittest.TestCase):
                 queue.finish(task['id'], worker_id='worker-b', success=True)
             )
 
+    def test_expired_claim_cannot_be_renewed(self):
+        from core.autonomy import AutonomyQueue
+
+        current = datetime(2026, 8, 24, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            queue = AutonomyQueue(
+                Path(tmp) / 'queue.json',
+                now=lambda: current,
+                claim_ttl_seconds=60,
+            )
+            task = queue.enqueue('不可復活的過期任務')
+            queue.claim_next('worker-a')
+            current += timedelta(seconds=61)
+
+            renewed = queue.renew_claim(task['id'], 'worker-a')
+
+        self.assertFalse(renewed)
+
     def test_queue_uses_an_interprocess_lock_for_mutations(self):
         from core.autonomy import AutonomyQueue
 

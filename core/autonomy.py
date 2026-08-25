@@ -326,6 +326,16 @@ class AutonomyQueue:
                 ):
                     return False
                 now = self.now().astimezone(timezone.utc)
+                expires_at = _parse_datetime(task.get('lease_expires_at'))
+                if expires_at is None:
+                    updated_at = _parse_datetime(task.get('updated_at'))
+                    expires_at = (
+                        updated_at + timedelta(seconds=self.claim_ttl_seconds)
+                        if updated_at is not None
+                        else now
+                    )
+                if expires_at <= now:
+                    return False
                 task['updated_at'] = now.isoformat()
                 task['lease_expires_at'] = (
                     now + timedelta(seconds=self.claim_ttl_seconds)

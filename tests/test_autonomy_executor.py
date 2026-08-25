@@ -6,6 +6,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 def _git(cwd, *args):
@@ -279,6 +280,36 @@ class AutonomyExecutorTests(unittest.TestCase):
                     },
                     cancellation=cancellation,
                 )
+
+    def test_process_group_is_not_signaled_after_final_probe_disappears(self):
+        import signal
+
+        from core.autonomy_executor import TrevorTaskExecutor
+
+        class FinishedProcess:
+            pid = 424242
+
+            @staticmethod
+            def poll():
+                return 0
+
+            @staticmethod
+            def communicate(timeout=None):
+                return '', ''
+
+        signals = []
+
+        def signal_group(process_group, requested_signal):
+            signals.append(requested_signal)
+            if requested_signal == 0:
+                raise ProcessLookupError
+            if requested_signal == signal.SIGKILL:
+                self.fail('disappeared process group must not receive SIGKILL')
+
+        with patch('core.autonomy_executor.os.killpg', side_effect=signal_group):
+            TrevorTaskExecutor._terminate_process_tree(FinishedProcess())
+
+        self.assertEqual([signal.SIGTERM, 0], signals)
 
 
 if __name__ == '__main__':
