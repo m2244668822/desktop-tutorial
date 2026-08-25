@@ -15,27 +15,26 @@ import hashlib
 import json
 import os
 import re
-import threading
+import sys
 import uuid
-from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
-try:
-    import fcntl
-except ImportError:
-    fcntl = None
-
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
+from core.interprocess_lock import exclusive_file_lock
+
+
 TEXT_SUFFIXES = {".md", ".txt", ".json", ".html", ".jsonl"}
 MAX_FILE_BYTES = 2_000_000
 CHUNK_SIZE = 900
 CHUNK_OVERLAP = 120
 CancellationCheck = Callable[[], None]
-_GENERATION_THREAD_LOCK = threading.Lock()
 
 
 def _check_cancel(cancel_check: CancellationCheck | None) -> None:
@@ -79,24 +78,6 @@ def _write_text(
             temporary.unlink(missing_ok=True)
 
 
-@contextmanager
-def _exclusive_generation_lock(path: Path):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
-    try:
-        os.fchmod(descriptor, 0o600)
-        with _GENERATION_THREAD_LOCK:
-            if fcntl is not None:
-                fcntl.flock(descriptor, fcntl.LOCK_EX)
-            try:
-                yield
-            finally:
-                if fcntl is not None:
-                    fcntl.flock(descriptor, fcntl.LOCK_UN)
-    finally:
-        os.close(descriptor)
-
-
 def _restore_generation(previous: dict[Path, bytes | None]) -> None:
     for path, content in previous.items():
         if content is None:
@@ -128,7 +109,7 @@ def _publish_generation(
     _check_cancel(cancel_check)
     output_dir.mkdir(parents=True, exist_ok=True)
     lock_path = output_dir / ".generation.lock"
-    with _exclusive_generation_lock(lock_path):
+    with exclusive_file_lock(lock_path):
         _check_cancel(cancel_check)
         previous = {
             path: path.read_bytes() if path.is_file() else None
