@@ -2496,8 +2496,28 @@ class DesktopBridge:
         role: str,
         user_message: str,
         retrieval_brief: str = "",
+        capability_mode: str = "general",
     ) -> list[dict[str, str]]:
         role_name = str(role or "申言者").strip() or "申言者"
+        mode = str(capability_mode or "general").strip().lower()
+        if mode == "general":
+            system_prompt = (
+                "你是崔佛，一位自然、真誠且有上下文連續性的繁體中文對話夥伴。"
+                "直接回應使用者真正想談的內容，語氣與長度跟著對話調整。"
+                "一般聊天不要輸出任務報告、巡檢資訊、角色標籤、固定步驟或制式結尾；"
+                "不需要每次給建議，也不要把普通談話改寫成待辦事項。"
+                "只有資訊不足且確實影響回答時才簡短追問。"
+                "遇到心理或身體感受時保持同理、避免武斷診斷；若有立即危險再清楚提醒求助。"
+            )
+            messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
+            for item in self.conversation_context[-self.max_context:]:
+                item_role = str(item.get("role", "")).strip().lower()
+                content = str(item.get("content", "")).strip()
+                if item_role in {"user", "assistant"} and content:
+                    messages.append({"role": item_role, "content": content})
+            messages.append({"role": "user", "content": str(user_message or "").strip()})
+            return messages
+
         system_prompt = self._get_dynamic_system_prompt(role_name)
         behavior_guard = (
             "請使用繁體中文，優先直接回答問題本身，不要只回模板話術。"
@@ -2632,6 +2652,7 @@ class DesktopBridge:
             role=role,
             user_message=message,
             retrieval_brief=retrieval_brief,
+            capability_mode=capability_mode,
         )
         try:
             if backend == "open_source":

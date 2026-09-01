@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8">
@@ -2115,8 +2115,16 @@ function handleMessageKeydown(e) {
 
 function handleMessageInput() {
   resetSendConfirmation();
+  const area = document.getElementById("chatArea");
+  const previousScrollTop = area ? area.scrollTop : 0;
+  const wasAtBottom = area
+    ? area.scrollHeight - area.clientHeight - area.scrollTop <= 8
+    : false;
   msgInput.style.height = "auto";
   msgInput.style.height = Math.min(msgInput.scrollHeight, 100) + "px";
+  if (area) {
+    area.scrollTop = wasAtBottom ? area.scrollHeight : previousScrollTop;
+  }
 }
 
 msgInput.addEventListener("keydown", handleMessageKeydown);
