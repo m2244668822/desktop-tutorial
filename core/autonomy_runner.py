@@ -103,7 +103,12 @@ def _renew_running_claim(
             if remaining <= 0:
                 cancellation.mark_lost()
                 return
-            if stop.wait(min(wait_seconds, remaining)):
+            if wait_seconds >= remaining:
+                if stop.wait(remaining):
+                    return
+                cancellation.mark_lost()
+                return
+            if stop.wait(wait_seconds):
                 return
             if cancellation.is_lost():
                 return

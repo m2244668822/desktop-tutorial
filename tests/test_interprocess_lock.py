@@ -26,6 +26,7 @@ class InterprocessLockTests(unittest.TestCase):
             ), patch(
                 'core.interprocess_lock.os.fchmod',
                 side_effect=AssertionError('Unix-only fchmod must not run'),
+                create=True,
             ):
                 with exclusive_file_lock(lock_path):
                     self.assertTrue(lock_path.exists())

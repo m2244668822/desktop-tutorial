@@ -6,7 +6,7 @@ from pathlib import Path
 
 def _git(cwd, *args):
     return subprocess.run(
-        ['git', *args], cwd=cwd, check=True, capture_output=True, text=True
+        ['git', *args], cwd=cwd, check=True, capture_output=True, text=True, encoding='utf-8', errors='replace'
     )
 
 
@@ -38,7 +38,7 @@ class TrevorGitWorktreeTests(unittest.TestCase):
 
         self.assertEqual('trevor/task/task-123-fix-syntax-now', created['branch'])
         self.assertEqual(created['branch'], branch)
-        self.assertIn(str(created['path']), listed)
+        self.assertIn(created['path'].as_posix(), listed)
 
     def test_creation_requires_clean_integration_branch(self):
         from core.git_worktree import TrevorWorktreeManager

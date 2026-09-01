@@ -28,6 +28,8 @@ class TrevorWorktreeManager:
             check=True,
             capture_output=True,
             text=True,
+            encoding='utf-8',
+            errors='replace',
         )
 
     @staticmethod
@@ -111,6 +113,8 @@ class TrevorWorktreeManager:
                 check=False,
                 capture_output=True,
                 text=True,
+                encoding='utf-8',
+                errors='replace',
             )
             raise RuntimeError('integration_merge_compensation_failed') from exc
 
@@ -187,6 +191,8 @@ class TrevorWorktreeManager:
                     check=False,
                     capture_output=True,
                     text=True,
+                    encoding='utf-8',
+                    errors='replace',
                 )
                 raise RuntimeError('integration_merge_failed') from exc
             commit = self._find_task_merge_commit(

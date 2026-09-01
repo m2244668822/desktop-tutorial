@@ -1,3 +1,4 @@
+import os
 import shlex
 import subprocess
 import sys
@@ -11,7 +12,7 @@ from unittest.mock import patch
 
 def _git(cwd, *args):
     return subprocess.run(
-        ['git', *args], cwd=cwd, check=True, capture_output=True, text=True
+        ['git', *args], cwd=cwd, check=True, capture_output=True, text=True, encoding='utf-8', errors='replace'
     )
 
 
@@ -292,6 +293,8 @@ class AutonomyExecutorTests(unittest.TestCase):
             self.assertFalse(marker.exists())
 
     def test_validation_cancellation_kills_sigterm_ignoring_descendant(self):
+        if os.name != 'posix':
+            self.skipTest('POSIX process-group behavior')
         from core.autonomy_claim import ClaimCancellation, ClaimLostError
         from core.autonomy_executor import TrevorTaskExecutor
 
@@ -369,6 +372,8 @@ class AutonomyExecutorTests(unittest.TestCase):
                 )
 
     def test_process_group_is_not_signaled_after_final_probe_disappears(self):
+        if os.name != 'posix':
+            self.skipTest('POSIX process-group behavior')
         import signal
 
         from core.autonomy_executor import TrevorTaskExecutor

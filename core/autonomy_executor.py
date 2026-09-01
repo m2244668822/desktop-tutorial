@@ -74,6 +74,8 @@ class TrevorTaskExecutor:
                 check=False,
                 capture_output=True,
                 text=True,
+                encoding='utf-8',
+                errors='replace',
             )
         popen_options: dict[str, Any] = {}
         if os.name == 'posix':
@@ -86,6 +88,8 @@ class TrevorTaskExecutor:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            encoding='utf-8',
+            errors='replace',
             **popen_options,
         )
         while True:
@@ -136,6 +140,8 @@ class TrevorTaskExecutor:
                 check=False,
                 capture_output=True,
                 text=True,
+                encoding='utf-8',
+                errors='replace',
             )
         else:
             if process.poll() is None:
@@ -278,6 +284,8 @@ class TrevorTaskExecutor:
             check=True,
             capture_output=True,
             text=True,
+            encoding='utf-8',
+            errors='replace',
         ).stdout
         self._check_claim(cancellation)
         workflow = self._run_workflow(self.repository_root, task, cancellation)
@@ -288,6 +296,8 @@ class TrevorTaskExecutor:
             check=True,
             capture_output=True,
             text=True,
+            encoding='utf-8',
+            errors='replace',
         ).stdout
         self._check_claim(cancellation)
         if after != before:
