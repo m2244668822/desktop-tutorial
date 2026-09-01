@@ -18,6 +18,11 @@ try:
 except ImportError:
     fcntl = None
 
+try:
+    import msvcrt
+except ImportError:
+    msvcrt = None
+
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
@@ -50,13 +55,23 @@ def _exclusive_file_lock(path: Path):
     os.chmod(path.parent, 0o700)
     descriptor = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
     try:
-        os.fchmod(descriptor, 0o600)
+        fchmod = getattr(os, "fchmod", None)
+        if callable(fchmod):
+            fchmod(descriptor, 0o600)
+        else:
+            os.chmod(path, 0o600)
         if fcntl is not None:
             fcntl.flock(descriptor, fcntl.LOCK_EX)
+        elif msvcrt is not None:
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            msvcrt.locking(descriptor, msvcrt.LK_LOCK, 1)
         yield
     finally:
         if fcntl is not None:
             fcntl.flock(descriptor, fcntl.LOCK_UN)
+        elif msvcrt is not None:
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
         os.close(descriptor)
 
 

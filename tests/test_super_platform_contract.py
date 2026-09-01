@@ -165,13 +165,13 @@ class SuperPlatformContractTests(unittest.TestCase):
             )
         )
 
-    def test_unhealthy_open_source_backend_is_not_attempted_in_auto_discussion(self):
+    def test_local_backend_is_attempted_even_when_cached_health_is_stale(self):
         from desktop_chat_app import DesktopBridge
 
         bridge = DesktopBridge.__new__(DesktopBridge)
         bridge.oss_is_healthy = False
 
-        self.assertFalse(bridge._should_attempt_live_llm_backend("open_source"))
+        self.assertTrue(bridge._should_attempt_live_llm_backend("open_source"))
         self.assertTrue(bridge._should_attempt_live_llm_backend("groq"))
 
     def test_web_server_exposes_capabilities_and_traffic_policy(self):

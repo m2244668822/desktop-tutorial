@@ -2667,6 +2667,21 @@ class DesktopBridge:
                 return backend
         return "open_source"
 
+    def _normalize_requested_backend(self, model_key: str, purpose: str) -> str:
+        """Translate UI model identifiers into provider identifiers."""
+        requested = str(model_key or "auto").strip().lower()
+        if requested in {"", "auto"}:
+            return self._requested_backend_for_purpose(purpose)
+        if requested in {
+            "open_source",
+            "ollama",
+            "ollama_qwen25_7b",
+            "ollama_qwen2.5_7b",
+            "qwen2.5:7b",
+        }:
+            return "open_source"
+        return requested
+
     def _allow_cloud_fallback_for_requested_backend(
         self,
         purpose: str,
@@ -2694,9 +2709,7 @@ class DesktopBridge:
         }
 
     def _should_attempt_live_llm_backend(self, requested_backend: str) -> bool:
-        backend = str(requested_backend or "").strip().lower()
-        if backend == "open_source" and not bool(getattr(self, "oss_is_healthy", False)):
-            return False
+        # Cached health can be stale; let the selected local call report failure.
         return True
 
     def _is_cloud_available(self, backend: str) -> bool:
@@ -2968,6 +2981,7 @@ class DesktopBridge:
             (not should_run_workflow)
             and self._normalize_role_name(role) == "申言者"
             and self._is_dialog_quality_request(message)
+            and requested_backend != "open_source"
             and not reply.strip()
         ):
             reply = self._build_conversational_reply(
