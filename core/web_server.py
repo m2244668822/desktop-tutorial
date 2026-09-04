@@ -1406,21 +1406,6 @@ class WebServerMode:
                             str(payload.get("agent", "")).strip().lower(),
                             role_value,
                         )
-                    if server_instance._should_try_openclaw_task(
-                        str(payload.get("message", "") or ""),
-                        str(payload.get("interaction_mode", payload.get("mode", "auto"))),
-                    ):
-                        try:
-                            self._send_json(
-                                server_instance._forward_openclaw_or_fallback(
-                                    payload,
-                                    role_value,
-                                    allow_fallback=True,
-                                )
-                            )
-                            return
-                        except Exception:
-                            pass
                     try:
                         res = server_instance.bridge.send_message(
                             payload.get("message", ""),
@@ -1430,6 +1415,8 @@ class WebServerMode:
                             payload.get("interaction_mode", "auto"),
                             capability_mode,
                             deliberation,
+                            payload.get("conversation"),
+                            bool(payload.get("execution_confirmed", False)),
                         )
                     except Exception as exc:
                         self._send_json(decorate_trevor_response(
@@ -1517,15 +1504,14 @@ def run_web_server(bridge: any, host: str, port: int, open_browser: bool = False
     
     template_map = {
         "/chat_shell": paths.templates / "chat_shell.html",
-        "/agent_shell": paths.templates / "agent_shell.html",
-        "/monitor_shell": paths.templates / "monitor_shell.html",
-        "/chat": paths.templates / "chat.html",
     }
     redirect_map = {
         "/": "/chat_shell",
         "/index.html": "/chat_shell",
         "/chat": "/chat_shell",
-        "/agent": "/agent_shell",
+        "/agent": "/chat_shell",
+        "/agent_shell": "/chat_shell",
+        "/monitor_shell": "/chat_shell",
     }
     
     handler_class = server_logic.get_handler(template_map, redirect_map)

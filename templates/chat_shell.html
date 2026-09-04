@@ -201,9 +201,17 @@
     .send-btn:disabled{cursor:not-allowed;opacity:.6}
     .send-btn:hover{opacity:.82}
     .bridge-info{font-size:11px;color:rgba(255,255,255,.16);flex-shrink:0;white-space:nowrap}
-    /* Selects 在 input bar */
+    /* 進階設定不占用主要對話列 */
     .bar-select{height:28px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--muted);font-size:11px;padding:0 6px;font-family:inherit;cursor:pointer;flex-shrink:0}
     .bar-select:focus{outline:none;border-color:rgba(59,130,246,.4)}
+    .advanced-panel{display:none;position:fixed;right:12px;bottom:calc(var(--input-h) + 8px);z-index:240;width:min(420px,calc(100vw - 24px));padding:13px;border:1px solid rgba(59,130,246,.25);border-radius:10px;background:rgba(10,15,23,.96);box-shadow:var(--glass-shadow);backdrop-filter:blur(var(--glass-blur))}
+    .advanced-panel.open{display:block}
+    .advanced-title{font-size:13px;font-weight:650;margin-bottom:4px}
+    .advanced-note{font-size:11px;color:var(--muted);line-height:1.5;margin-bottom:10px}
+    .advanced-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+    .advanced-field{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--muted)}
+    .advanced-field .bar-select{width:100%;height:32px}
+    .advanced-model{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:2px}
 
     /* ── Lightbox ── */
     .lightbox{display:none;position:fixed;inset:0;z-index:999;background:rgba(0,0,0,.88);align-items:center;justify-content:center}
@@ -269,7 +277,7 @@
     <span class="tb-badge" id="bridgeState">連線中...</span>
     <div class="tb-icon" id="reconnectBtn" title="重新聯網確認" onclick="reconnectAll()" style="cursor:pointer">🔄</div>
     <div class="tb-icon" title="重整監控" onclick="fetchKALStatus()">↻</div>
-    <div class="tb-icon" title="設定">⚙️</div>
+    <div class="tb-icon" title="進階設定" onclick="toggleAdvancedSettings()">⚙️</div>
   </div>
 </div>
 
@@ -404,13 +412,6 @@
   <!-- ── Right panel ── -->
   <aside class="right-panel">
     <div>
-      <div class="rp-title">模式</div>
-      <button class="rp-btn on" id="rpMode" onclick="setRpMode(this,'discussion')">📝 一般對話</button>
-      <button class="rp-btn" onclick="setRpMode(this,'analysis')">🔍 深度分析</button>
-      <button class="rp-btn" onclick="setRpMode(this,'coding')">💻 程式生成</button>
-      <button class="rp-btn" onclick="setRpMode(this,'creative')">🎨 創意寫作</button>
-    </div>
-    <div>
       <div class="rp-title">外部工具</div>
       <button class="rp-btn" onclick="openExternal('https://www.perplexity.ai')">🌐 Perplexity</button>
       <button class="rp-btn" onclick="openExternal('https://notebooklm.google.com')">📓 NotebookLM</button>
@@ -455,42 +456,55 @@
 <input type="file" id="fileInput" style="display:none"
   accept="image/*,video/mp4,video/quicktime,.heic,.heif,.png,.jpg,.jpeg,.gif,.webp" multiple>
 
+<!-- ── Advanced settings: optional overrides, not required for normal chat ── -->
+<div class="advanced-panel" id="advancedPanel" aria-hidden="true">
+  <div class="advanced-title">進階設定</div>
+  <div class="advanced-note">一般情況維持自動即可。這些選項只是覆寫提示，不會繞過風險確認。</div>
+  <div class="advanced-grid">
+    <label class="advanced-field">路徑覆寫
+      <select class="bar-select" id="interactionSelect" title="路徑覆寫">
+        <option value="auto">自動判斷</option>
+        <option value="conversation">只對話，不執行</option>
+        <option value="task">指定為任務</option>
+      </select>
+    </label>
+    <label class="advanced-field">專業能力提示
+      <select class="bar-select" id="capabilitySelect" title="專業能力提示">
+        <option value="auto">自動判斷</option>
+        <option value="coding">程式</option>
+        <option value="research">研究</option>
+        <option value="security">安全</option>
+        <option value="content">內容</option>
+        <option value="learning">學習</option>
+      </select>
+    </label>
+    <label class="advanced-field">多模型審議
+      <select class="bar-select" id="deliberationSelect" title="多模型審議">
+        <option value="auto">自動／單模型</option>
+        <option value="fast">快速</option>
+        <option value="cross_check">交叉檢查</option>
+        <option value="rigorous">嚴謹</option>
+      </select>
+    </label>
+    <div class="advanced-model">
+      <span class="advanced-field">目前模型</span>
+      <div class="model-tag" id="modelTagBar" onclick="showHub(); toggleAdvancedSettings(false)">
+        <span class="dot"></span>
+        <span id="currentModelLabel">選擇模型</span>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ── Input bar ── -->
 <div class="input-bar">
-  <div class="model-tag" id="modelTagBar" onclick="showHub()">
-    <span class="dot"></span>
-    <span id="currentModelLabel">選擇模型</span>
-  </div>
-  <select class="bar-select" id="interactionSelect" title="互動模式">
-    <option value="auto">自動模式</option>
-    <option value="discussion">討論</option>
-    <option value="analysis">分析</option>
-    <option value="coding">程式</option>
-    <option value="creative">創意</option>
-    <option value="image_generation">圖像生成</option>
-    <option value="horde_text">共享文字</option>
-    <option value="qa">問答</option>
-  </select>
-  <select class="bar-select" id="capabilitySelect" title="崔佛能力模式">
-    <option value="general">一般</option>
-    <option value="coding">程式</option>
-    <option value="research">研究</option>
-    <option value="security">安全</option>
-    <option value="content">內容</option>
-    <option value="learning">學習</option>
-  </select>
-  <select class="bar-select" id="deliberationSelect" title="多模型審議模式">
-    <option value="auto">自動審議</option>
-    <option value="fast">快速</option>
-    <option value="cross_check">交叉檢查</option>
-    <option value="rigorous">嚴謹</option>
-  </select>
-  <button class="attach-btn" id="imageModeBtn" title="啟用圖像生成" onclick="enableImageGenerationMode()">🎨</button>
+  <button class="attach-btn" id="advancedBtn" title="進階設定" aria-expanded="false" onclick="toggleAdvancedSettings()">⚙️</button>
+  <button class="attach-btn" id="imageModeBtn" title="建立圖片（下一則訊息）" onclick="enableImageGenerationMode()">🎨</button>
   <button class="attach-btn" title="附加圖片" onclick="triggerFilePicker()">📎</button>
   <div class="input-wrap">
-    <textarea class="msg-input" id="msgInput" placeholder="輸入訊息，按兩次 Enter/送出確認；Shift+Enter 換行..." rows="1"></textarea>
+    <textarea class="msg-input" id="msgInput" placeholder="直接和崔佛說話；Enter 送出，Shift+Enter 換行..." rows="1"></textarea>
   </div>
-  <button class="send-btn" id="sendBtn" onclick="confirmAndSendMessage()">確認送出</button>
+  <button class="send-btn" id="sendBtn" onclick="confirmAndSendMessage()">送出</button>
   <span class="bridge-info" id="bridgeInfo">—</span>
 </div>
 
@@ -541,13 +555,14 @@ let state = {
   model: "auto",
   modelLabel: "自動選擇",
   interactionMode: "auto",
-  capabilityMode: "general",
+  capabilityMode: "auto",
   deliberation: "auto",
   sessionId: newId(),
   composing: false,
   attachments: [],
   pendingSend: null,
   pendingSendTimer: null,
+  specialTool: "",
   pendingForcedSource: "",
 };
 const __debugRunId = `ui-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -583,7 +598,7 @@ const AGENT_META = {
     label: "崔佛", icon: "🧭",
     desc: "唯一公開智能體；依需求切換一般、程式、研究、安全、內容與學習能力模式。",
     caps: ["🧭 任務判讀", "⚙️ 程式處理", "🔬 研究查證", "🛡️ 安全覆核", "✍️ 內容優化", "🧠 持續學習"],
-    prompts: ["整理目前狀態並給下一步", "切換程式模式處理問題", "用多模型交叉檢查這個答案"]
+    prompts: ["整理目前狀態並給下一步", "先和我對齊問題，再判斷是否需要動手", "用多模型交叉檢查這個答案"]
   },
   dispatcher: {
     label: "申言者中樞", icon: "✝️",
@@ -638,6 +653,10 @@ const AGENT_META = {
 const UI_LABELS = {
   interactionMode: {
     auto: "自動",
+    conversation: "對話",
+    task: "任務",
+    clarification: "待釐清",
+    confirmation: "待確認",
     discussion: "討論",
     analysis: "分析",
     coding: "程式",
@@ -774,7 +793,7 @@ async function selectAgent(key, icon, label) {
     }
   }
   area.scrollTop = area.scrollHeight;
-  resetSendConfirmation();
+  refreshSendButtonState();
   $("msgInput").focus();
 }
 
@@ -842,7 +861,7 @@ function usePrompt(text, options = {}) {
   input.focus();
   input.style.height = "auto";
   input.style.height = Math.min(input.scrollHeight, 100) + "px";
-  resetSendConfirmation();
+  refreshSendButtonState();
   const autoSend = options.autoSend !== false;
   if (!autoSend) return;
   if (state.busy) {
@@ -886,20 +905,27 @@ function startChat(modelKey, modelLabel) {
   $("chatArea").innerHTML = "";
   $("qrBar").style.display = "none";
   state.attachments = []; renderAttach();
-  resetSendConfirmation();
+  refreshSendButtonState();
   document.querySelectorAll(".nav-item").forEach(n => n.classList.remove("active"));
   document.querySelectorAll(".hist-item").forEach(n => n.classList.remove("active"));
   showChat();
   renderBackendSync({ agent: state.agentKey, model: modelLabel }, "idle");
-  addMsg("assistant", `【${state.agentLabel}】已切換至「${modelLabel}」。請輸入您的問題。`);
+  addMsg(
+    "assistant",
+    `已使用「${modelLabel}」。你可以直接開始對話，不必先選模式。`,
+    { contextTransient: true },
+  );
   $("msgInput").focus();
 }
 
-function setRpMode(btn, mode) {
-  document.querySelectorAll(".rp-btn").forEach(b => b.classList.remove("on"));
-  btn.classList.add("on");
-  state.interactionMode = mode;
-  document.getElementById("interactionSelect").value = mode === "discussion" ? "discussion" : mode;
+function toggleAdvancedSettings(force) {
+  const panel = document.getElementById("advancedPanel");
+  const button = document.getElementById("advancedBtn");
+  if (!panel) return;
+  const open = typeof force === "boolean" ? force : !panel.classList.contains("open");
+  panel.classList.toggle("open", open);
+  panel.setAttribute("aria-hidden", open ? "false" : "true");
+  if (button) button.setAttribute("aria-expanded", open ? "true" : "false");
 }
 
 /* ════════════════════════════════════════
@@ -910,8 +936,12 @@ function extractConversationHistory(maxTurns = 12) {
   const msgs = Array.from(area.querySelectorAll(".msg.user, .msg.assistant"));
   const result = [];
   for (const el of msgs) {
-    // 跳過 agent-card 和 thinking dots
-    if (el.querySelector(".apc-icon-wrap") || el.querySelector(".thinking-dots")) continue;
+    // 跳過 UI 通知、agent-card 和 thinking dots。
+    if (
+      el.dataset.contextTransient === "true"
+      || el.querySelector(".apc-icon-wrap")
+      || el.querySelector(".thinking-dots")
+    ) continue;
     const role = el.classList.contains("user") ? "user" : "assistant";
     // 取純文字（跳過時間戳小字）
     const textNodes = Array.from(el.childNodes)
@@ -923,10 +953,11 @@ function extractConversationHistory(maxTurns = 12) {
   return result.slice(-maxTurns - 1, -1);
 }
 
-function addMsg(role, text) {
+function addMsg(role, text, options = {}) {
   const area = document.getElementById("chatArea");
   const div = document.createElement("div");
   div.className = "msg " + role;
+  if (options.contextTransient) div.dataset.contextTransient = "true";
   div.textContent = text;
   area.appendChild(div);
   area.scrollTop = area.scrollHeight;
@@ -1054,7 +1085,7 @@ function submitQuickReply(reply) {
   }
   state.attachments = [];
   renderAttach();
-  resetSendConfirmation();
+  refreshSendButtonState();
   if (!document.getElementById("chatView").classList.contains("vis")) showChat();
   return sendMessage({ source: "quick_reply", force: true });
 }
@@ -1062,8 +1093,6 @@ function submitQuickReply(reply) {
 /* ════════════════════════════════════════
    Send
 ════════════════════════════════════════ */
-const SEND_CONFIRM_WINDOW_MS = 8000;
-
 function getDraftSignature() {
   const input = document.getElementById("msgInput");
   const text = (input?.value || "").trim();
@@ -1088,66 +1117,19 @@ function renderSendButtonState() {
     return;
   }
   btn.disabled = false;
-  if (state.pendingSend) {
-    btn.textContent = "再按一次送出";
-    btn.classList.add("pending");
-    btn.title = "文字已暫停送出，請再按一次確認";
-  } else {
-    btn.textContent = "確認送出";
-    btn.classList.remove("pending");
-    btn.title = "第一次確認，第二次才送出";
-  }
+  btn.textContent = "送出";
+  btn.classList.remove("pending");
+  btn.title = "送出訊息；高風險操作會由崔佛另外確認";
 }
 
-function resetSendConfirmation() {
-  state.pendingSend = null;
-  if (state.pendingSendTimer) {
-    clearTimeout(state.pendingSendTimer);
-    state.pendingSendTimer = null;
-  }
-  renderSendButtonState();
-}
-
-function armSendConfirmation() {
-  const draft = getDraftSignature();
-  if (!draft.hasContent) {
-    resetSendConfirmation();
-    return;
-  }
-  state.pendingSend = {
-    signature: draft.signature,
-    at: Date.now(),
-  };
-  if (state.pendingSendTimer) clearTimeout(state.pendingSendTimer);
-  state.pendingSendTimer = setTimeout(resetSendConfirmation, SEND_CONFIRM_WINDOW_MS);
+function refreshSendButtonState() {
   renderSendButtonState();
 }
 
 async function confirmAndSendMessage() {
   if (state.composing || state.busy) return;
   const draft = getDraftSignature();
-  if (!draft.hasContent) {
-    resetSendConfirmation();
-    return;
-  }
-  const isConfirmed =
-    state.pendingSend &&
-    state.pendingSend.signature === draft.signature &&
-    Date.now() - state.pendingSend.at <= SEND_CONFIRM_WINDOW_MS;
-  // #region agent log
-  __agentLog("HUI2", "templates/chat.html:confirmAndSendMessage", "confirm send evaluated", {
-    hasContent: draft.hasContent,
-    isConfirmed: !!isConfirmed,
-    hasPendingSend: !!state.pendingSend,
-    composing: !!state.composing,
-    busy: !!state.busy,
-  });
-  // #endregion
-  if (!isConfirmed) {
-    armSendConfirmation();
-    return;
-  }
-  resetSendConfirmation();
+  if (!draft.hasContent) return;
   return sendMessage();
 }
 
@@ -1180,21 +1162,12 @@ async function sendMessage(options = {}) {
     busy: !!state.busy,
     textLength: text.length,
     attachmentCount: (state.attachments || []).length,
-    interactionMode: document.getElementById("interactionSelect").value || state.interactionMode,
+    interactionMode: state.specialTool || document.getElementById("interactionSelect").value || state.interactionMode,
   });
   // #endregion
   if (!document.getElementById("chatView").classList.contains("vis")) showChat();
 
-  const iMode = document.getElementById("interactionSelect").value || state.interactionMode;
-  // 程式任務切換崔佛的 coding 能力模式，不再切換公開身份。
-  if (iMode === "coding") {
-    state.agentKey = "trevor";
-    state.agentLabel = AGENT_META.trevor.label;
-    state.agentIcon = AGENT_META.trevor.icon;
-    setActiveNav("nav-trevor");
-    const role = document.getElementById("roleTag");
-    if (role) role.textContent = `${state.agentIcon} ${state.agentLabel}`;
-  }
+  const iMode = state.specialTool || document.getElementById("interactionSelect").value || state.interactionMode;
   const fileRefs = state.attachments.map(f => f.url ? `[附件: ${f.name}](${f.url})` : `[附件: ${f.name}]`).join("\n");
   const fullMsg = text + (text && fileRefs ? "\n\n" : "") + fileRefs;
 
@@ -1202,6 +1175,10 @@ async function sendMessage(options = {}) {
   if (text) addMsg("user", text);
 
   state.attachments = []; renderAttach();
+  state.specialTool = "";
+  const imageModeButton = document.getElementById("imageModeBtn");
+  if (imageModeButton) imageModeButton.style.color = "";
+  refreshInputPlaceholder();
   setTimeout(() => { input.value = ""; input.style.height = "auto"; }, 10);
 
   _setBusy(true);
@@ -1222,7 +1199,7 @@ async function sendMessage(options = {}) {
       agent: state.agentKey,
       model: state.model,
       interaction_mode: iMode,
-      capability_mode: iMode === "coding" ? "coding" : (document.getElementById("capabilitySelect").value || state.capabilityMode),
+      capability_mode: document.getElementById("capabilitySelect").value || state.capabilityMode,
       deliberation: document.getElementById("deliberationSelect").value || state.deliberation,
       session_id: state.sessionId,
       conversation,
@@ -1336,7 +1313,7 @@ function renderAttach() {
     return `<div class="attach-thumb">${preview}<span style="font-size:11px;color:rgba(255,255,255,.5);max-width:80px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${f.name}</span><button class="attach-rm" onclick="removeAttach(${i})">✕</button></div>`;
   }).join("");
 }
-function removeAttach(i) { state.attachments.splice(i, 1); resetSendConfirmation(); renderAttach(); }
+function removeAttach(i) { state.attachments.splice(i, 1); refreshSendButtonState(); renderAttach(); }
 
 async function processFile(file) {
   return new Promise(resolve => {
@@ -1354,7 +1331,7 @@ async function processFile(file) {
         if (d.ok) url = d.url;
       } catch (_) {}
       state.attachments.push({ name: file.name, dataUrl, url, type: file.type });
-      resetSendConfirmation();
+      refreshSendButtonState();
       renderAttach();
       resolve();
     };
@@ -1590,31 +1567,31 @@ async function triggerLearn(query) {
   input.focus();
   input.style.height = "auto";
   input.style.height = Math.min(input.scrollHeight, 100) + "px";
-  resetSendConfirmation();
+  refreshSendButtonState();
 }
 
 function refreshInputPlaceholder() {
   const input = document.getElementById("msgInput");
-  const mode = document.getElementById("interactionSelect")?.value || state.interactionMode;
+  const mode = state.specialTool;
   if (!input) return;
   input.placeholder = mode === "image_generation"
-    ? "描述你想生成的圖片，按兩次 Enter/送出確認..."
+    ? "描述你想生成的圖片；這項選擇只套用到下一則訊息..."
     : mode === "horde_text"
       ? "輸入要交給共享文字算力的內容..."
-    : "輸入訊息，按兩次 Enter/送出確認；Shift+Enter 換行...";
+    : "直接和崔佛說話；Enter 送出，Shift+Enter 換行...";
 }
 
 async function enableImageGenerationMode() {
-  const select = document.getElementById("interactionSelect");
-  if (select) select.value = "image_generation";
-  state.interactionMode = "image_generation";
+  state.specialTool = state.specialTool === "image_generation" ? "" : "image_generation";
+  const button = document.getElementById("imageModeBtn");
+  if (button) button.style.color = state.specialTool ? "#93c5fd" : "";
   if (state.agentKey !== "trevor") {
     await selectAgent("trevor", "🧭", "崔佛");
   }
   refreshInputPlaceholder();
   const input = document.getElementById("msgInput");
   if (input) input.focus();
-  resetSendConfirmation();
+  refreshSendButtonState();
 }
 
 async function reconnectAll() {
@@ -2093,17 +2070,7 @@ function renderHistory(records) {
 const msgInput = document.getElementById("msgInput");
 msgInput.addEventListener("compositionstart", () => { state.composing = true; });
 msgInput.addEventListener("compositionend",   () => { state.composing = false; });
-function cancelPendingSendConfirmation() {
-  if (!state.pendingSend) return;
-  resetSendConfirmation();
-}
 function handleMessageKeydown(e) {
-  if (e.key === "Escape") {
-    e.preventDefault();
-    e.stopPropagation();
-    cancelPendingSendConfirmation();
-    return;
-  }
   if (e.key === "Enter" && !e.shiftKey && !state.composing) {
     e.preventDefault();
     confirmAndSendMessage();
@@ -2111,7 +2078,7 @@ function handleMessageKeydown(e) {
 }
 
 function handleMessageInput() {
-  resetSendConfirmation();
+  refreshSendButtonState();
   const area = document.getElementById("chatArea");
   const previousScrollTop = area ? area.scrollTop : 0;
   const wasAtBottom = area
@@ -2125,44 +2092,32 @@ function handleMessageInput() {
 }
 
 msgInput.addEventListener("keydown", handleMessageKeydown);
-msgInput.addEventListener("keyup", e => {
-  if (e.key === "Escape") {
-    e.preventDefault();
-    e.stopPropagation();
-    cancelPendingSendConfirmation();
-  }
-});
 msgInput.addEventListener("input", handleMessageInput);
 function handleGlobalEscape(e) {
   if (e.key !== "Escape") return;
-  e.preventDefault();
-  e.stopPropagation();
-  cancelPendingSendConfirmation();
+  const panel = document.getElementById("advancedPanel");
+  if (panel?.classList.contains("open")) {
+    e.preventDefault();
+    e.stopPropagation();
+    toggleAdvancedSettings(false);
+  }
 }
-msgInput.addEventListener("blur", cancelPendingSendConfirmation);
 window.addEventListener("keydown", handleGlobalEscape, true);
-window.addEventListener("keyup", handleGlobalEscape, true);
-document.addEventListener("keydown", handleGlobalEscape, true);
-document.addEventListener("keyup", handleGlobalEscape, true);
 document.getElementById("interactionSelect").addEventListener("change", e => {
   state.interactionMode = e.target.value;
-  refreshInputPlaceholder();
-  resetSendConfirmation();
 });
 document.getElementById("capabilitySelect").addEventListener("change", e => {
   state.capabilityMode = e.target.value;
-  resetSendConfirmation();
 });
 document.getElementById("deliberationSelect").addEventListener("change", e => {
   state.deliberation = e.target.value;
-  resetSendConfirmation();
 });
 document.getElementById("newBtn").addEventListener("click", () => {
   const key = state.agentKey;
   state.sessionId = newId();
   agentChats[key] = { html: "", sessionId: state.sessionId };
   state.attachments = []; renderAttach();
-  resetSendConfirmation();
+  refreshSendButtonState();
   document.querySelectorAll(".hist-item").forEach(e => e.classList.remove("active"));
   const area = document.getElementById("chatArea");
   area.innerHTML = "";

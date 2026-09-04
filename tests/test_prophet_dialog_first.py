@@ -40,6 +40,11 @@ def test_prophet_role_handoff_requires_confirmation():
 def test_prophet_dialog_quality_reply_does_not_emit_tool_report():
     bridge = DesktopBridge()
     try:
+        bridge._should_attempt_live_llm_backend = lambda _backend: True
+        bridge._generate_live_llm_reply = lambda **_kwargs: (
+            "我先跟你對齊：一般對話不該直接被翻成任務；你明確要我動手時，我才切到執行。",
+            {"ok": True, "attempted": True, "provider": "nvidia"},
+        )
         result = bridge.send_message(
             message="以圖為例，每次對話都是直接任務，應該要先進行對話再確認後轉譯。",
             role="申言者",
@@ -52,10 +57,9 @@ def test_prophet_dialog_quality_reply_does_not_emit_tool_report():
         assert not result["prophet_engineer_handoff"]
         assert "[申言者->工程師交接]" not in reply
         assert "工具結果" not in reply
-        assert "需求理解管線" in reply
-        assert "聊天釐清、研究整理、工程修復、風險審核" in reply
-        assert "執行、修復、檢查、上傳、重啟" in reply
-        assert result["llm_live"]["fallback_reason"] == "prophet_dialog_first_guard"
+        assert "一般對話不該直接被翻成任務" in reply
+        assert result["llm_live"]["attempted"]
+        assert result["interaction"]["route"] == "conversation"
     finally:
         bridge.stop_background_monitor()
 
@@ -63,6 +67,11 @@ def test_prophet_dialog_quality_reply_does_not_emit_tool_report():
 def test_prophet_contextual_miss_question_uses_local_diagnosis_not_cloud_generic_reply():
     bridge = DesktopBridge()
     try:
+        bridge._should_attempt_live_llm_backend = lambda _backend: True
+        bridge._generate_live_llm_reply = lambda **_kwargs: (
+            "核心問題是路由層過早下結論；先保留對話上下文，再由單一閘門決定是否執行。",
+            {"ok": True, "attempted": True, "provider": "groq"},
+        )
         result = bridge.send_message(
             message="分析智能體對話鬼打牆沒辦法精準抓到我的需求服務的問題，例如目前未找到直接命中，分析前後文內容給出更好的解法。",
             role="申言者",
@@ -73,13 +82,10 @@ def test_prophet_contextual_miss_question_uses_local_diagnosis_not_cloud_generic
         reply = result["reply"]
         assert result["ok"]
         assert not result["workflow_ran"]
-        assert not result["llm_live"]["attempted"]
-        assert result["llm_live"]["fallback_reason"] == "prophet_dialog_first_guard"
-        assert "需求理解管線" in reply
-        assert "目前未找到直接命中" in reply
-        assert "前後文" in reply
-        assert "症狀、想要結果、限制、是否要動手" in reply
+        assert result["llm_live"]["attempted"]
+        assert "路由層過早下結論" in reply
+        assert "單一閘門" in reply
         assert "Elijah" not in reply
-        assert "聖經資料索引" not in reply
+        assert "工程師交接" not in reply
     finally:
         bridge.stop_background_monitor()

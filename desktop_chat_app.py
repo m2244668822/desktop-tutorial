@@ -57,6 +57,11 @@ from core.runtime_capabilities import (
     render_runtime_capability_reply,
 )
 from core.web_search import WebSearchAdapter
+from core.conversation_prompt import build_trevor_system_prompt
+from core.interaction_gateway import InteractionDecision, InteractionGateway
+from core.memory_policy import MemoryDecision, MemoryPromotionPolicy
+from core.safety_signals import SafetyAssessment, SafetySignalTracker
+from core.session_context import SessionConversationStore
 from core.trevor_identity import (
     CAPABILITY_MODES,
     TREVOR_DISPLAY_NAME,
@@ -267,8 +272,13 @@ class DesktopBridge:
         self.monitor_seq = 0
         self.reply_history: list[tuple[str, float]] = []
         self.message_history: list[tuple[str, float]] = []
-        self.conversation_context: list[dict] = []
-        self.context_summary = ""
+        self.session_store = SessionConversationStore(
+            max_messages=max(24, int(os.getenv("CHAT_SESSION_MAX_MESSAGES", "80") or 80)),
+            max_sessions=max(16, int(os.getenv("CHAT_SESSION_MAX_COUNT", "128") or 128)),
+        )
+        self.interaction_gateway = InteractionGateway()
+        self.memory_policy = MemoryPromotionPolicy()
+        self.safety_tracker = SafetySignalTracker()
         self.reply_counter = 0
         self.last_diversified_reply = ""
         self.last_user_fingerprint = ""
@@ -948,40 +958,24 @@ class DesktopBridge:
         return max(self.base_context_window, min(window, self.max_context_upper))
 
     def _remember_dialog_turn(
-        self, user_message: str, assistant_message: str, analysis: dict, workflow_ran: bool
+        self,
+        user_message: str,
+        assistant_message: str,
+        analysis: dict,
+        workflow_ran: bool,
+        session_id: str = "",
     ) -> None:
-        now = datetime.now().isoformat()
-        user_text = str(user_message or "").strip()
-        ai_text = str(assistant_message or "").strip()
-        if user_text:
-            self.conversation_context.append(
-                {
-                    "role": "user",
-                    "content": user_text,
-                    "timestamp": now,
-                    "topic": str(analysis.get("primary_topic", "")) if isinstance(analysis, dict) else "",
-                }
-            )
-        if ai_text:
-            self.conversation_context.append(
-                {
-                    "role": "assistant",
-                    "content": ai_text,
-                    "timestamp": now,
-                    "workflow_ran": bool(workflow_ran),
-                }
-            )
-        hard_cap = max(24, self.max_context_upper * 10)
-        if len(self.conversation_context) > hard_cap:
-            trimmed = self.conversation_context[:-hard_cap]
-            self.conversation_context = self.conversation_context[-hard_cap:]
-            snippets = [
-                str(item.get("content", "")).strip()
-                for item in trimmed[-6:]
-                if str(item.get("content", "")).strip()
-            ]
-            if snippets:
-                self.context_summary = " | ".join(snippets)[: self.max_context_summary_length]
+        self.session_store.append_turn(
+            session_id,
+            user_message,
+            assistant_message,
+            metadata={
+                "topic": str(analysis.get("primary_topic", ""))
+                if isinstance(analysis, dict)
+                else "",
+                "workflow_ran": bool(workflow_ran),
+            },
+        )
 
     def _append_jsonl(self, target: Path, payload: dict[str, Any]) -> None:
         try:
@@ -1169,6 +1163,7 @@ class DesktopBridge:
         backend: str,
         purpose: str,
         interaction_mode: str,
+        include_content: bool = False,
     ) -> None:
         now = datetime.now().isoformat()
         sid = str(session_id or "default")
@@ -1185,12 +1180,15 @@ class DesktopBridge:
             "backend": backend,
             "purpose": purpose,
             "interaction_mode": interaction_mode,
-            "user": str(user_message or "")[:400],
-            "assistant": str(assistant_message or "")[:500],
+            "user_chars": len(str(user_message or "")),
+            "assistant_chars": len(str(assistant_message or "")),
             "retrieval_match_count": int(retrieval.get("match_count", 0) or 0)
             if isinstance(retrieval, dict)
             else 0,
         }
+        if include_content:
+            turn_payload["user"] = str(user_message or "")[:400]
+            turn_payload["assistant"] = str(assistant_message or "")[:500]
         self._append_jsonl(self.interaction_turn_log, turn_payload)
 
         for keyword in keywords[:8]:
@@ -1307,18 +1305,21 @@ class DesktopBridge:
         }
         self._append_jsonl(self.training_turn_log, sample)
 
-    def _build_recent_context_block(self, user_message: str = "") -> str:
+    def _build_recent_context_block(
+        self,
+        user_message: str = "",
+        conversation_context: list[dict[str, Any]] | None = None,
+    ) -> str:
         context_info = ""
         depth = self._dynamic_context_window(user_message)
-        if self.conversation_context:
+        context = list(conversation_context or [])
+        if context:
             context_info = "\n\n最近對話上下文\n" + "\n".join(
                 [
                     f"{'USER' if ctx.get('role') == 'user' else 'ASSISTANT'} {ctx.get('content', '')[:50]}"
-                    for ctx in self.conversation_context[-depth:]
+                    for ctx in context[-depth:]
                 ]
             )
-        if self.context_summary:
-            context_info += f"\n[壓縮歷史] {self.context_summary[:100]}"
         context_info += f"\n[對話序號] 回合 #{self.reply_counter} | depth={depth}"
         return context_info
 
@@ -1577,24 +1578,6 @@ class DesktopBridge:
         duration = round(time.time() - self.last_message_ts, 3)
         reply = canonicalize_trevor_reply(reply, capability_mode)
         self.last_reply = reply
-        if self.memory_manager:
-            try:
-                self.memory_manager.save_conversation(
-                    agent_name=TREVOR_DISPLAY_NAME,
-                    user_message=self.last_message,
-                    assistant_message=reply,
-                    metadata={
-                        "backend": requested_backend,
-                        "workflow_ran": False,
-                        "mode": "discussion",
-                        "purpose": purpose,
-                        "policy_mode": "frontend_training_only",
-                        "source_role": role,
-                        "capability_mode": capability_mode,
-                    },
-                )
-            except Exception:
-                pass
         return decorate_trevor_response({
             "ok": True,
             "reply": reply,
@@ -2497,45 +2480,28 @@ class DesktopBridge:
         user_message: str,
         retrieval_brief: str = "",
         capability_mode: str = "general",
+        conversation_context: list[dict[str, Any]] | None = None,
+        safety_nudge: str = "",
     ) -> list[dict[str, str]]:
-        role_name = str(role or "申言者").strip() or "申言者"
         mode = str(capability_mode or "general").strip().lower()
-        if mode == "general":
-            system_prompt = (
-                "你是崔佛，一位自然、真誠且有上下文連續性的繁體中文對話夥伴。"
-                "直接回應使用者真正想談的內容，語氣與長度跟著對話調整。"
-                "一般聊天不要輸出任務報告、巡檢資訊、角色標籤、固定步驟或制式結尾；"
-                "不需要每次給建議，也不要把普通談話改寫成待辦事項。"
-                "只有資訊不足且確實影響回答時才簡短追問。"
-                "遇到心理或身體感受時保持同理、避免武斷診斷；若有立即危險再清楚提醒求助。"
-            )
-            messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
-            for item in self.conversation_context[-self.max_context:]:
-                item_role = str(item.get("role", "")).strip().lower()
-                content = str(item.get("content", "")).strip()
-                if item_role in {"user", "assistant"} and content:
-                    messages.append({"role": item_role, "content": content})
-            messages.append({"role": "user", "content": str(user_message or "").strip()})
-            return messages
-
-        system_prompt = self._get_dynamic_system_prompt(role_name)
-        behavior_guard = (
-            "請使用繁體中文，優先直接回答問題本身，不要只回模板話術。"
-            "若有不確定處要誠實說明，並給最小可執行下一步。"
+        system_prompt = build_trevor_system_prompt(
+            mode,
+            safety_nudge=safety_nudge,
         )
-        memory_hint = ""
         if retrieval_brief:
-            memory_hint = f"[關聯記憶摘要]\n{retrieval_brief}"
-        composed_user = self._compose_model_message(
-            agent_name=role_name,
-            user_message=user_message,
-            plan="",
-            workflow_memory_context=memory_hint,
-        )
-        return [
-            {"role": "system", "content": f"{system_prompt}\n\n{behavior_guard}".strip()},
-            {"role": "user", "content": composed_user.strip()},
-        ]
+            system_prompt += (
+                "\n\n[經門檻篩選的關聯記憶]\n"
+                f"{retrieval_brief}\n"
+                "只有與本輪直接相關時才引用；若衝突，以使用者現在的說法為準。"
+            )
+        messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
+        for item in list(conversation_context or [])[-self.max_context :]:
+            item_role = str(item.get("role", "")).strip().lower()
+            content = str(item.get("content", "")).strip()
+            if item_role in {"user", "assistant"} and content:
+                messages.append({"role": item_role, "content": content})
+        messages.append({"role": "user", "content": str(user_message or "").strip()})
+        return messages
 
     def _runtime_capability_manifest(self) -> dict[str, Any]:
         autonomy_path = self.paths.data / 'autonomy' / 'daemon_state.json'
@@ -2569,6 +2535,8 @@ class DesktopBridge:
         retrieval_brief: str = "",
         capability_mode: str = "general",
         deliberation: str = "auto",
+        conversation_context: list[dict[str, Any]] | None = None,
+        safety_nudge: str = "",
     ) -> tuple[str, dict[str, Any]]:
         if not self.enable_live_llm_default:
             return "", {
@@ -2579,7 +2547,7 @@ class DesktopBridge:
 
         backend = str(requested_backend or "nvidia").strip().lower()
         deliberation = self._normalize_deliberation_mode(deliberation)
-        if backend != "open_source":
+        if backend != "open_source" and deliberation != "auto":
             try:
                 council_mode = deliberation
                 shadow = False
@@ -2606,7 +2574,7 @@ class DesktopBridge:
                     mode=council_mode,
                     capability_mode=capability_mode,
                     shadow=shadow,
-                    conversation=list(self.conversation_context[-self.max_context:]),
+                    conversation=list(conversation_context or [])[-self.max_context :],
                     memory_context=retrieval_brief,
                     runtime_capabilities=self._runtime_capability_manifest(),
                 )
@@ -2653,6 +2621,8 @@ class DesktopBridge:
             user_message=message,
             retrieval_brief=retrieval_brief,
             capability_mode=capability_mode,
+            conversation_context=conversation_context,
+            safety_nudge=safety_nudge,
         )
         try:
             if backend == "open_source":
@@ -2850,6 +2820,132 @@ class DesktopBridge:
             "請確認目標與限制後，我再繼續執行。"
         )
 
+    @staticmethod
+    def _with_safety_nudge(reply: str, assessment: SafetyAssessment) -> str:
+        text = str(reply or "").strip()
+        nudge = str(assessment.nudge or "").strip()
+        if not assessment.should_nudge or not nudge:
+            return text
+        marker = nudge[:18]
+        return text if marker and marker in text else f"{text}\n\n{nudge}".strip()
+
+    def _persist_promoted_memory(
+        self,
+        *,
+        user_message: str,
+        assistant_message: str,
+        memory_decision: MemoryDecision,
+        metadata: dict[str, Any],
+    ) -> bool:
+        if not memory_decision.promote or not self.memory_manager:
+            return False
+        try:
+            self.memory_manager.save_conversation(
+                agent_name=TREVOR_DISPLAY_NAME,
+                user_message=user_message,
+                assistant_message=assistant_message,
+                metadata={
+                    **metadata,
+                    "memory_policy": "durable_only_v2",
+                    "memory_categories": list(memory_decision.categories),
+                    "sensitive_confirmed": bool(memory_decision.sensitive),
+                },
+            )
+            return True
+        except Exception:
+            return False
+
+    def _build_interaction_gate_response(
+        self,
+        *,
+        user_message: str,
+        session_id: str,
+        requested_role: str,
+        capability_mode: str,
+        model_key: str,
+        deliberation: str,
+        decision: InteractionDecision,
+        safety: SafetyAssessment,
+    ) -> dict:
+        role = self._normalize_role_name(requested_role)
+        reply = self._with_safety_nudge(decision.clarification, safety)
+        reply = canonicalize_trevor_reply(reply, capability_mode)
+        analysis = self._fallback_message_analysis(user_message)
+        analysis["interaction_route"] = decision.route
+        self._remember_dialog_turn(
+            user_message=user_message,
+            assistant_message=reply,
+            analysis=analysis,
+            workflow_ran=False,
+            session_id=session_id,
+        )
+        memory_decision = self.memory_policy.assess(user_message)
+        memory_saved = self._persist_promoted_memory(
+            user_message=user_message,
+            assistant_message=reply,
+            memory_decision=memory_decision,
+            metadata={
+                "workflow_ran": False,
+                "purpose": decision.purpose,
+                "interaction_route": decision.route,
+                "source_role": role,
+                "capability_mode": capability_mode,
+            },
+        )
+        duration = round(time.time() - self.last_message_ts, 3)
+        backend = self._normalize_requested_backend(model_key, "discussion")
+        return decorate_trevor_response(
+            {
+                "ok": True,
+                "reply": reply,
+                "backend": backend,
+                "duration_s": duration,
+                "response_time": duration,
+                "analysis": analysis,
+                "semantic_analysis": analysis,
+                "workflow": {},
+                "workflow_ran": False,
+                "purpose": decision.purpose,
+                "interaction_mode": decision.route,
+                "interaction": decision.public_dict(),
+                "model": backend,
+                "completion": {
+                    "done": False,
+                    "state": "awaiting_confirmation"
+                    if decision.requires_confirmation
+                    else "awaiting_clarification",
+                    "reason": decision.reason,
+                },
+                "escalation": {"required": False, "reason": "", "fail_streak": 0},
+                "llm_live": {
+                    "ok": False,
+                    "attempted": False,
+                    "fallback_used": False,
+                    "provider": backend,
+                    "fallback_reason": "interaction_gate",
+                },
+                "memory": {
+                    "retrieval_attempted": False,
+                    "promotion": memory_decision.public_dict(),
+                    "saved": memory_saved,
+                },
+                "safety": safety.public_dict(),
+                "session": {
+                    "id": session_id,
+                    "context_messages": len(self.session_store.messages(session_id)),
+                },
+                "deliberation": {
+                    "mode": deliberation,
+                    "status": "not_requested",
+                    "providers": [],
+                    "agreement_score": None,
+                    "confidence": None,
+                },
+            },
+            requested_role=requested_role,
+            capability_mode=capability_mode,
+        )
+
     def send_message(
         self,
         message: str,
@@ -2859,21 +2955,86 @@ class DesktopBridge:
         interaction_mode: str = "auto",
         capability_mode: str = "",
         deliberation: str = "auto",
+        conversation: list[dict[str, Any]] | None = None,
+        execution_confirmed: bool = False,
     ) -> dict:
         start_ts = time.time()
+        user_message = str(message or "").strip()
+        session_id = self.session_store.normalize_session_id(session_id)
+        self.session_store.hydrate(session_id, conversation)
         requested_role = str(role or TREVOR_DISPLAY_NAME).strip()
+        requested_identity = normalize_trevor_identity(
+            role=requested_role,
+            capability_mode=capability_mode,
+        )
+        deliberation = self._normalize_deliberation_mode(deliberation)
+        pending_action = self.session_store.pending_action(session_id)
+        if self.interaction_gateway.is_confirmation_message(user_message):
+            if pending_action:
+                message = self.session_store.take_pending_action(session_id)
+                execution_confirmed = True
+            else:
+                decision = InteractionDecision(
+                    route="clarification",
+                    purpose="discussion",
+                    capability_mode=requested_identity.capability_mode,
+                    reason="confirmation_without_pending_action",
+                    clarification="目前沒有等待確認的操作。請直接說你要我處理的目標與範圍。",
+                )
+                safety = self.safety_tracker.assess(session_id, user_message)
+                self.last_message = user_message
+                self.last_message_ts = start_ts
+                self.reply_counter += 1
+                return self._build_interaction_gate_response(
+                    user_message=user_message,
+                    session_id=session_id,
+                    requested_role=requested_role,
+                    capability_mode=requested_identity.capability_mode,
+                    model_key=model_key,
+                    deliberation=deliberation,
+                    decision=decision,
+                    safety=safety,
+                )
+        else:
+            if pending_action:
+                self.session_store.clear_pending_action(session_id)
+            message = user_message
+
+        decision = self.interaction_gateway.decide(
+            message,
+            requested_mode=interaction_mode,
+            capability_hint=requested_identity.capability_mode,
+            confirmed=bool(execution_confirmed),
+        )
+        capability_mode = decision.capability_mode
         identity = normalize_trevor_identity(
             role=requested_role,
             capability_mode=capability_mode,
         )
-        capability_mode = identity.capability_mode
-        deliberation = self._normalize_deliberation_mode(deliberation)
         role = self._normalize_role_name(requested_role)
-        self.last_message = message
+        safety = self.safety_tracker.assess(session_id, user_message)
+        self.last_message = user_message
         self.last_message_ts = start_ts
         self.reply_counter += 1
-        self._update_user_repeat_tracking(message)
-        effective_policy = self._apply_runtime_task_policy(message)
+        self._update_user_repeat_tracking(user_message)
+        if decision.requires_confirmation:
+            self.session_store.set_pending_action(session_id, message)
+        if decision.route in {"clarification", "confirmation"}:
+            return self._build_interaction_gate_response(
+                user_message=user_message,
+                session_id=session_id,
+                requested_role=requested_role,
+                capability_mode=capability_mode,
+                model_key=model_key,
+                deliberation=deliberation,
+                decision=decision,
+                safety=safety,
+            )
+
+        conversation_context = self.session_store.messages(
+            session_id, limit=self.max_context
+        )
+        retrieve_memory = self.memory_policy.should_retrieve(user_message)
 
         # 語義分析
         analysis = {}
@@ -2884,21 +3045,29 @@ class DesktopBridge:
                 analysis = self._fallback_message_analysis(message)
         else:
             analysis = self._fallback_message_analysis(message)
+        analysis["interaction_route"] = decision.route
+        analysis["intent_v2"] = decision.purpose
         self.last_message_analysis = analysis
         turn_keywords = self._derive_turn_keywords(message, analysis)
-        retrieval_payload = self._run_keyword_retrieval(turn_keywords, per_keyword=2)
-        retrieval_brief = self._build_retrieval_brief(retrieval_payload)
-        prophet_engineer_handoff = self._maybe_build_prophet_engineer_handoff(
-            message=message,
-            role=role,
-            analysis=analysis,
-            keywords=turn_keywords,
-            retrieval_brief=retrieval_brief,
+        retrieval_payload = (
+            self._run_keyword_retrieval(turn_keywords, per_keyword=2)
+            if retrieve_memory
+            else {
+                "ok": True,
+                "engine": "knowledge_hub",
+                "keywords": [],
+                "checked_count": 0,
+                "matches": [],
+                "match_count": 0,
+                "skipped": "no_cross_session_signal",
+            }
         )
+        retrieval_brief = self._build_retrieval_brief(retrieval_payload)
+        prophet_engineer_handoff: dict[str, Any] = {}
 
-        # 決定後端：前端 model key 先正規化；auto discussion 固定本機優先。
-        interaction_mode = self._normalize_interaction_mode(interaction_mode)
-        purpose = infer_backend_purpose(message) if infer_backend_purpose else "discussion"
+        # 單一意圖閘門是唯一的對話／任務路由來源。
+        interaction_mode = decision.route
+        purpose = decision.purpose
         requested_backend = self._normalize_frontend_model_key(model_key, purpose)
         if requested_backend == "open_source":
             self._refresh_local_llm_health(force=False)
@@ -2932,49 +3101,9 @@ class DesktopBridge:
         workflow_payload["keywords"] = turn_keywords
         if retrieval_brief:
             workflow_payload["retrieval_brief"] = retrieval_brief
-        policy_active = bool(effective_policy.get("active"))
-        is_training_task = self._is_bipolar_rumination_task(message)
-        if policy_active and self._is_external_program_request(message):
-            event = self._record_penalty_event(
-                role=role,
-                message=message,
-                reason="任務禁止外部程式支援，本次申請已拒絕",
-                issue_code="E_POLICY_PENALTY",
-            )
-            return self._build_policy_response(
-                role=role,
-                requested_role=requested_role,
-                capability_mode=capability_mode,
-                deliberation=deliberation,
-                reply=self._build_policy_penalty_reply(role, event),
-                requested_backend=requested_backend,
-                analysis=analysis,
-            )
-        if (
-            policy_active
-            and is_training_task
-            and bool(effective_policy.get("frontend_only_training"))
-        ):
-            return self._build_policy_response(
-                role=role,
-                requested_role=requested_role,
-                capability_mode=capability_mode,
-                deliberation=deliberation,
-                reply=self._build_bipolar_training_reply(role),
-                requested_backend=requested_backend,
-                analysis=analysis,
-            )
-        should_run_workflow = self._should_run_workflow(message, role, purpose, interaction_mode)
-        react_loop = self._build_react_loop(
-            message=message,
-            purpose=purpose,
-            interaction_mode=interaction_mode,
-            should_run_workflow=should_run_workflow,
-            analysis=analysis,
-        )
-        workflow_payload["react"] = dict(react_loop)
-
-        if not should_run_workflow and is_runtime_capability_query(message):
+        should_run_workflow = decision.should_execute
+        if is_runtime_capability_query(message):
+            should_run_workflow = False
             runtime_capabilities = self._runtime_capability_manifest()
             reply = render_runtime_capability_reply(runtime_capabilities)
             live_llm_meta = {
@@ -2987,7 +3116,8 @@ class DesktopBridge:
             workflow_payload["runtime_capabilities"] = runtime_capabilities
             workflow_payload["llm_live"] = dict(live_llm_meta)
 
-        if (not should_run_workflow) and self._is_langgraph_status_query(message):
+        if self._is_langgraph_status_query(message):
+            should_run_workflow = False
             reply = self._build_langgraph_status_guard_reply(role)
             live_llm_meta = {
                 "ok": False,
@@ -2998,46 +3128,14 @@ class DesktopBridge:
             }
             workflow_payload["llm_live"] = dict(live_llm_meta)
 
-        if (
-            (not should_run_workflow)
-            and self._normalize_role_name(role) == "申言者"
-            and self._is_dialog_quality_request(message)
-            and requested_backend != "open_source"
-            and not reply.strip()
-        ):
-            reply = self._build_conversational_reply(
-                message=message,
-                role=role,
-                purpose=purpose,
-                requested_backend=requested_backend,
-                interaction_mode=interaction_mode,
-                analysis=analysis,
-                retrieval_brief="",
-            )
-            live_llm_meta = {
-                "ok": False,
-                "attempted": False,
-                "fallback_used": True,
-                "provider": requested_backend,
-                "fallback_reason": "prophet_dialog_first_guard",
-            }
-            workflow_payload["llm_live"] = dict(live_llm_meta)
-
-        if (
-            (not should_run_workflow)
-            and prophet_engineer_handoff
-            and render_prophet_engineer_base_reply
-            and not reply.strip()
-        ):
-            reply = render_prophet_engineer_base_reply(prophet_engineer_handoff)
-            live_llm_meta = {
-                "ok": False,
-                "attempted": False,
-                "fallback_used": True,
-                "provider": requested_backend,
-                "fallback_reason": "prophet_engineer_deterministic_handoff",
-            }
-            workflow_payload["llm_live"] = dict(live_llm_meta)
+        react_loop = self._build_react_loop(
+            message=message,
+            purpose=purpose,
+            interaction_mode=interaction_mode,
+            should_run_workflow=should_run_workflow,
+            analysis=analysis,
+        )
+        workflow_payload["react"] = dict(react_loop)
 
         # 明確任務才啟動 LangGraph；一般申言者中樞聊天保持輕量對談。
         if should_run_workflow and not reply.strip():
@@ -3088,6 +3186,8 @@ class DesktopBridge:
                     retrieval_brief=retrieval_brief,
                     capability_mode=capability_mode,
                     deliberation=deliberation,
+                    conversation_context=conversation_context,
+                    safety_nudge=safety.nudge if safety.should_nudge else "",
                 )
                 if live_reply.strip():
                     reply = live_reply.strip()
@@ -3117,14 +3217,9 @@ class DesktopBridge:
         # 後備回覆：一般對談避免暴露巡檢細節；任務失敗才給簡短狀態。
         if not reply.strip():
             if not should_run_workflow:
-                reply = self._build_conversational_reply(
-                    message,
-                    role,
-                    purpose,
-                    requested_backend,
-                    interaction_mode,
-                    analysis,
-                    retrieval_brief,
+                reply = (
+                    "剛剛對話模型沒有成功產生答案，所以我不拿固定模板冒充回覆。"
+                    f"請直接重送一次；若持續發生，再檢查 {requested_backend} 的模型連線。"
                 )
             else:
                 reply = (
@@ -3150,14 +3245,8 @@ class DesktopBridge:
             workflow_payload["llm_live"] = dict(live_llm_meta)
         self.last_live_llm_meta = dict(live_llm_meta)
 
-        if live_llm_meta.get("fallback_reason") != "runtime_capability_truth":
-            reply = self._apply_reply_diversity(
-                message=message,
-                role=role,
-                analysis=analysis,
-                reply=reply,
-                workflow_ran=workflow_ran,
-            )
+        self._remember_role_reply(role, reply)
+        reply = self._with_safety_nudge(reply, safety)
 
         completion = self._evaluate_completion(
             should_run_workflow=should_run_workflow,
@@ -3196,65 +3285,58 @@ class DesktopBridge:
         reply = canonicalize_trevor_reply(reply, capability_mode)
 
         self._remember_dialog_turn(
-            user_message=message,
+            user_message=user_message,
             assistant_message=reply,
             analysis=analysis,
             workflow_ran=workflow_ran,
-        )
-        self._record_turn_artifacts(
             session_id=session_id,
-            role=role,
-            user_message=message,
-            assistant_message=reply,
-            analysis=analysis,
-            keywords=turn_keywords,
-            retrieval=retrieval_payload,
-            workflow_ran=workflow_ran,
-            backend=requested_backend,
-            purpose=purpose,
-            interaction_mode=interaction_mode,
         )
-        turn_id = f"{session_id or 'default'}#turn:{self.reply_counter}"
-        if prophet_engineer_handoff:
-            self._record_prophet_engineer_handoff(
+        memory_decision = self.memory_policy.assess(user_message)
+        memory_metadata = {
+            "backend": requested_backend,
+            "workflow_ran": workflow_ran,
+            "mode": interaction_mode,
+            "purpose": purpose,
+            "completion_state": completion.get("state", ""),
+            "escalation_required": bool(escalation_required),
+            "react_action": react_loop.get("action", ""),
+            "keywords": turn_keywords[:8],
+            "retrieval_match_count": int(retrieval_payload.get("match_count", 0) or 0),
+            "source_role": role,
+            "capability_mode": capability_mode,
+        }
+        memory_saved = self._persist_promoted_memory(
+            user_message=user_message,
+            assistant_message=reply,
+            memory_decision=memory_decision,
+            metadata=memory_metadata,
+        )
+        if workflow_ran or memory_decision.promote:
+            self._record_turn_artifacts(
                 session_id=session_id,
-                turn_id=turn_id,
-                handoff=prophet_engineer_handoff,
+                role=role,
+                user_message=user_message,
+                assistant_message=reply,
+                analysis=analysis,
+                keywords=turn_keywords,
+                retrieval=retrieval_payload,
+                workflow_ran=workflow_ran,
+                backend=requested_backend,
+                purpose=purpose,
+                interaction_mode=interaction_mode,
+                include_content=memory_decision.promote,
             )
-        self._persist_training_overlay_sample(
-            session_id=session_id,
-            role=role,
-            user_message=message,
-            assistant_message=reply,
-            analysis=analysis,
-            keywords=turn_keywords,
-            workflow_ran=workflow_ran,
-            backend=requested_backend,
-        )
-
-        # 強制存入永久記憶 (Permanent Memory Save)
-        if self.memory_manager:
-            try:
-                self.memory_manager.save_conversation(
-                    agent_name=TREVOR_DISPLAY_NAME,
-                    user_message=message,
-                    assistant_message=reply,
-                    metadata={
-                        "backend": requested_backend,
-                        "workflow_ran": workflow_ran,
-                        "mode": interaction_mode,
-                        "purpose": purpose,
-                        "completion_state": completion.get("state", ""),
-                        "escalation_required": bool(escalation_required),
-                        "react_action": react_loop.get("action", ""),
-                        "keywords": turn_keywords[:8],
-                        "retrieval_match_count": int(retrieval_payload.get("match_count", 0) or 0),
-                        "source_role": role,
-                        "capability_mode": capability_mode,
-                    }
-                )
-            except Exception:
-                pass
+        if memory_decision.promote:
+            self._persist_training_overlay_sample(
+                session_id=session_id,
+                role=role,
+                user_message=user_message,
+                assistant_message=reply,
+                analysis=analysis,
+                keywords=turn_keywords,
+                workflow_ran=workflow_ran,
+                backend=requested_backend,
+            )
 
         duration = round(time.time() - start_ts, 3)
         self.last_reply = reply
@@ -3284,12 +3366,23 @@ class DesktopBridge:
             "llm_live": live_llm_meta,
             "purpose": purpose,
             "interaction_mode": interaction_mode,
+            "interaction": decision.public_dict(),
             "model": str(live_llm_meta.get("model") or requested_backend),
             "completion": completion,
             "escalation": escalation,
             "react": react_loop,
             "prophet_engineer_handoff": prophet_engineer_handoff,
             "deliberation": deliberation_payload,
+            "memory": {
+                "retrieval_attempted": retrieve_memory,
+                "promotion": memory_decision.public_dict(),
+                "saved": memory_saved,
+            },
+            "safety": safety.public_dict(),
+            "session": {
+                "id": session_id,
+                "context_messages": len(self.session_store.messages(session_id)),
+            },
         }, requested_role=requested_role, capability_mode=capability_mode)
 
     def _system_profile(self) -> dict:

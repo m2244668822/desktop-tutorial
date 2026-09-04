@@ -13,20 +13,22 @@ class ChatShellRuntimeTemplateTests(unittest.TestCase):
         self.assertIn('<svg class="tb-logo"', self.html)
         self.assertNotIn('/static/branding/topbar-logo.png', self.html)
 
-    def test_runtime_template_escape_handlers_cover_input_and_global_scope(self):
+    def test_runtime_template_uses_single_send_and_scoped_escape_handling(self):
         for token in [
-            'function cancelPendingSendConfirmation()',
             'function handleMessageKeydown(e)',
             'msgInput.addEventListener("keydown", handleMessageKeydown);',
-            'msgInput.addEventListener("keyup", e => {',
             'function handleGlobalEscape(e)',
             'window.addEventListener("keydown", handleGlobalEscape, true);',
-            'window.addEventListener("keyup", handleGlobalEscape, true);',
-            'document.addEventListener("keydown", handleGlobalEscape, true);',
-            'document.addEventListener("keyup", handleGlobalEscape, true);',
-            'msgInput.addEventListener("blur", cancelPendingSendConfirmation);',
+            'toggleAdvancedSettings(false);',
         ]:
             self.assertIn(token, self.html)
+
+        for legacy_token in [
+            'function cancelPendingSendConfirmation()',
+            'pendingSendConfirmation',
+            'msgInput.addEventListener("blur", cancelPendingSendConfirmation);',
+        ]:
+            self.assertNotIn(legacy_token, self.html)
 
 
 if __name__ == "__main__":
