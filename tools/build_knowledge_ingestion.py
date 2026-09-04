@@ -28,6 +28,7 @@ if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
 from core.interprocess_lock import exclusive_file_lock
+from core.data_paths import resolve_data_root
 
 
 TEXT_SUFFIXES = {".md", ".txt", ".json", ".html", ".jsonl"}
@@ -137,23 +138,6 @@ def _publish_generation(
                 temporary.unlink(missing_ok=True)
 
 
-def resolve_data_root(base_dir: Path) -> Path:
-    """Resolve a writable data root across macOS symlink and Windows fallback."""
-    primary = base_dir / "data"
-    if primary.is_dir():
-        return primary
-
-    fallback = base_dir / "data_hdd_storage"
-    if fallback.is_dir():
-        return fallback
-
-    # If `data` is a broken symlink or plain file on Windows, prefer fallback.
-    if primary.exists() and not primary.is_dir():
-        return fallback
-
-    return primary
-
-
 @dataclass
 class IngestedDocument:
     doc_id: str
@@ -171,6 +155,42 @@ def _normalize_text(text: str) -> str:
 def _doc_id(source: str, path: str) -> str:
     raw = f"{source}:{path}"
     return hashlib.blake2b(raw.encode("utf-8"), digest_size=12).hexdigest()
+
+
+def _content_fingerprint(text: str) -> str:
+    """Return a stable fingerprint after removing formatting-only differences."""
+    normalized = _normalize_text(text)
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _dedupe_documents_by_content(
+    documents: list[IngestedDocument],
+) -> tuple[list[IngestedDocument], list[dict[str, str]]]:
+    """Keep the first source for identical content and retain an audit trail.
+
+    Source collection order is intentional: curated local knowledge wins over
+    repository docs, reports, and logs.  Originals remain untouched on disk.
+    """
+    kept: list[IngestedDocument] = []
+    first_by_fingerprint: dict[str, IngestedDocument] = {}
+    duplicates: list[dict[str, str]] = []
+    for document in documents:
+        fingerprint = _content_fingerprint(document.text)
+        original = first_by_fingerprint.get(fingerprint)
+        if original is None:
+            first_by_fingerprint[fingerprint] = document
+            kept.append(document)
+            continue
+        duplicates.append(
+            {
+                "kept_source": original.source,
+                "kept_path": original.path,
+                "skipped_source": document.source,
+                "skipped_path": document.path,
+                "content_sha256": fingerprint,
+            }
+        )
+    return kept, duplicates
 
 
 def _iter_text_files(
@@ -356,7 +376,9 @@ def build_pipeline(
         _check_cancel(cancel_check)
         if doc.doc_id not in deduped:
             deduped[doc.doc_id] = doc
-    final_docs = list(deduped.values())
+    final_docs, content_duplicates = _dedupe_documents_by_content(
+        list(deduped.values())
+    )
 
     document_rows: list[dict[str, Any]] = []
     for doc in final_docs:
@@ -389,9 +411,12 @@ def build_pipeline(
         "document_count": len(final_docs),
         "chunk_count": len(chunk_rows),
         "source_counts": source_counts,
+        "duplicate_content_count": len(content_duplicates),
+        "duplicate_content_examples": content_duplicates[:50],
         "notes": [
             "優先導入整理後的 local_knowledge，而不是直接暴力掃描整包 opai 本地原始資料。",
             "原始 opai 本地資料仍保留在 data/knowledge_hub/chatgpt_export 作為來源備查。",
+            "相同內容只保留來源優先序最高的一份進入索引，原始檔案不會被刪除。",
             "這條管線可作為 AnythingLLM 風格的 ingestion 前置層。",
         ],
     }
@@ -419,8 +444,14 @@ def build_pipeline(
 
 
 def main() -> int:
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if callable(reconfigure):
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (OSError, ValueError):
+            pass
     summary = build_pipeline(BASE_DIR)
-    print("✅ 知識導入管線已建立")
+    print("[ok] 知識導入管線已建立")
     print(f"   documents: {summary['document_count']}")
     print(f"   chunks: {summary['chunk_count']}")
     print(f"   output: {summary['documents_path']}")
