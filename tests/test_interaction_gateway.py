@@ -96,3 +96,15 @@ def test_task_route_requires_imperative_or_explicit_request_not_just_keywords():
     reversible_ui_edit = gateway.decide("移除前端多餘的模式按鈕")
     assert reversible_ui_edit.route == "task"
     assert not reversible_ui_edit.requires_confirmation
+
+
+def test_explicit_backend_optimization_routes_to_isolated_self_improvement():
+    gateway = InteractionGateway()
+
+    discussion = gateway.decide("你覺得應該如何優化後端？")
+    task = gateway.decide("優化後端的對話路由並補測試")
+
+    assert discussion.route == "conversation"
+    assert task.route == "task"
+    assert task.purpose == "self_improvement"
+    assert task.capability_mode == "coding"

@@ -1719,7 +1719,11 @@ function buildBackendStatusLine(data = {}, fallbackMode = "auto") {
     ? `主題: ${data.semantic_analysis.primary_topic}`
     : "";
   const safety = data.safety_guard && data.safety_guard.triggered ? "安全改寫" : "";
-  return ["後台同步", agent, model, `模式：${labelInteractionMode(mode)}`, time, topic, safety]
+  const proposal = data.self_improvement || {};
+  const proposalStatus = proposal.id
+    ? `修補：${proposal.id}／${proposal.status || "處理中"}`
+    : "";
+  return ["後台同步", agent, model, `模式：${labelInteractionMode(mode)}`, time, topic, proposalStatus, safety]
     .filter(Boolean)
     .join(" · ");
 }

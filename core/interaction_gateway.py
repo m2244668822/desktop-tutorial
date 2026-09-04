@@ -74,6 +74,9 @@ class InteractionGateway:
         "新增",
         "寫入",
         "更新",
+        "優化",
+        "改善",
+        "重構",
         "測試",
         "檢查",
         "確認",
@@ -201,6 +204,18 @@ class InteractionGateway:
         "repo",
         "磁碟",
     )
+    _SELF_IMPROVEMENT = (
+        "自我優化",
+        "自行優化",
+        "優化後端",
+        "改善後端",
+        "重構後端",
+        "優化崔佛",
+        "改善崔佛",
+        "修正崔佛",
+        "優化對話路由",
+        "改善對話路由",
+    )
 
     @staticmethod
     def _normalize_mode(mode: str | None) -> str:
@@ -260,6 +275,11 @@ class InteractionGateway:
         if any(token in text for token in ("教我", "練習", "學習", "教材")):
             return "learning"
         return "general"
+
+    @classmethod
+    def is_self_improvement_request(cls, message: str) -> bool:
+        text = str(message or "").strip().lower()
+        return bool(text) and any(token in text for token in cls._SELF_IMPROVEMENT)
 
     def decide(
         self,
@@ -373,12 +393,19 @@ class InteractionGateway:
                 **base,
             )
 
+        self_improvement = self.is_self_improvement_request(text)
         return InteractionDecision(
             route="task",
-            purpose="execution",
+            purpose="self_improvement" if self_improvement else "execution",
             should_execute=True,
             risk_level="high" if high_risk else "low",
-            reason="confirmed_high_risk_task" if high_risk else "explicit_scoped_task",
+            reason=(
+                "confirmed_high_risk_task"
+                if high_risk
+                else "self_improvement_proposal"
+                if self_improvement
+                else "explicit_scoped_task"
+            ),
             **base,
         )
 

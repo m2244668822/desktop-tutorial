@@ -155,3 +155,45 @@ def test_high_risk_confirmation_replays_only_the_pending_session_action():
     assert confirmed["interaction"]["route"] == "task"
     assert confirmed["workflow_ran"] is True
     run.assert_called_once_with("刪除舊資料", workspace=str(bridge.workspace))
+
+
+def test_explicit_backend_optimization_starts_an_isolated_background_proposal():
+    bridge = _bridge()
+    proposal = {
+        "id": "sip-0123456789ab",
+        "status": "preparing",
+        "model": "qwen2.5:7b",
+        "changed_files": [],
+    }
+    bridge.self_improvement.prepare_async = mock.Mock(return_value=proposal)
+    try:
+        result = bridge.send_message(
+            "優化後端的對話路由並補測試",
+            session_id="self-improve",
+            model_key="open_source",
+        )
+    finally:
+        bridge.stop_background_monitor()
+
+    bridge.self_improvement.prepare_async.assert_called_once_with(
+        "優化後端的對話路由並補測試", session_id="self-improve"
+    )
+    assert result["self_improvement"]["status"] == "preparing"
+    assert result["completion"]["state"] == "in_progress"
+    assert result["interaction"]["requires_confirmation"] is False
+    assert "查看修補 sip-0123456789ab" in result["quick_replies"]
+
+
+def test_unknown_proposal_does_not_claim_that_isolated_content_exists():
+    bridge = _bridge()
+    try:
+        result = bridge.send_message(
+            "查看修補 sip-ffffffffffff",
+            session_id="missing-proposal",
+        )
+    finally:
+        bridge.stop_background_monitor()
+
+    assert "找不到指定的修補候選" in result["reply"]
+    assert "隔離內容仍保留" not in result["reply"]
+    assert result["quick_replies"] == []

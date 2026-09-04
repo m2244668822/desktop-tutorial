@@ -771,6 +771,33 @@ class WebServerMode:
                     self._send_json(server_instance.trevor_provider_payload())
                     return
 
+                if route_path == "/api/trevor/self-improvement" or route_path.startswith(
+                    "/api/trevor/self-improvement/"
+                ):
+                    if (
+                        server_instance.api_auth_required
+                        and self._require_scope("tasks") is None
+                    ):
+                        return
+                    proposal_id = route_path.removeprefix(
+                        "/api/trevor/self-improvement/"
+                    )
+                    try:
+                        result = server_instance.bridge.self_improvement_status(
+                            proposal_id if proposal_id != route_path else ""
+                        )
+                    except (KeyError, RuntimeError, ValueError) as exc:
+                        error = exc.args[0] if isinstance(exc, KeyError) and exc.args else str(exc)
+                        self._send_json(
+                            {"ok": False, "error": str(error)},
+                            status=HTTPStatus.NOT_FOUND
+                            if str(error) == "proposal_not_found"
+                            else HTTPStatus.BAD_REQUEST,
+                        )
+                        return
+                    self._send_json(result)
+                    return
+
                 if route_path == "/api/trevor/tasks":
                     if self._require_scope("tasks") is None:
                         return

@@ -48,6 +48,7 @@ class TrevorApiContractTests(unittest.TestCase):
         source = WEB_SERVER.read_text(encoding='utf-8')
         self.assertIn('"/api/trevor/status"', source)
         self.assertIn('"/api/trevor/providers"', source)
+        self.assertIn('"/api/trevor/self-improvement"', source)
         self.assertIn('server_instance.trevor_status_payload()', source)
         self.assertIn('server_instance.trevor_provider_payload()', source)
 

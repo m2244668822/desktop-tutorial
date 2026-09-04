@@ -41,6 +41,22 @@ class _Bridge:
             ],
         }
 
+    def self_improvement_status(self, proposal_id=""):
+        availability = {
+            'ok': True,
+            'mode': 'isolated_proposal',
+            'auto_merge': False,
+        }
+        if proposal_id:
+            if proposal_id == 'sip-000000000000':
+                return {
+                    'ok': True,
+                    'proposal': {'id': proposal_id, 'status': 'ready_for_approval'},
+                    'availability': availability,
+                }
+            raise KeyError('proposal_not_found')
+        return {'ok': True, 'proposals': [], 'availability': availability}
+
 
 class TrevorTaskApiTests(unittest.TestCase):
     def setUp(self):
@@ -104,6 +120,38 @@ class TrevorTaskApiTests(unittest.TestCase):
 
         self.assertEqual(400, status)
         self.assertEqual('invalid_limit', payload['error'])
+
+    def test_self_improvement_status_exposes_controlled_mode(self):
+        status, payload = self._json('/api/trevor/self-improvement')
+        proposal_status, proposal = self._json(
+            '/api/trevor/self-improvement/sip-000000000000'
+        )
+
+        self.assertEqual(200, status)
+        self.assertFalse(payload['availability']['auto_merge'])
+        self.assertEqual(200, proposal_status)
+        self.assertEqual('ready_for_approval', proposal['proposal']['status'])
+
+    def test_unknown_self_improvement_proposal_returns_not_found(self):
+        status, payload = self._json(
+            '/api/trevor/self-improvement/sip-ffffffffffff'
+        )
+
+        self.assertEqual(404, status)
+        self.assertEqual('proposal_not_found', payload['error'])
+
+    def test_self_improvement_status_requires_tasks_scope_when_auth_is_enabled(self):
+        self.mode.api_auth_required = True
+
+        denied_status, denied = self._json(
+            '/api/trevor/self-improvement', authorized=False
+        )
+        allowed_status, allowed = self._json('/api/trevor/self-improvement')
+
+        self.assertEqual(401, denied_status)
+        self.assertEqual('authentication_required', denied['error'])
+        self.assertEqual(200, allowed_status)
+        self.assertTrue(allowed['ok'])
 
     def test_send_message_marks_user_activity(self):
         status, _ = self._json(

@@ -62,6 +62,7 @@ from core.interaction_gateway import InteractionDecision, InteractionGateway
 from core.memory_policy import MemoryDecision, MemoryPromotionPolicy
 from core.safety_signals import SafetyAssessment, SafetySignalTracker
 from core.session_context import SessionConversationStore
+from core.self_improvement import SelfImprovementService
 from core.trevor_identity import (
     CAPABILITY_MODES,
     TREVOR_DISPLAY_NAME,
@@ -279,6 +280,10 @@ class DesktopBridge:
         self.interaction_gateway = InteractionGateway()
         self.memory_policy = MemoryPromotionPolicy()
         self.safety_tracker = SafetySignalTracker()
+        self.self_improvement = SelfImprovementService(
+            self.workspace,
+            self.paths.data,
+        )
         self.reply_counter = 0
         self.last_diversified_reply = ""
         self.last_user_fingerprint = ""
@@ -2946,6 +2951,160 @@ class DesktopBridge:
             capability_mode=capability_mode,
         )
 
+    @staticmethod
+    def _self_improvement_error_message(error: str) -> str:
+        code = str(error or "").strip()
+        messages = {
+            "repository_dirty": "目前專案有未提交變更，我沒有建立修補候選，避免混入你正在做的內容。",
+            "self_improvement_engine_unavailable": "這台電腦目前找不到可用的 Git 或 Codex 編碼引擎。",
+            "coding_engine_timeout": "隔離編碼超時；候選沒有套用到目前程式。",
+            "coding_engine_failed": "隔離編碼器沒有成功完成；候選沒有套用到目前程式。",
+            "no_code_changes": "編碼器沒有產生程式變更，通常表示需求還不夠具體。",
+            "scope_violation": "候選碰到前端、既有測試或安全敏感檔案，已被範圍檢查擋下。",
+            "tests_failed": "候選沒有通過保護測試，因此不提供套用。",
+            "compile_failed": "候選包含無法編譯的 Python 程式，因此不提供套用。",
+            "proposal_base_changed": "建立候選後主分支已有變更；為避免套錯版本，請重新產生候選。",
+            "proposal_session_mismatch": "這個候選不屬於目前對話，不能跨 session 套用。",
+            "proposal_not_ready": "這個候選尚未通過驗證，不能套用。",
+            "proposal_not_found": "找不到指定的修補候選。",
+        }
+        return messages.get(code, f"受控自我優化未完成：{code or 'unknown_error'}")
+
+    def _build_self_improvement_response(
+        self,
+        *,
+        user_message: str,
+        session_id: str,
+        requested_role: str,
+        action: str,
+        state: dict[str, Any],
+        safety: SafetyAssessment,
+        start_ts: float,
+    ) -> dict:
+        status = str(state.get("status", "failed") or "failed")
+        proposal_id = str(state.get("id", "") or "")
+        changed = [str(item) for item in state.get("changed_files", []) if str(item)]
+        error = str(state.get("error", "") or "")
+        quick_replies: list[str] = []
+        if status == "ready_for_approval":
+            file_summary = "、".join(changed[:6]) or "後端檔案"
+            reply = (
+                f"我已在隔離工作樹完成候選修補 `{proposal_id}`，目前沒有改動正在運行的程式。\n"
+                f"變更：{file_summary}\n"
+                "編譯、秘密掃描與保護測試已通過。要正式套用，請回覆下方的確認指令。"
+            )
+            quick_replies = [
+                f"確認套用 {proposal_id}",
+                f"查看修補 {proposal_id}",
+                f"取消修補 {proposal_id}",
+            ]
+        elif status == "preparing":
+            reply = (
+                f"我已建立隔離候選 `{proposal_id}`，本機 Qwen 正在編寫與驗證後端修補。"
+                "這會在背景繼續，不會卡住一般對話，也還沒有改動目前分支。"
+            )
+            quick_replies = [
+                f"查看修補 {proposal_id}",
+                f"取消修補 {proposal_id}",
+            ]
+        elif status == "applied":
+            reply = (
+                f"候選 `{proposal_id}` 已套用並建立 Git commit "
+                f"`{str(state.get('applied_commit', ''))[:12]}`。"
+                "目前服務仍在跑舊程序，需要重新啟動後端才會載入新程式。"
+            )
+        elif status == "rejected":
+            reply = f"候選 `{proposal_id}` 已標記為不套用，現在的後端程式沒有改變。"
+        else:
+            reply = self._self_improvement_error_message(error)
+            if proposal_id and error != "proposal_not_found":
+                reply += f"\n候選編號：`{proposal_id}`；隔離內容仍保留供檢查。"
+                quick_replies = [f"查看修補 {proposal_id}", f"取消修補 {proposal_id}"]
+        reply = self._with_safety_nudge(reply, safety)
+        reply = canonicalize_trevor_reply(reply, "coding")
+        analysis = self._fallback_message_analysis(user_message)
+        analysis["interaction_route"] = "task"
+        analysis["intent_v2"] = "self_improvement"
+        ran = action in {"prepare", "apply", "reject"}
+        self._remember_dialog_turn(
+            user_message=user_message,
+            assistant_message=reply,
+            analysis=analysis,
+            workflow_ran=ran,
+            session_id=session_id,
+        )
+        done = status in {"applied", "rejected"}
+        completion_state = (
+            "in_progress"
+            if status == "preparing"
+            else "awaiting_confirmation"
+            if status == "ready_for_approval"
+            else "completed"
+            if done
+            else "failed"
+        )
+        duration = round(time.time() - start_ts, 3)
+        payload = {
+            "ok": status not in {"failed"},
+            "reply": reply,
+            "backend": "codex_ollama",
+            "duration_s": duration,
+            "response_time": duration,
+            "analysis": analysis,
+            "semantic_analysis": analysis,
+            "workflow": {"self_improvement": state},
+            "workflow_ran": ran,
+            "purpose": "self_improvement",
+            "interaction_mode": "task",
+            "interaction": {
+                "route": "task",
+                "purpose": "self_improvement",
+                "should_execute": ran,
+                "requires_confirmation": status == "ready_for_approval",
+                "risk_level": "medium",
+                "reason": f"self_improvement_{action}",
+            },
+            "model": str(state.get("model", self.self_improvement.model)),
+            "completion": {
+                "done": done,
+                "state": completion_state,
+                "reason": error or status,
+            },
+            "escalation": {"required": False, "reason": "", "fail_streak": 0},
+            "llm_live": {
+                "ok": status in {"ready_for_approval", "applied"},
+                "attempted": action == "prepare",
+                "fallback_used": False,
+                "provider": "codex_ollama",
+            },
+            "memory": {"retrieval_attempted": False, "saved": False},
+            "safety": safety.public_dict(),
+            "session": {
+                "id": session_id,
+                "context_messages": len(self.session_store.messages(session_id)),
+            },
+            "self_improvement": state,
+            "quick_replies": quick_replies,
+        }
+        return decorate_trevor_response(
+            payload,
+            requested_role=requested_role,
+            capability_mode="coding",
+        )
+
+    def self_improvement_status(self, proposal_id: str = "") -> dict[str, Any]:
+        if str(proposal_id or "").strip():
+            return {
+                "ok": True,
+                "proposal": self.self_improvement.public_get(proposal_id),
+                "availability": self.self_improvement.availability(),
+            }
+        return {
+            "ok": True,
+            "proposals": self.self_improvement.public_list(),
+            "availability": self.self_improvement.availability(),
+        }
+
     def send_message(
         self,
         message: str,
@@ -2968,6 +3127,34 @@ class DesktopBridge:
             capability_mode=capability_mode,
         )
         deliberation = self._normalize_deliberation_mode(deliberation)
+        control_command = self.self_improvement.parse_control_command(user_message)
+        if control_command:
+            action, proposal_id = control_command
+            safety = self.safety_tracker.assess(session_id, user_message)
+            self.last_message = user_message
+            self.last_message_ts = start_ts
+            self.reply_counter += 1
+            try:
+                if action == "apply":
+                    state = self.self_improvement.apply(proposal_id, session_id=session_id)
+                elif action == "reject":
+                    state = self.self_improvement.reject(proposal_id, session_id=session_id)
+                else:
+                    state = self.self_improvement.public_get_for_session(
+                        proposal_id, session_id=session_id
+                    )
+            except (KeyError, RuntimeError, ValueError) as exc:
+                error = exc.args[0] if isinstance(exc, KeyError) and exc.args else str(exc)
+                state = {"id": proposal_id, "status": "failed", "error": str(error)}
+            return self._build_self_improvement_response(
+                user_message=user_message,
+                session_id=session_id,
+                requested_role=requested_role,
+                action=action,
+                state=state,
+                safety=safety,
+                start_ts=start_ts,
+            )
         pending_action = self.session_store.pending_action(session_id)
         if self.interaction_gateway.is_confirmation_message(user_message):
             if pending_action:
@@ -3029,6 +3216,20 @@ class DesktopBridge:
                 deliberation=deliberation,
                 decision=decision,
                 safety=safety,
+            )
+        if decision.purpose == "self_improvement":
+            try:
+                state = self.self_improvement.prepare_async(message, session_id=session_id)
+            except (RuntimeError, ValueError) as exc:
+                state = {"status": "failed", "error": str(exc)}
+            return self._build_self_improvement_response(
+                user_message=user_message,
+                session_id=session_id,
+                requested_role=requested_role,
+                action="prepare",
+                state=state,
+                safety=safety,
+                start_ts=start_ts,
             )
 
         conversation_context = self.session_store.messages(
