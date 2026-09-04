@@ -4,6 +4,7 @@ import threading
 import unittest
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from unittest.mock import patch
 from urllib import error as urllib_error
 from urllib import request as urllib_request
 
@@ -62,6 +63,10 @@ class TrevorTaskApiTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         root = Path(self.temporary.name)
+        self.data_environment = patch.dict(
+            'os.environ', {'TREVOR_DATA_DIR': str(root / 'data')}
+        )
+        self.data_environment.start()
         paths = ProjectPaths(root)
         mode = WebServerMode(_Bridge(), root, paths)
         self.mode = mode
@@ -79,6 +84,7 @@ class TrevorTaskApiTests(unittest.TestCase):
         self.server.shutdown()
         self.server.server_close()
         self.thread.join(timeout=2)
+        self.data_environment.stop()
         self.temporary.cleanup()
 
     def _json(self, path, payload=None, *, authorized=True):
