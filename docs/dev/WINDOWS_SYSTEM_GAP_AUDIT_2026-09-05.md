@@ -18,6 +18,7 @@
 | 自我優化 | ready | 隔離 worktree、測試、候選編號確認後才套用 |
 | AI Horde 網路 | ready | 官方 heartbeat 回覆 OK；匿名工作完成並下載 30,796-byte WebP |
 | 圖片 API 憑證層 | repaired | Windows Credential Manager 原生讀寫往返通過；API 回報 configured=true |
+| n8n 自動化 | ready | Node.js 24.19.0、n8n 2.37.10；5678 health/readiness 與 5679 JS Task Broker 正常 |
 
 ## 本輪已修復的實質缺口
 
@@ -53,6 +54,16 @@
 - `/health/ready` 的核心狀態只依 DesktopBridge 與資料庫判斷；FAISS、AEG、TLS、OpenClaw 的缺口另列於 `optional_gaps`，避免選配能力污染核心可用性。
 - 完整測試現為 418 passed、0 failed、16 skipped、33 subtests passed。
 
+### P2：n8n 本機自動化（已安裝）
+
+- 以目前使用者範圍安裝 Node.js LTS 24.19.0 與固定版 n8n 2.37.10，不需要系統管理員權限。
+- watchdog 可直接解析 WinGet 安裝路徑，不依賴重新登入後才更新的 PATH。
+- `5678/healthz` 與 `5678/healthz/readiness` 已連續回覆 200；JS Task Broker 監聽 5679。
+- Scheduled Task 因 Windows 權限被拒，已使用目前使用者 Startup folder fallback；watchdog 維持單一執行個體。
+- 遙測、版本通知、外部模板、公開 API、未驗證社群套件與 MCP registry 自動抓取均關閉；解壓上限與 runner timeout 採較保守值。
+- Python Task Runner 尚未配置；目前 JS 工作流與 n8n 主服務不受影響。若未來確實需要 Python Code node，應另外部署官方建議的 external runner，不把內建除錯 runner 誤當正式架構。
+- n8n 2.37 提示未來版本將要求官方 Docker image；本機 npm 版目前可用，但升級前需先規劃容器遷移。
+
 ## 仍需要使用者選擇或外部服務的缺口
 
 ### P1：雲端語言模型全部未設定
@@ -76,12 +87,12 @@
 
 | 項目 | 現況 | 判斷 |
 |---|---|---|
-| n8n | Node/npm/n8n 未安裝；5678 未監聽 | 選配排程，不是語言理解核心 |
+| n8n | 2.37.10 已安裝；5678/5679 ready | 選配排程已接軌，仍不是語言理解核心 |
 | OpenClaw | 未安裝／disabled；18789 未監聽 | 有 DesktopBridge fallback，暫不必裝 |
 | Lobster | offline | 高風險確定性流程尚無此層 |
 | TLS Proxy | 5443 未監聽 | 本機 5001 可用；遠端 HTTPS 尚未就緒 |
 | Tailscale | 未安裝／未連線 | 私有遠端存取未就緒 |
-| Docker | 未安裝 | 容器化 n8n/sidecar 無法啟動 |
+| Docker | 未安裝 | 現行 npm 版 n8n 可用；未來 n8n 強制容器化前需補齊 |
 | Redis | 未安裝／6379 未監聽 | 目前單機核心不依賴它 |
 | 本機圖片模型 | 未安裝 | 圖片生成目前依賴 AI Horde，無離線生成 |
 
@@ -91,4 +102,4 @@
 2. 維持本機 9,569 筆加密記憶與 FAISS；先做檢索品質評估，再決定是否啟用 Graphiti，避免無篩選上傳。
 3. 自治 worker 已常駐；先觀察心跳、錯誤日誌與夜間維護結果，不新增無明確目的的任務。
 4. 需要雲端備援時只選一個模型，由使用者自行提供金鑰；低流量模式維持 Qwen 優先。
-5. 有跨裝置或外網需求時才補 TLS/Tailscale；有視覺化排程需求時才安裝 n8n。
+5. n8n 已可用；先建立最小、可回滾的本機工作流。有跨裝置或外網需求時才補 TLS/Tailscale。

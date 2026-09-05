@@ -17,6 +17,30 @@ $OutLog = Join-Path $LogDir "n8n_windows.out.log"
 $ErrLog = Join-Path $LogDir "n8n_windows.err.log"
 $StateLog = Join-Path $LogDir "n8n_watchdog.log"
 
+function Resolve-N8nCommand {
+    $command = Get-Command "n8n.cmd" -ErrorAction SilentlyContinue
+    if ($command -and (Test-Path -LiteralPath $command.Source)) {
+        return $command.Source
+    }
+
+    $wingetRoot = Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Packages"
+    if (Test-Path -LiteralPath $wingetRoot) {
+        $candidate = Get-ChildItem -LiteralPath $wingetRoot -Directory -Filter "OpenJS.NodeJS.LTS*" -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending |
+            ForEach-Object {
+                Get-ChildItem -LiteralPath $_.FullName -File -Filter "n8n.cmd" -Recurse -ErrorAction SilentlyContinue
+            } |
+            Select-Object -First 1
+        if ($candidate) {
+            return $candidate.FullName
+        }
+    }
+
+    throw "n8n.cmd not found; install Node.js and n8n before starting the watchdog"
+}
+
+$N8nCommand = Resolve-N8nCommand
+
 function Write-State([string]$Message) {
     $line = "{0} {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $Message
     Add-Content -LiteralPath $StateLog -Value $line -Encoding UTF8
@@ -80,13 +104,18 @@ function Start-N8n {
         "set N8N_PERSONALIZATION_ENABLED=false",
         "set N8N_PUBLIC_API_DISABLED=true",
         "set N8N_HIRING_BANNER_ENABLED=false",
+        "set N8N_DISABLED_MODULES=mcp-registry",
+        "set N8N_UNVERIFIED_PACKAGES_ENABLED=false",
+        "set N8N_RUNNERS_TASK_TIMEOUT=60",
+        "set N8N_COMPRESSION_NODE_MAX_DECOMPRESSED_SIZE_BYTES=268435456",
+        "set N8N_COMPRESSION_NODE_MAX_ZIP_ENTRIES=1000",
         "set SKIP_STATISTICS_EVENTS=true",
         "set EXTERNAL_FRONTEND_HOOKS_URLS=",
-        "n8n start 1>>`"$OutLog`" 2>>`"$ErrLog`""
+        "`"$N8nCommand`" start 1>>`"$OutLog`" 2>>`"$ErrLog`""
     )
     $cmd = $cmdParts -join "&& "
     $proc = Start-Process -FilePath "cmd.exe" -ArgumentList @("/c", $cmd) -WorkingDirectory $Root -WindowStyle Hidden -PassThru
-    Write-State "started n8n cmd_pid=$($proc.Id) startup_wait=${StartupWaitSeconds}s telemetry=disabled"
+    Write-State "started n8n cmd_pid=$($proc.Id) command=$N8nCommand startup_wait=${StartupWaitSeconds}s telemetry=disabled mcp_registry=disabled"
 }
 
 function Ensure-N8n {
