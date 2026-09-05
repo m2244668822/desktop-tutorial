@@ -221,6 +221,19 @@ class AutonomyQueue:
             raise RuntimeError('autonomy_queue_invalid')
         return payload
 
+    def _claim_expires_at(
+        self,
+        task: dict[str, Any],
+        now: datetime,
+    ) -> datetime:
+        expires_at = _parse_datetime(task.get('lease_expires_at'))
+        if expires_at is not None:
+            return expires_at
+        updated_at = _parse_datetime(task.get('updated_at'))
+        if updated_at is None:
+            return now
+        return updated_at + timedelta(seconds=self.claim_ttl_seconds)
+
     def enqueue(
         self,
         instruction: str,
@@ -267,24 +280,19 @@ class AutonomyQueue:
             for task in tasks:
                 if not isinstance(task, dict) or task.get('status') != 'running':
                     continue
-                expires_at = _parse_datetime(task.get('lease_expires_at'))
-                if expires_at is None:
-                    updated_at = _parse_datetime(task.get('updated_at'))
-                    expires_at = (
-                        updated_at + timedelta(seconds=self.claim_ttl_seconds)
-                        if updated_at is not None
-                        else now
-                    )
+                expires_at = self._claim_expires_at(task, now)
                 if expires_at > now:
                     continue
                 task['status'] = 'pending'
                 task.pop('worker_id', None)
                 task.pop('lease_expires_at', None)
+                task.pop('claim_attempt_id', None)
                 task['pause_reason'] = 'stale_worker_reclaimed'
                 task['reclaimed_at'] = now.isoformat()
                 task['updated_at'] = now.isoformat()
             if any(
-                isinstance(task, dict) and task.get('status') == 'running'
+                isinstance(task, dict)
+                and task.get('status') in {'running', 'finalizing'}
                 for task in tasks
             ):
                 return None
@@ -300,6 +308,7 @@ class AutonomyQueue:
                 return None
             pending['status'] = 'running'
             pending['worker_id'] = worker
+            pending['claim_attempt_id'] = uuid.uuid4().hex
             pending['updated_at'] = now.isoformat()
             pending['lease_expires_at'] = (
                 now + timedelta(seconds=self.claim_ttl_seconds)
@@ -321,15 +330,47 @@ class AutonomyQueue:
                 if not isinstance(task, dict) or task.get('id') != target:
                     continue
                 if (
-                    task.get('status') != 'running'
+                    task.get('status') not in {'running', 'finalizing'}
                     or task.get('worker_id') != worker
                 ):
                     return False
                 now = self.now().astimezone(timezone.utc)
+                expires_at = self._claim_expires_at(task, now)
+                if expires_at <= now:
+                    return False
                 task['updated_at'] = now.isoformat()
                 task['lease_expires_at'] = (
                     now + timedelta(seconds=self.claim_ttl_seconds)
                 ).isoformat()
+                payload['updated_at'] = task['updated_at']
+                _atomic_json(self.path, payload)
+                return True
+        return False
+
+    def begin_finalization(self, task_id: str, *, worker_id: str) -> bool:
+        target = str(task_id or '').strip()
+        worker = str(worker_id or '').strip()
+        if not target:
+            raise ValueError('task_id_required')
+        if not worker:
+            raise ValueError('worker_id_required')
+        with self._mutation_lock():
+            payload = self._load()
+            for task in payload.get('tasks', []):
+                if not isinstance(task, dict) or task.get('id') != target:
+                    continue
+                if task.get('worker_id') != worker:
+                    return False
+                if task.get('status') == 'finalizing':
+                    return True
+                if task.get('status') != 'running':
+                    return False
+                now = self.now().astimezone(timezone.utc)
+                if self._claim_expires_at(task, now) <= now:
+                    return False
+                task['status'] = 'finalizing'
+                task['finalization_started_at'] = now.isoformat()
+                task['updated_at'] = now.isoformat()
                 payload['updated_at'] = task['updated_at']
                 _atomic_json(self.path, payload)
                 return True
@@ -353,17 +394,23 @@ class AutonomyQueue:
             for task in payload.get('tasks', []):
                 if not isinstance(task, dict) or task.get('id') != target:
                     continue
+                status = task.get('status')
                 if (
-                    task.get('status') != 'running'
+                    status not in {'running', 'finalizing'}
                     or task.get('worker_id') != worker
                 ):
+                    return False
+                now = self.now().astimezone(timezone.utc)
+                if status == 'running' and self._claim_expires_at(task, now) <= now:
                     return False
                 task['status'] = 'completed' if success else 'failed'
                 task['result'] = dict(result or {})
                 task['error'] = str(error or '')[:1000]
                 task.pop('worker_id', None)
                 task.pop('lease_expires_at', None)
-                task['updated_at'] = self.now().astimezone(timezone.utc).isoformat()
+                task.pop('claim_attempt_id', None)
+                task.pop('finalization_started_at', None)
+                task['updated_at'] = now.isoformat()
                 payload['updated_at'] = task['updated_at']
                 _atomic_json(self.path, payload)
                 return True
@@ -384,11 +431,15 @@ class AutonomyQueue:
                     or task.get('worker_id') != worker
                 ):
                     return False
+                now = self.now().astimezone(timezone.utc)
+                if self._claim_expires_at(task, now) <= now:
+                    return False
                 task['status'] = 'pending'
                 task.pop('worker_id', None)
                 task.pop('lease_expires_at', None)
+                task.pop('claim_attempt_id', None)
                 task['pause_reason'] = str(reason or 'paused')[:200]
-                task['updated_at'] = self.now().astimezone(timezone.utc).isoformat()
+                task['updated_at'] = now.isoformat()
                 payload['updated_at'] = task['updated_at']
                 _atomic_json(self.path, payload)
                 return True

@@ -121,6 +121,94 @@ class TrevorAutonomyTests(unittest.TestCase):
                 queue.finish(task['id'], worker_id='worker-b', success=True)
             )
 
+    def test_expired_claim_cannot_be_renewed(self):
+        from core.autonomy import AutonomyQueue
+
+        current = datetime(2026, 8, 24, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            queue = AutonomyQueue(
+                Path(tmp) / 'queue.json',
+                now=lambda: current,
+                claim_ttl_seconds=60,
+            )
+            task = queue.enqueue('不可復活的過期任務')
+            queue.claim_next('worker-a')
+            current += timedelta(seconds=61)
+
+            renewed = queue.renew_claim(task['id'], 'worker-a')
+
+        self.assertFalse(renewed)
+
+    def test_expired_claim_cannot_be_finished(self):
+        from core.autonomy import AutonomyQueue
+
+        current = datetime(2026, 8, 24, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            queue = AutonomyQueue(
+                Path(tmp) / 'queue.json',
+                now=lambda: current,
+                claim_ttl_seconds=60,
+            )
+            task = queue.enqueue('不可接受過期結果')
+            queue.claim_next('worker-a')
+            current += timedelta(seconds=61)
+
+            finished = queue.finish(
+                task['id'],
+                worker_id='worker-a',
+                success=True,
+                result={'stale': True},
+            )
+            stored = {item['id']: item for item in queue.tasks()}[task['id']]
+
+        self.assertFalse(finished)
+        self.assertEqual('running', stored['status'])
+        self.assertEqual('worker-a', stored['worker_id'])
+
+    def test_expired_claim_cannot_be_deferred(self):
+        from core.autonomy import AutonomyQueue
+
+        current = datetime(2026, 8, 24, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            queue = AutonomyQueue(
+                Path(tmp) / 'queue.json',
+                now=lambda: current,
+                claim_ttl_seconds=60,
+            )
+            task = queue.enqueue('不可延後的過期任務')
+            queue.claim_next('worker-a')
+            current += timedelta(seconds=61)
+
+            deferred = queue.defer(
+                task['id'],
+                worker_id='worker-a',
+                reason='late_pause',
+            )
+            stored = {item['id']: item for item in queue.tasks()}[task['id']]
+
+        self.assertFalse(deferred)
+        self.assertEqual('running', stored['status'])
+        self.assertEqual('worker-a', stored['worker_id'])
+
+    def test_reclaimed_task_receives_a_new_claim_attempt(self):
+        from core.autonomy import AutonomyQueue
+
+        current = datetime(2026, 8, 24, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'queue.json'
+            queue = AutonomyQueue(path, now=lambda: current, claim_ttl_seconds=60)
+            queue.enqueue('重新領取的程式任務', category='bugfix')
+            first = queue.claim_next('worker-a')
+            current += timedelta(seconds=61)
+
+            second = AutonomyQueue(
+                path,
+                now=lambda: current,
+                claim_ttl_seconds=60,
+            ).claim_next('worker-b')
+
+        self.assertNotEqual(first['claim_attempt_id'], second['claim_attempt_id'])
+
     def test_queue_uses_an_interprocess_lock_for_mutations(self):
         from core.autonomy import AutonomyQueue
 

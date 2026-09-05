@@ -4,17 +4,21 @@ from __future__ import annotations
 import json
 import os
 import re
+import stat
 import subprocess
 import uuid
 import contextlib
 import io
+import inspect
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
+from core.autonomy_claim import ClaimLostError
 from core.data_paths import ProjectPaths, is_link_like, resolve_data_root
+from core.interprocess_lock import exclusive_file_lock
 
 try:
     from core.llm_cns import (
@@ -40,7 +44,8 @@ except Exception:
     build_pipeline = None
 
 
-ToolHandler = Callable[[Path, dict[str, Any]], dict[str, Any]]
+CancellationCheck = Callable[[], None]
+ToolHandler = Callable[..., dict[str, Any]]
 ToolVerifier = Callable[[dict[str, Any]], tuple[bool, str]]
 
 
@@ -73,6 +78,87 @@ class TaskStepState:
 
 def _now_iso() -> str:
     return datetime.now().isoformat()
+
+
+def _check_cancel(cancel_check: CancellationCheck | None) -> None:
+    if cancel_check is not None:
+        cancel_check()
+
+
+def _supports_cancel_check(handler: ToolHandler) -> bool:
+    try:
+        parameters = inspect.signature(handler).parameters.values()
+    except (TypeError, ValueError):
+        return False
+    return any(
+        parameter.kind is inspect.Parameter.VAR_KEYWORD
+        or (
+            parameter.name == "cancel_check"
+            and parameter.kind
+            in {
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                inspect.Parameter.KEYWORD_ONLY,
+            }
+        )
+        for parameter in parameters
+    )
+
+
+def _invoke_tool_handler(
+    handler: ToolHandler,
+    workspace: Path,
+    payload: dict[str, Any],
+    cancel_check: CancellationCheck | None,
+) -> dict[str, Any]:
+    if cancel_check is not None and _supports_cancel_check(handler):
+        return handler(workspace, payload, cancel_check=cancel_check)
+    return handler(workspace, payload)
+
+
+def _write_text_with_cancellation(
+    path: Path,
+    content: str,
+    *,
+    cancel_check: CancellationCheck | None,
+) -> None:
+    _check_cancel(cancel_check)
+    lock_path = path.parent / ".trevor-write.lock"
+    with exclusive_file_lock(lock_path):
+        _check_cancel(cancel_check)
+        encoded = content.encode("utf-8")
+        previous = path.read_bytes() if path.is_file() else None
+        previous_mode = (
+            stat.S_IMODE(path.stat().st_mode) if previous is not None else 0o600
+        )
+        temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+        installed = False
+        try:
+            temporary.write_bytes(encoded)
+            if os.name == "posix":
+                temporary.chmod(previous_mode)
+            _check_cancel(cancel_check)
+            os.replace(temporary, path)
+            installed = True
+            try:
+                _check_cancel(cancel_check)
+            except Exception:
+                try:
+                    if path.is_file() and path.read_bytes() == encoded:
+                        if previous is None:
+                            path.unlink(missing_ok=True)
+                        else:
+                            restore = path.with_name(
+                                f".{path.name}.{uuid.uuid4().hex}.restore"
+                            )
+                            restore.write_bytes(previous)
+                            if os.name == "posix":
+                                restore.chmod(previous_mode)
+                            os.replace(restore, path)
+                finally:
+                    raise
+        finally:
+            if not installed:
+                temporary.unlink(missing_ok=True)
 
 
 def _load_json(path: Path, default: Any) -> Any:
@@ -354,8 +440,14 @@ def _verify_workspace_search(output: dict[str, Any]) -> tuple[bool, str]:
     return True, "workspace search done"
 
 
-def _tool_aeg_keyword_graph(workspace: Path, payload: dict[str, Any]) -> dict[str, Any]:
+def _tool_aeg_keyword_graph(
+    workspace: Path,
+    payload: dict[str, Any],
+    *,
+    cancel_check: CancellationCheck | None = None,
+) -> dict[str, Any]:
     """Build AEG keyword graph from local memory, ChatGPT DB, Git and n8n context."""
+    _check_cancel(cancel_check)
     limit = max(20, int(payload.get("limit", 80) or 80))
     token_re = re.compile(r"[A-Za-z][A-Za-z0-9_\-]{1,}|[\u4e00-\u9fff]{2,6}")
     stop_words = {
@@ -385,6 +477,7 @@ def _tool_aeg_keyword_graph(workspace: Path, payload: dict[str, Any]) -> dict[st
     source_files_seen: set[str] = set()
 
     def add_text(source: str, text: str, source_id: str = "", meta: dict[str, Any] | None = None) -> None:
+        _check_cancel(cancel_check)
         clean = " ".join(str(text or "").split()).strip()
         if len(clean) < 8:
             return
@@ -402,6 +495,7 @@ def _tool_aeg_keyword_graph(workspace: Path, payload: dict[str, Any]) -> dict[st
         workspace / "data_hdd_storage" / "agent_memories" / "conversations.json",
     ]
     for conv_path in conversation_candidates:
+        _check_cancel(cancel_check)
         if not conv_path.exists():
             continue
         data = _load_json(conv_path, {})
@@ -409,9 +503,11 @@ def _tool_aeg_keyword_graph(workspace: Path, payload: dict[str, Any]) -> dict[st
             continue
         source_files_seen.add(str(conv_path))
         for conv in data.values():
+            _check_cancel(cancel_check)
             if not isinstance(conv, dict):
                 continue
             for msg in conv.get("messages", []):
+                _check_cancel(cancel_check)
                 add_text(
                     "agent_memory",
                     str(msg.get("user", "")),
@@ -426,11 +522,13 @@ def _tool_aeg_keyword_graph(workspace: Path, payload: dict[str, Any]) -> dict[st
                 )
 
     legacy = paths.llama_data / "conversations.json"
+    _check_cancel(cancel_check)
     if legacy.exists():
         rows = _load_json(legacy, [])
         if isinstance(rows, list):
             source_files_seen.add(str(legacy))
             for row in rows:
+                _check_cancel(cancel_check)
                 if not isinstance(row, dict):
                     continue
                 add_text("gpt_history", str(row.get("prompt", "")), str(row.get("id", "")))
@@ -438,13 +536,16 @@ def _tool_aeg_keyword_graph(workspace: Path, payload: dict[str, Any]) -> dict[st
 
     if LocalMemoryAPI is not None:
         try:
+            _check_cancel(cancel_check)
             # LocalMemoryAPI(chatgpt_limit=None) is the canonical loader for the
             # exported ChatGPT database. Redirect its progress output so the
             # scheduler does not bring back the noisy console problem we are fixing.
             with contextlib.redirect_stdout(io.StringIO()):
                 api = LocalMemoryAPI(str(workspace), chatgpt_limit=None)
                 conversations = api.get_all_conversations(refresh=True)
+            _check_cancel(cancel_check)
             for conv in conversations:
+                _check_cancel(cancel_check)
                 if not isinstance(conv, dict) or conv.get("source") != "chatgpt_database":
                     continue
                 conv_id = str(conv.get("id", ""))
@@ -464,14 +565,18 @@ def _tool_aeg_keyword_graph(workspace: Path, payload: dict[str, Any]) -> dict[st
                     meta,
                 )
             source_files_seen.add("LocalMemoryAPI(chatgpt_limit=None)")
+        except ClaimLostError:
+            raise
         except Exception:
             pass
 
+    _check_cancel(cancel_check)
     git_context = _git_summary(workspace)
     add_text("git_context", git_context, "git:status")
 
     n8n_status = "n8n optional scheduler"
     try:
+        _check_cancel(cancel_check)
         proc = subprocess.run(
             ["bash", "-lc", "lsof -nP -iTCP:5678 -sTCP:LISTEN | head -n 2"],
             cwd=str(workspace),
@@ -483,6 +588,8 @@ def _tool_aeg_keyword_graph(workspace: Path, payload: dict[str, Any]) -> dict[st
             check=False,
         )
         n8n_status = "n8n_runtime listening" if (proc.stdout or "").strip() else "n8n_runtime degraded optional"
+    except ClaimLostError:
+        raise
     except Exception:
         n8n_status = "n8n_runtime unknown optional"
     add_text("n8n_runtime", n8n_status, "n8n:5678")
@@ -494,6 +601,7 @@ def _tool_aeg_keyword_graph(workspace: Path, payload: dict[str, Any]) -> dict[st
     source_breakdown: Counter[str] = Counter(item["source"] for item in text_items)
 
     for item in text_items:
+        _check_cancel(cancel_check)
         text_row = item["text"]
         tokens = [t.lower() for t in token_re.findall(text_row or "") if len(t) >= 2]
         clean_tokens = []
@@ -523,6 +631,7 @@ def _tool_aeg_keyword_graph(workspace: Path, payload: dict[str, Any]) -> dict[st
     readable_ratio = round(readable_tokens / denominator, 4)
 
     out_dir = paths.data / "knowledge_hub"
+    _check_cancel(cancel_check)
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "aeg_keyword_graph.json"
     out_payload = {
@@ -543,9 +652,10 @@ def _tool_aeg_keyword_graph(workspace: Path, payload: dict[str, Any]) -> dict[st
         "keywords": top_keywords,
         "edges": top_edges,
     }
-    out_path.write_text(
+    _write_text_with_cancellation(
+        out_path,
         json.dumps(out_payload, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
+        cancel_check=cancel_check,
     )
     return {
         "path": str(out_path),
@@ -625,12 +735,21 @@ def _verify_context_layers(output: dict[str, Any]) -> tuple[bool, str]:
     return True, "context layers assembled"
 
 
-def _tool_build_knowledge_ingestion(workspace: Path, payload: dict[str, Any]) -> dict[str, Any]:
+def _tool_build_knowledge_ingestion(
+    workspace: Path,
+    payload: dict[str, Any],
+    *,
+    cancel_check: CancellationCheck | None = None,
+) -> dict[str, Any]:
+    _check_cancel(cancel_check)
     if build_pipeline is None:
         return {"ok": False, "error": "build_pipeline_unavailable"}
     try:
-        result = build_pipeline(str(workspace))
+        result = build_pipeline(workspace, cancel_check=cancel_check)
+        _check_cancel(cancel_check)
         return {"ok": True, "result": result}
+    except ClaimLostError:
+        raise
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
 
@@ -641,7 +760,13 @@ def _verify_build_knowledge_ingestion(output: dict[str, Any]) -> tuple[bool, str
     return False, str(output.get("error", "build_knowledge_ingestion_failed"))
 
 
-def _tool_write_knowledge_note(workspace: Path, payload: dict[str, Any]) -> dict[str, Any]:
+def _tool_write_knowledge_note(
+    workspace: Path,
+    payload: dict[str, Any],
+    *,
+    cancel_check: CancellationCheck | None = None,
+) -> dict[str, Any]:
+    _check_cancel(cancel_check)
     paths = ProjectPaths(workspace)
     title = str(payload.get("title", "")).strip() or "workflow-note"
     summary = str(payload.get("summary", "")).strip()
@@ -650,13 +775,17 @@ def _tool_write_knowledge_note(workspace: Path, payload: dict[str, Any]) -> dict
     source_input = str(payload.get("source_input", "")).strip()
     if not summary:
         return {"path": "", "written": False, "error": "empty_summary"}
-    
+
     note_dir = paths.data / "knowledge_hub" / "notes" / datetime.now().strftime("%Y%m%d")
     fallback_dir = paths.logs / "knowledge_hub" / "notes" / datetime.now().strftime("%Y%m%d")
     used_fallback = False
     try:
+        _check_cancel(cancel_check)
         note_dir.mkdir(parents=True, exist_ok=True)
+    except ClaimLostError:
+        raise
     except Exception:
+        _check_cancel(cancel_check)
         fallback_dir.mkdir(parents=True, exist_ok=True)
         note_dir = fallback_dir
         used_fallback = True
@@ -678,7 +807,11 @@ def _tool_write_knowledge_note(workspace: Path, payload: dict[str, Any]) -> dict
             "",
         ]
     )
-    note_path.write_text(content + "\n", encoding="utf-8")
+    _write_text_with_cancellation(
+        note_path,
+        content + "\n",
+        cancel_check=cancel_check,
+    )
     return {"path": str(note_path), "written": True, "fallback": used_fallback}
 
 
@@ -687,13 +820,20 @@ def _verify_write_knowledge_note(output: dict[str, Any]) -> tuple[bool, str]:
     return ok, "knowledge note written" if ok else str(output.get("error", "write_failed"))
 
 
-def _tool_save_workspace_report(workspace: Path, payload: dict[str, Any]) -> dict[str, Any]:
+def _tool_save_workspace_report(
+    workspace: Path,
+    payload: dict[str, Any],
+    *,
+    cancel_check: CancellationCheck | None = None,
+) -> dict[str, Any]:
+    _check_cancel(cancel_check)
     paths = ProjectPaths(workspace)
     title = str(payload.get("title", "")).strip() or "workflow-report"
     summary = str(payload.get("summary", "")).strip()
     route = str(payload.get("route", "")).strip()
     task_id = str(payload.get("task_id", "")).strip()
     report_dir = paths.reports / "workflow_runs"
+    _check_cancel(cancel_check)
     report_dir.mkdir(parents=True, exist_ok=True)
     slug = re.sub(r"[^a-zA-Z0-9_-]+", "-", title).strip("-").lower() or "report"
     report_path = report_dir / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}-{slug}.md"
@@ -708,7 +848,11 @@ def _tool_save_workspace_report(workspace: Path, payload: dict[str, Any]) -> dic
         summary or "N/A",
         "",
     ]
-    report_path.write_text("\n".join(lines), encoding="utf-8")
+    _write_text_with_cancellation(
+        report_path,
+        "\n".join(lines),
+        cancel_check=cancel_check,
+    )
     return {"path": str(report_path), "written": True}
 
 
@@ -813,6 +957,7 @@ def _execute_steps(
     steps: list[tuple[str, dict[str, Any]]],
     parent_task_id: str = "",
     rerun_from: str = "",
+    cancel_check: Callable[[], None] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     registry = build_tool_registry()
     tool_outputs: dict[str, Any] = {}
@@ -821,6 +966,8 @@ def _execute_steps(
     retried_tools: list[str] = []
 
     for tool_name, payload in steps:
+        if cancel_check is not None:
+            cancel_check()
         spec = registry.get(tool_name)
         row = TaskStepState(
             tool_name=tool_name,
@@ -838,10 +985,19 @@ def _execute_steps(
 
         attempts = max(1, int(spec.max_retries or 1))
         for attempt in range(1, attempts + 1):
+            if cancel_check is not None:
+                cancel_check()
             row.attempts = attempt
             attempt_started = datetime.now()
             try:
-                output = spec.handler(workspace, dict(payload or {}))
+                output = _invoke_tool_handler(
+                    spec.handler,
+                    workspace,
+                    dict(payload or {}),
+                    cancel_check,
+                )
+                if cancel_check is not None:
+                    cancel_check()
                 ok, note = spec.verifier(output)
                 row.output_payload = output
                 row.verified = bool(ok)
@@ -853,6 +1009,8 @@ def _execute_steps(
                 row.status = "failed"
                 row.error = str(note)
                 row.error_class = _classify_error(note)
+            except ClaimLostError:
+                raise
             except Exception as exc:
                 row.status = "failed"
                 row.error = str(exc)
@@ -891,17 +1049,29 @@ def _execute_steps(
     return task_state, tool_outputs
 
 
-def _write_task_log(workspace: Path, user_input: str, task_state: dict[str, Any]) -> str:
+def _write_task_log(
+    workspace: Path,
+    user_input: str,
+    task_state: dict[str, Any],
+    *,
+    cancel_check: CancellationCheck | None = None,
+) -> str:
+    _check_cancel(cancel_check)
     paths = ProjectPaths(workspace)
     log_dir = paths.logs / "workflow_runs"
     try:
+        _check_cancel(cancel_check)
         log_dir.mkdir(parents=True, exist_ok=True)
+    except ClaimLostError:
+        raise
     except Exception:
+        _check_cancel(cancel_check)
         log_dir = workspace / "logs" / "workflow_runs"
         log_dir.mkdir(parents=True, exist_ok=True)
         task_state["log_path_fallback"] = True
     log_path = log_dir / f"{task_state.get('task_id', 'wf-unknown')}.json"
-    log_path.write_text(
+    _write_text_with_cancellation(
+        log_path,
         json.dumps(
             {
                 "created_at": _now_iso(),
@@ -913,7 +1083,7 @@ def _write_task_log(workspace: Path, user_input: str, task_state: dict[str, Any]
             indent=2,
         )
         + "\n",
-        encoding="utf-8",
+        cancel_check=cancel_check,
     )
     task_state["log_path"] = str(log_path)
     return str(log_path)
@@ -979,7 +1149,15 @@ def build_action_steps(
     ]
 
 
-def run_task_plan(workspace: str | Path, route: str, user_input: str) -> dict[str, Any]:
+def run_task_plan(
+    workspace: str | Path,
+    route: str,
+    user_input: str,
+    *,
+    cancel_check: Callable[[], None] | None = None,
+) -> dict[str, Any]:
+    if cancel_check is not None:
+        cancel_check()
     workspace_path = Path(workspace).expanduser().resolve()
     task_id = f"wf-{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
     steps = choose_task_steps(route, user_input)
@@ -989,6 +1167,7 @@ def run_task_plan(workspace: str | Path, route: str, user_input: str) -> dict[st
         user_input=user_input,
         task_id=task_id,
         steps=steps,
+        cancel_check=cancel_check,
     )
 
     memory_write_allowed = (
@@ -998,6 +1177,8 @@ def run_task_plan(workspace: str | Path, route: str, user_input: str) -> dict[st
     )
 
     if memory_write_allowed:
+        if cancel_check is not None:
+            cancel_check()
         action_steps = build_action_steps(route, user_input, preview_outputs, task_id)
         action_state, action_outputs = _execute_steps(
             workspace=workspace_path,
@@ -1006,6 +1187,7 @@ def run_task_plan(workspace: str | Path, route: str, user_input: str) -> dict[st
             task_id=task_id,
             steps=action_steps,
             parent_task_id=task_id,
+            cancel_check=cancel_check,
         )
         merged_outputs = dict(preview_outputs)
         merged_outputs.update(action_outputs)
@@ -1033,7 +1215,14 @@ def run_task_plan(workspace: str | Path, route: str, user_input: str) -> dict[st
         preview_state["memory_layers"] = "L0/L1/L2"
         tool_outputs = preview_outputs
 
-    _write_task_log(workspace_path, user_input, preview_state)
+    if cancel_check is not None:
+        cancel_check()
+    _write_task_log(
+        workspace_path,
+        user_input,
+        preview_state,
+        cancel_check=cancel_check,
+    )
     return {"task_state": preview_state, "tool_outputs": tool_outputs}
 
 
@@ -1118,4 +1307,3 @@ __all__ = [
     "run_task_plan",
     "rerun_task_step",
 ]
-

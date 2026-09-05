@@ -97,6 +97,99 @@ class MacOSKeychainBackend:
             raise RuntimeError("keychain_delete_failed")
 
 
+class WindowsCredentialManagerBackend:
+    """Store generic credentials through the Windows Credential Manager API."""
+
+    CRED_TYPE_GENERIC = 1
+    CRED_PERSIST_LOCAL_MACHINE = 2
+
+    def __init__(self):
+        import ctypes
+        from ctypes import wintypes
+
+        self.ctypes = ctypes
+        self.wintypes = wintypes
+        self.advapi32 = ctypes.WinDLL("Advapi32.dll", use_last_error=True)
+
+    @staticmethod
+    def _target(service: str, account: str) -> str:
+        return f"{service}/{account}"
+
+    def get(self, service: str, account: str) -> str | None:
+        ctypes = self.ctypes
+        wintypes = self.wintypes
+        credential = ctypes.c_void_p()
+        self.advapi32.CredReadW.restype = wintypes.BOOL
+        if not self.advapi32.CredReadW(
+            self._target(service, account),
+            self.CRED_TYPE_GENERIC,
+            0,
+            ctypes.byref(credential),
+        ):
+            return None
+        try:
+            class Credential(ctypes.Structure):
+                _fields_ = [
+                    ("Flags", wintypes.DWORD),
+                    ("Type", wintypes.DWORD),
+                    ("TargetName", wintypes.LPWSTR),
+                    ("Comment", wintypes.LPWSTR),
+                    ("LastWritten", wintypes.FILETIME),
+                    ("CredentialBlobSize", wintypes.DWORD),
+                    ("CredentialBlob", ctypes.POINTER(wintypes.BYTE)),
+                    ("Persist", wintypes.DWORD),
+                    ("AttributeCount", wintypes.DWORD),
+                    ("Attributes", ctypes.c_void_p),
+                    ("TargetAlias", wintypes.LPWSTR),
+                    ("UserName", wintypes.LPWSTR),
+                ]
+
+            data = ctypes.cast(credential, ctypes.POINTER(Credential)).contents
+            return ctypes.string_at(data.CredentialBlob, data.CredentialBlobSize).decode("utf-8")
+        finally:
+            self.advapi32.CredFree(credential)
+
+    def set(self, service: str, account: str, value: str) -> None:
+        ctypes = self.ctypes
+        wintypes = self.wintypes
+        credential_blob = str(value).encode("utf-8")
+
+        class Credential(ctypes.Structure):
+            _fields_ = [
+                ("Flags", wintypes.DWORD),
+                ("Type", wintypes.DWORD),
+                ("TargetName", wintypes.LPWSTR),
+                ("Comment", wintypes.LPWSTR),
+                ("LastWritten", wintypes.FILETIME),
+                ("CredentialBlobSize", wintypes.DWORD),
+                ("CredentialBlob", ctypes.POINTER(wintypes.BYTE)),
+                ("Persist", wintypes.DWORD),
+                ("AttributeCount", wintypes.DWORD),
+                ("Attributes", ctypes.c_void_p),
+                ("TargetAlias", wintypes.LPWSTR),
+                ("UserName", wintypes.LPWSTR),
+            ]
+
+        blob = (wintypes.BYTE * len(credential_blob)).from_buffer_copy(credential_blob)
+        entry = Credential(
+            Type=self.CRED_TYPE_GENERIC,
+            TargetName=self._target(service, account),
+            CredentialBlobSize=len(credential_blob),
+            CredentialBlob=blob,
+            Persist=self.CRED_PERSIST_LOCAL_MACHINE,
+            UserName=account,
+        )
+        self.advapi32.CredWriteW.restype = wintypes.BOOL
+        if not self.advapi32.CredWriteW(ctypes.byref(entry), 0, False):
+            raise RuntimeError("credential_manager_write_failed")
+
+    def delete(self, service: str, account: str) -> None:
+        self.advapi32.CredDeleteW.restype = self.wintypes.BOOL
+        if not self.advapi32.CredDeleteW(self._target(service, account), self.CRED_TYPE_GENERIC, 0):
+            if self.ctypes.get_last_error() != 1168:  # ERROR_NOT_FOUND
+                raise RuntimeError("credential_manager_delete_failed")
+
+
 @dataclass(frozen=True)
 class CredentialResult:
     configured: bool
@@ -123,11 +216,16 @@ class KeychainCredentialStore:
             "yes",
             "on",
         }
-        if self.backend is None and not disabled and platform.system() == "Darwin":
-            try:
-                self.backend = MacOSKeychainBackend()
-            except Exception:
-                self.backend = None
+        if self.backend is None and not disabled:
+            backend_class = {
+                "Darwin": MacOSKeychainBackend,
+                "Windows": WindowsCredentialManagerBackend,
+            }.get(platform.system())
+            if backend_class is not None:
+                try:
+                    self.backend = backend_class()
+                except Exception:
+                    self.backend = None
 
     def get_secret(self, service: str, account: str) -> CredentialResult:
         if self.backend is None:
@@ -165,4 +263,5 @@ __all__ = [
     "CredentialResult",
     "KeychainCredentialStore",
     "MacOSKeychainBackend",
+    "WindowsCredentialManagerBackend",
 ]
