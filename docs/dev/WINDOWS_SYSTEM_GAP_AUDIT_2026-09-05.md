@@ -2,7 +2,7 @@
 
 ## 結論
 
-核心聊天不是缺件：Web/API、DesktopBridge、SQLite 記憶、Git、Ollama 與 `qwen2.5:7b` 都可用。現在的 `degraded` 主要由選配服務離線與資料索引尚未完成造成，不能等同於核心故障。
+核心聊天不是缺件：Web/API、DesktopBridge、SQLite 記憶、Git、Ollama 與 `qwen2.5:7b` 都可用。健康狀態已拆成核心 `status` 與 `optional_gaps`；選配服務離線不再把可用的核心誤報為 `degraded`。
 
 ## 已可用
 
@@ -50,6 +50,7 @@
 - Windows 長期憑證只接受 Credential Manager；不再把無法代表 ACL 的 `chmod` 位元誤當安全證據。
 - 修正臨時工作區被正式 `TREVOR_DATA_DIR` 污染、唯讀暫存憑證無法清理、Git 輸出 cp950 解碼與 macOS-only 測試邊界。
 - AEG 明文關鍵字圖只讀取 135 份公開系統文件，不再把私人對話蒸餾成明文關鍵字；目前為 137 個文字項目（含 Git 與 n8n 狀態）。
+- `/health/ready` 的核心狀態只依 DesktopBridge 與資料庫判斷；FAISS、AEG、TLS、OpenClaw 的缺口另列於 `optional_gaps`，避免選配能力污染核心可用性。
 - 完整測試現為 418 passed、0 failed、16 skipped、33 subtests passed。
 
 ## 仍需要使用者選擇或外部服務的缺口

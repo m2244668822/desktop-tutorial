@@ -6,6 +6,7 @@ from pathlib import Path
 class _FakeBridge:
     is_ready = True
     reply_counter = 0
+    memory_manager = object()
 
     def __init__(self, workspace: Path):
         self.workspace = workspace
@@ -191,6 +192,13 @@ class SuperPlatformContractTests(unittest.TestCase):
         self.assertIn("traffic_governor", topology)
         self.assertFalse(readiness["capability_registry"]["by_id"]["n8n"]["degrades_core_chat"])
         self.assertTrue(topology["traffic_governor"]["budget_policy"]["local_first"])
+        self.assertTrue(readiness["required_ready"])
+        self.assertEqual("ready", readiness["status"])
+        self.assertEqual([], readiness["degraded_reasons"])
+        self.assertIn("faiss_not_ready", readiness["optional_gaps"])
+        self.assertIn("tls_proxy_not_ready", readiness["optional_gaps"])
+        self.assertEqual(readiness["optional_gaps"], topology["readiness"]["optional_gaps"])
+        self.assertFalse(topology["services"]["tls_proxy"]["required"])
 
 
 if __name__ == "__main__":

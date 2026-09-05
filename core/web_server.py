@@ -232,16 +232,21 @@ class WebServerMode:
         db_ready = bool(getattr(self.bridge, "memory_manager", None))
         required_ready = bool(bridge_ready and db_ready)
         degraded_reasons = []
+        if not bridge_ready:
+            degraded_reasons.append("bridge_not_ready")
+        if not db_ready:
+            degraded_reasons.append("database_not_ready")
+        optional_gaps = []
         if not bool(knowledge_hub.get("faiss_ready")):
-            degraded_reasons.append("faiss_not_ready")
+            optional_gaps.append("faiss_not_ready")
         if not tls_up:
-            degraded_reasons.append("tls_proxy_not_ready")
+            optional_gaps.append("tls_proxy_not_ready")
         if not openclaw.get("ok"):
-            degraded_reasons.append("openclaw_not_ready")
+            optional_gaps.append("openclaw_not_ready")
         elif not openclaw.get("task_forwarding_configured"):
-            degraded_reasons.append("openclaw_forwarding_degraded")
+            optional_gaps.append("openclaw_forwarding_degraded")
         if not aeg_training.get("ok"):
-            degraded_reasons.append("aeg_training_not_ready")
+            optional_gaps.append("aeg_training_not_ready")
         n8n_up = self._tcp_up("127.0.0.1", 5678)
         optional_services = {
             "n8n": {
@@ -264,7 +269,7 @@ class WebServerMode:
         )
         return {
             "ok": required_ready,
-            "status": "ready" if required_ready and not degraded_reasons else "degraded",
+            "status": "ready" if required_ready else "degraded",
             "required_ready": required_ready,
             "bridge_ready": bridge_ready,
             "database_ready": db_ready,
@@ -276,6 +281,7 @@ class WebServerMode:
             "optional_services": optional_services,
             "capability_registry": capability_registry,
             "degraded_reasons": degraded_reasons,
+            "optional_gaps": optional_gaps,
             "workspace": str(self.workspace_path),
         }
 
@@ -293,7 +299,7 @@ class WebServerMode:
             "canonical_web": "http://127.0.0.1:5001",
             "services": {
                 "perob": {"port": 5001, "required": True, "up": True},
-                "tls_proxy": {"port": 5443, "required": True, **readiness["tls_proxy"]},
+                "tls_proxy": {"port": 5443, "required": False, **readiness["tls_proxy"]},
                 "openclaw": {"port": 18789, "required": False, **readiness["openclaw"]},
                 "n8n": {
                     "port": 5678,
@@ -449,6 +455,7 @@ class WebServerMode:
                 },
             },
             "degraded_reasons": list(readiness.get("degraded_reasons", [])),
+            "optional_gaps": list(readiness.get("optional_gaps", [])),
         }
 
     def trevor_provider_payload(self) -> dict:
