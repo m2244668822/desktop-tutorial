@@ -187,7 +187,7 @@
 
 ## 🆘 故障排除
 
-- **API Key 報錯**: 請檢查 `config/gemini_config.json` 或環境變數 `GEMINI_API_KEY`。
+- **API Key 報錯**: 請確認 provider 官方網站申請的金鑰已存入 macOS Keychain 或 Windows Credential Manager；不要放入聊天或 `.env`。
 - **記憶無法加載**: 執行 `python3 diagnose_memory.py` 進行檢查。
 - **啟動緩慢**: 嘗試 `python3 start_lightweight_chat.sh` 使用輕量化模式。
 
