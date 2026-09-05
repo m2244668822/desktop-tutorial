@@ -1,4 +1,5 @@
 import unittest
+import os
 from unittest.mock import patch
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -27,7 +28,10 @@ class TrevorBackendLauncherTests(unittest.TestCase):
             interpreter = root / 'python3.12'
             interpreter.write_text('', encoding='utf-8')
             virtualenv_python = root / 'venv-python'
-            virtualenv_python.symlink_to(interpreter)
+            try:
+                virtualenv_python.symlink_to(interpreter)
+            except OSError as exc:
+                self.skipTest(f'symlink unavailable: {exc}')
 
             self.assertEqual(virtualenv_python, runtime_python_path(str(virtualenv_python)))
 
@@ -54,6 +58,8 @@ class TrevorBackendLauncherTests(unittest.TestCase):
     def test_loads_private_file_credentials_without_touching_keychain(self):
         from tools.launch_trevor_backend import load_runtime_credentials
 
+        if os.name == 'nt':
+            self.skipTest('Windows credentials must use Credential Manager')
         with TemporaryDirectory() as temporary_directory:
             credential_directory = Path(temporary_directory)
             credential_directory.chmod(0o700)
@@ -94,6 +100,8 @@ class TrevorBackendLauncherTests(unittest.TestCase):
     def test_rejects_credential_files_visible_to_other_users(self):
         from tools.launch_trevor_backend import load_runtime_credentials
 
+        if os.name == 'nt':
+            self.skipTest('POSIX mode validation does not describe Windows ACLs')
         with TemporaryDirectory() as temporary_directory:
             credential_directory = Path(temporary_directory)
             credential_directory.chmod(0o700)
@@ -112,7 +120,22 @@ class TrevorBackendLauncherTests(unittest.TestCase):
 
         validate_required_credentials(
             {
-                'nvidia_api_key': 'configured',
                 'trevor_memory_key_b64': 'configured',
             }
         )
+
+    def test_windows_rejects_persistent_file_credentials(self):
+        if os.name != 'nt':
+            self.skipTest('Windows-specific ACL boundary')
+        from tools.launch_trevor_backend import load_runtime_credentials
+
+        with TemporaryDirectory() as temporary_directory:
+            credential_directory = Path(temporary_directory)
+            (credential_directory / 'nvidia_api_key').write_text(
+                'nvidia-secret', encoding='utf-8'
+            )
+
+            with self.assertRaisesRegex(
+                RuntimeError, 'credential_file_acl_unsupported_windows'
+            ):
+                load_runtime_credentials(credential_directory)

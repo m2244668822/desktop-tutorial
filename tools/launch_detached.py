@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Launch a detached background command")
     parser.add_argument("--cwd", required=True, help="Working directory for the child process")
     parser.add_argument("--pidfile", required=True, help="Where to write the child PID")
@@ -27,8 +27,14 @@ def parse_args() -> argparse.Namespace:
         default=[],
         help="Extra environment assignment, e.g. KEY=VALUE. Can be repeated.",
     )
+    parser.add_argument(
+        "--unset-env",
+        action="append",
+        default=[],
+        help="Remove an inherited environment variable before launching.",
+    )
     parser.add_argument("command", nargs=argparse.REMAINDER, help="Command after --")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if args.command and args.command[0] == "--":
         args.command = args.command[1:]
     if not args.command:
@@ -47,6 +53,8 @@ def main() -> int:
     stderr_path.parent.mkdir(parents=True, exist_ok=True)
 
     env = os.environ.copy()
+    for key in args.unset_env:
+        env.pop(str(key), None)
     for item in args.env:
         if "=" not in item:
             print(f"invalid --env value: {item!r}", file=sys.stderr)
@@ -55,16 +63,23 @@ def main() -> int:
         env[key] = value
 
     with stdout_path.open("ab", buffering=0) as stdout_fh, stderr_path.open("ab", buffering=0) as stderr_fh:
-        process = subprocess.Popen(
-            args.command,
-            cwd=str(cwd),
-            env=env,
-            stdin=subprocess.DEVNULL,
-            stdout=stdout_fh,
-            stderr=stderr_fh,
-            start_new_session=True,
-            close_fds=True,
-        )
+        process_kwargs = {
+            "cwd": str(cwd),
+            "env": env,
+            "stdin": subprocess.DEVNULL,
+            "stdout": stdout_fh,
+            "stderr": stderr_fh,
+            "close_fds": True,
+        }
+        if os.name == "nt":
+            process_kwargs["creationflags"] = (
+                subprocess.CREATE_NEW_PROCESS_GROUP
+                | subprocess.DETACHED_PROCESS
+                | subprocess.CREATE_NO_WINDOW
+            )
+        else:
+            process_kwargs["start_new_session"] = True
+        process = subprocess.Popen(args.command, **process_kwargs)
     pidfile.write_text(f"{process.pid}\n", encoding="utf-8")
     print(process.pid)
     return 0

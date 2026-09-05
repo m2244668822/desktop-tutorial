@@ -17,11 +17,17 @@ from core.memory_layers import ThreeLayerMemory, collect_memory_sources
 
 
 def main() -> int:
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if callable(reconfigure):
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (OSError, ValueError):
+            pass
     memory = ThreeLayerMemory(BASE_DIR)
     sources = collect_memory_sources(BASE_DIR)
     result = memory.rebuild(sources)
 
-    print("✅ 三層記憶已重建")
+    print("[ok] 三層記憶已重建")
     print(f"   items: {result['items_indexed']}")
     dedupe = result.get("dedupe", {})
     if dedupe:

@@ -7,8 +7,6 @@ import re
 import stat
 import subprocess
 import uuid
-import contextlib
-import io
 import inspect
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field
@@ -490,85 +488,30 @@ def _tool_aeg_keyword_graph(
             }
         )
 
-    conversation_candidates = [
-        paths.data / "agent_memories" / "conversations.json",
-        workspace / "data_hdd_storage" / "agent_memories" / "conversations.json",
-    ]
-    for conv_path in conversation_candidates:
+    try:
+        from core.memory_layers import collect_memory_sources
+
         _check_cancel(cancel_check)
-        if not conv_path.exists():
-            continue
-        data = _load_json(conv_path, {})
-        if not isinstance(data, dict):
-            continue
-        source_files_seen.add(str(conv_path))
-        for conv in data.values():
+        for item in collect_memory_sources(workspace):
             _check_cancel(cancel_check)
-            if not isinstance(conv, dict):
+            if item.get("source") != "knowledge_document":
+                # AEG output is a plaintext operational graph.  Private chat
+                # memories stay only in the encrypted SQLite/FAISS retrieval
+                # path and are never distilled into this public artifact.
                 continue
-            for msg in conv.get("messages", []):
-                _check_cancel(cancel_check)
-                add_text(
-                    "agent_memory",
-                    str(msg.get("user", "")),
-                    str(conv.get("id", "")),
-                    {"agent_name": conv.get("agent_name", "")},
-                )
-                add_text(
-                    "agent_memory",
-                    str(msg.get("assistant", "")),
-                    str(conv.get("id", "")),
-                    {"agent_name": conv.get("agent_name", "")},
-                )
-
-    legacy = paths.llama_data / "conversations.json"
-    _check_cancel(cancel_check)
-    if legacy.exists():
-        rows = _load_json(legacy, [])
-        if isinstance(rows, list):
-            source_files_seen.add(str(legacy))
-            for row in rows:
-                _check_cancel(cancel_check)
-                if not isinstance(row, dict):
-                    continue
-                add_text("gpt_history", str(row.get("prompt", "")), str(row.get("id", "")))
-                add_text("gpt_history", str(row.get("response", "")), str(row.get("id", "")))
-
-    if LocalMemoryAPI is not None:
-        try:
-            _check_cancel(cancel_check)
-            # LocalMemoryAPI(chatgpt_limit=None) is the canonical loader for the
-            # exported ChatGPT database. Redirect its progress output so the
-            # scheduler does not bring back the noisy console problem we are fixing.
-            with contextlib.redirect_stdout(io.StringIO()):
-                api = LocalMemoryAPI(str(workspace), chatgpt_limit=None)
-                conversations = api.get_all_conversations(refresh=True)
-            _check_cancel(cancel_check)
-            for conv in conversations:
-                _check_cancel(cancel_check)
-                if not isinstance(conv, dict) or conv.get("source") != "chatgpt_database":
-                    continue
-                conv_id = str(conv.get("id", ""))
-                title = str(conv.get("title", ""))
-                meta = dict(conv.get("metadata", {}) or {})
-                meta["title"] = title
-                add_text(
-                    "chatgpt_database",
-                    "\n".join(part for part in (title, str(conv.get("user_input", ""))) if part),
-                    f"{conv_id}:user",
-                    meta,
-                )
-                add_text(
-                    "chatgpt_database",
-                    "\n".join(part for part in (title, str(conv.get("assistant_response", ""))) if part),
-                    f"{conv_id}:assistant",
-                    meta,
-                )
-            source_files_seen.add("LocalMemoryAPI(chatgpt_limit=None)")
-        except ClaimLostError:
-            raise
-        except Exception:
-            pass
+            add_text(
+                str(item.get("source", "memory")),
+                str(item.get("content", "")),
+                str(item.get("source_id", "")),
+                dict(item.get("metadata", {}) or {}),
+            )
+        source_files_seen.add("collect_memory_sources")
+    except ClaimLostError:
+        raise
+    except Exception:
+        # AEG is observational and must not break the main workflow if a
+        # private source is temporarily locked or its device key is missing.
+        pass
 
     _check_cancel(cancel_check)
     git_context = _git_summary(workspace)

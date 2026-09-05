@@ -31,9 +31,19 @@ CREDENTIAL_SPECS = (
     ('ai_horde_api_key', 'perob.ai-horde', 'api-key'),
 )
 REQUIRED_RUNTIME_CREDENTIALS = (
-    'nvidia_api_key',
     'trevor_memory_key_b64',
 )
+
+
+def _validate_posix_private_path(metadata: os.stat_result, error_prefix: str) -> None:
+    """Validate ownership/mode where POSIX permissions are authoritative."""
+    getuid = getattr(os, 'getuid', None)
+    if not callable(getuid):
+        return
+    if metadata.st_uid != getuid():
+        raise RuntimeError(f'{error_prefix}_owner')
+    if stat.S_IMODE(metadata.st_mode) & 0o077:
+        raise RuntimeError(f'{error_prefix}_permissions')
 
 
 def runtime_python_path(python_executable: str) -> Path:
@@ -63,10 +73,7 @@ def _read_private_credential(path: Path) -> str:
         metadata = os.fstat(descriptor)
         if not stat.S_ISREG(metadata.st_mode):
             raise RuntimeError('credential_file_invalid')
-        if metadata.st_uid != os.getuid():
-            raise RuntimeError('credential_file_owner')
-        if stat.S_IMODE(metadata.st_mode) & 0o077:
-            raise RuntimeError('credential_file_permissions')
+        _validate_posix_private_path(metadata, 'credential_file')
         with os.fdopen(descriptor, 'r', encoding='utf-8', closefd=False) as handle:
             value = handle.read(1024 * 1024 + 1)
         if len(value) > 1024 * 1024:
@@ -87,10 +94,15 @@ def load_runtime_credentials(
         metadata = directory.lstat()
         if directory.is_symlink() or not stat.S_ISDIR(metadata.st_mode):
             raise RuntimeError('credential_directory_invalid')
-        if metadata.st_uid != os.getuid():
-            raise RuntimeError('credential_directory_owner')
-        if stat.S_IMODE(metadata.st_mode) & 0o077:
-            raise RuntimeError('credential_directory_permissions')
+        _validate_posix_private_path(metadata, 'credential_directory')
+        if os.name == 'nt' and any(
+            (directory / credential_name).exists()
+            for credential_name, _service, _account in CREDENTIAL_SPECS
+        ):
+            # chmod bits do not describe Windows ACLs.  Refuse long-lived file
+            # credentials instead of pretending the POSIX check protected them;
+            # Windows callers should explicitly import from Credential Manager.
+            raise RuntimeError('credential_file_acl_unsupported_windows')
         for credential_name, _service, _account in CREDENTIAL_SPECS:
             value = _read_private_credential(directory / credential_name)
             if value:

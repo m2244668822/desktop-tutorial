@@ -16,14 +16,15 @@ class CredentialStagingTests(unittest.TestCase):
             ) as directory:
                 credential = directory / 'gemini_api_key'
                 self.assertEqual('private-value', credential.read_text(encoding='utf-8'))
-                self.assertEqual(
-                    stat.S_IRUSR,
-                    stat.S_IMODE(credential.stat().st_mode),
-                )
-                self.assertEqual(
-                    stat.S_IRWXU,
-                    stat.S_IMODE(directory.stat().st_mode),
-                )
+                if os.name != 'nt':
+                    self.assertEqual(
+                        stat.S_IRUSR,
+                        stat.S_IMODE(credential.stat().st_mode),
+                    )
+                    self.assertEqual(
+                        stat.S_IRWXU,
+                        stat.S_IMODE(directory.stat().st_mode),
+                    )
             self.assertFalse(directory.exists())
             self.assertFalse(any(parent.iterdir()))
 

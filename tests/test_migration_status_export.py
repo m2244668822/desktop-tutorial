@@ -68,10 +68,11 @@ class MigrationStatusExportTests(unittest.TestCase):
             self.assertNotIn("content_hashes", graphiti)
             self.assertTrue(device["encrypted"])
             self.assertTrue(graphiti["redacted_before_upload"])
-            self.assertEqual(
-                stat.S_IMODE(os.stat(destination / "graphiti_manifest.json").st_mode),
-                0o600,
-            )
+            if os.name != "nt":
+                self.assertEqual(
+                    stat.S_IMODE(os.stat(destination / "graphiti_manifest.json").st_mode),
+                    0o600,
+                )
 
     def test_export_rejects_incomplete_graphiti_migration(self):
         from core.migration_status import export_public_migration_status

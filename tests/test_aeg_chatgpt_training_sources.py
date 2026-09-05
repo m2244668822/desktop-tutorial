@@ -3,6 +3,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -49,32 +50,50 @@ class AegChatGptTrainingSourceTests(unittest.TestCase):
             root = Path(tmp)
             _write_chatgpt_db(root)
 
-            sources = collect_memory_sources(root)
-            source_names = {item["source"] for item in sources}
-            self.assertIn("chatgpt_database_user", source_names)
-            self.assertIn("chatgpt_database_assistant", source_names)
+            with patch.dict("os.environ", {"TREVOR_DATA_DIR": str(root / "data")}):
+                sources = collect_memory_sources(root)
+                source_names = {item["source"] for item in sources}
+                self.assertIn("chatgpt_database_user", source_names)
+                self.assertIn("chatgpt_database_assistant", source_names)
 
-            memory = ThreeLayerMemory(root)
-            result = memory.rebuild(sources)
-            self.assertGreaterEqual(result["items_indexed"], 2)
-            self.assertGreaterEqual(result["dedupe"]["deduped_items"], 2)
-            stats = memory.stats()
-            self.assertIn("faiss_available", stats)
-            self.assertIn("faiss_file_exists", stats)
+                memory = ThreeLayerMemory(root)
+                result = memory.rebuild(sources)
+                self.assertGreaterEqual(result["items_indexed"], 2)
+                self.assertGreaterEqual(result["dedupe"]["deduped_items"], 2)
+                stats = memory.stats()
+                self.assertIn("faiss_available", stats)
+                self.assertIn("faiss_file_exists", stats)
 
-            matches = memory.search("鬼打牆 弱關聯", top_k=3)
-            self.assertTrue(matches)
-            self.assertTrue(any(match["source"].startswith("chatgpt_database") for match in matches))
+                matches = memory.search("鬼打牆 弱關聯", top_k=3)
+                self.assertTrue(matches)
+                self.assertTrue(any(match["source"].startswith("chatgpt_database") for match in matches))
 
-    def test_aeg_keyword_graph_tracks_chatgpt_database_source_breakdown(self):
+    def test_aeg_keyword_graph_uses_public_documents_not_private_memory(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            _write_chatgpt_db(root)
+            ingestion = root / "data" / "knowledge_hub" / "ingestion"
+            ingestion.mkdir(parents=True)
+            (ingestion / "documents.jsonl").write_text(
+                json.dumps(
+                    {
+                        "doc_id": "safe-doc",
+                        "source": "docs",
+                        "path": "safe.md",
+                        "title": "safe",
+                        "text": "LangGraph 低信心與弱關聯修復屬於可公開的系統文件。",
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
 
-            result = _tool_aeg_keyword_graph(root, {"limit": 30})
-            self.assertGreaterEqual(result["text_items"], 2)
-            self.assertGreaterEqual(result["source_breakdown"].get("chatgpt_database", 0), 2)
-            self.assertGreater(result["readable_ratio"], 0)
+            with patch.dict("os.environ", {"TREVOR_DATA_DIR": str(root / "data")}):
+                result = _tool_aeg_keyword_graph(root, {"limit": 30})
+                self.assertGreaterEqual(result["text_items"], 2)
+                self.assertEqual(1, result["source_breakdown"].get("knowledge_document", 0))
+                self.assertNotIn("agent_memory_user", result["source_breakdown"])
+                self.assertGreater(result["readable_ratio"], 0)
 
 
 if __name__ == "__main__":

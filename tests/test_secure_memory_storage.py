@@ -1,7 +1,9 @@
 import json
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 class _MemoryBackend:
@@ -65,6 +67,87 @@ class SecureMemoryStorageTests(unittest.TestCase):
             store.reencrypt_json(path)
             self.assertTrue(store.is_encrypted(path))
             self.assertEqual({'legacy': True}, store.read_json(path, {}))
+
+    def test_in_memory_json_envelope_round_trip(self):
+        from core.encrypted_store import AESGCMJsonStore
+
+        store = AESGCMJsonStore(lambda: b'e' * 32)
+        envelope = store.seal_json({'private': '不落地的內容'})
+
+        self.assertEqual('AES-256-GCM', envelope['algorithm'])
+        self.assertNotIn('不落地的內容', json.dumps(envelope, ensure_ascii=False))
+        self.assertEqual({'private': '不落地的內容'}, store.open_json(envelope))
+
+    def test_memory_index_encrypts_private_fields_and_remains_searchable(self):
+        from core.encrypted_store import AESGCMJsonStore
+        from core.memory_layers import ThreeLayerMemory
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = AESGCMJsonStore(lambda: b'i' * 32)
+            memory = ThreeLayerMemory(tmp, json_store=store)
+            memory.rebuild(
+                [
+                    {
+                        'source': 'agent_memory_user',
+                        'source_id': 'private:1',
+                        'role': 'user',
+                        'content': '這是不可出現在索引明文中的私人內容',
+                        'summary': '私人內容摘要',
+                        'timestamp': '',
+                        'metadata': {'private_label': '敏感標籤'},
+                    }
+                ]
+            )
+
+            conn = sqlite3.connect(memory.paths.sqlite_path)
+            try:
+                raw = '\n'.join(str(value) for value in conn.execute(
+                    'SELECT content, summary, metadata_json FROM long_term_memory'
+                ).fetchone())
+            finally:
+                conn.close()
+            meta_raw = memory.paths.meta_path.read_text(encoding='utf-8')
+
+            self.assertNotIn('私人內容', raw)
+            self.assertNotIn('敏感標籤', raw)
+            self.assertNotIn('私人內容摘要', meta_raw)
+            self.assertTrue(memory.stats()['content_encrypted'])
+            self.assertEqual(
+                '這是不可出現在索引明文中的私人內容',
+                memory.search('私人內容', top_k=1)[0]['content'],
+            )
+
+    def test_collect_memory_sources_decrypts_agent_conversations(self):
+        from core.encrypted_store import AESGCMJsonStore
+        from core.memory_layers import collect_memory_sources
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data_root = root / 'data'
+            path = data_root / 'agent_memories' / 'conversations.json'
+            store = AESGCMJsonStore(lambda: b'c' * 32)
+            store.write_json(
+                path,
+                {
+                    'thread-1': {
+                        'agent_name': '崔佛',
+                        'messages': [
+                            {
+                                'timestamp': '2026-09-05T00:00:00',
+                                'user': '使用者的加密問題',
+                                'assistant': '崔佛的加密回答依然可以搜尋',
+                            }
+                        ],
+                    }
+                },
+            )
+
+            sources = collect_memory_sources(root, json_store=store)
+
+            self.assertEqual(
+                {'agent_memory_user', 'agent_memory_assistant'},
+                {item['source'] for item in sources},
+            )
 
     def test_memory_manager_migrates_and_encrypts_all_private_state(self):
         from core.encrypted_store import AESGCMJsonStore

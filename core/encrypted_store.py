@@ -114,6 +114,24 @@ class AESGCMJsonStore:
         envelope = self._load_envelope(target)
         if not isinstance(envelope, dict) or envelope.get("algorithm") != "AES-256-GCM":
             return envelope
+        return self.open_json(envelope)
+
+    def seal_json(self, payload: Any) -> dict[str, Any]:
+        """Encrypt a JSON-compatible value without writing it to disk."""
+        nonce = secrets.token_bytes(12)
+        plaintext = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        ciphertext = AESGCM(self._key()).encrypt(nonce, plaintext, self.AAD)
+        return {
+            "version": 1,
+            "algorithm": "AES-256-GCM",
+            "nonce": base64.b64encode(nonce).decode("ascii"),
+            "ciphertext": base64.b64encode(ciphertext).decode("ascii"),
+        }
+
+    def open_json(self, envelope: Any) -> Any:
+        """Decrypt an in-memory envelope created by :meth:`seal_json`."""
+        if not isinstance(envelope, dict) or envelope.get("algorithm") != "AES-256-GCM":
+            return envelope
         try:
             nonce = base64.b64decode(str(envelope["nonce"]), validate=True)
             ciphertext = base64.b64decode(str(envelope["ciphertext"]), validate=True)
@@ -125,15 +143,7 @@ class AESGCMJsonStore:
     def write_json(self, path: str | Path, payload: Any) -> None:
         target = Path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
-        nonce = secrets.token_bytes(12)
-        plaintext = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        ciphertext = AESGCM(self._key()).encrypt(nonce, plaintext, self.AAD)
-        envelope = {
-            "version": 1,
-            "algorithm": "AES-256-GCM",
-            "nonce": base64.b64encode(nonce).decode("ascii"),
-            "ciphertext": base64.b64encode(ciphertext).decode("ascii"),
-        }
+        envelope = self.seal_json(payload)
         temporary = target.with_name(f"{target.name}.tmp-{os.getpid()}")
         temporary.write_text(
             json.dumps(envelope, ensure_ascii=True, separators=(",", ":")) + "\n",

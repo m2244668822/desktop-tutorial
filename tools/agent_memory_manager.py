@@ -54,7 +54,13 @@ _configure_utf8_stdio()
 
 
 def _resolve_data_root(base_dir: Path) -> Path:
-    return resolve_data_root(base_dir)
+    resolved = base_dir.expanduser().resolve()
+    module_workspace = Path(__file__).resolve().parents[1]
+    if resolved == module_workspace:
+        return resolve_data_root(resolved)
+    isolated_env = dict(os.environ)
+    isolated_env.pop("TREVOR_DATA_DIR", None)
+    return resolve_data_root(resolved, env=isolated_env)
 
 
 class AgentMemoryManager:
@@ -74,6 +80,9 @@ class AgentMemoryManager:
             base_dir: 基礎目錄
             auto_save: 是否自動保存（定時自動保存）
         """
+        # Test runners and embedded hosts may replace/reset stdout after module
+        # import, so enforce UTF-8 at each runtime initialization as well.
+        _configure_utf8_stdio()
         self.base_dir = Path(base_dir) if base_dir else Path(__file__).resolve().parents[1]
         self.auto_save = auto_save
         self._lock = threading.Lock()

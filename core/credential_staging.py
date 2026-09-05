@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import stat
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
@@ -51,6 +52,12 @@ def staged_credentials(
             os.chmod(path, 0o400)
         yield directory
     finally:
+        if os.name == 'nt' and directory.exists():
+            for path in directory.rglob('*'):
+                try:
+                    os.chmod(path, stat.S_IWRITE)
+                except OSError:
+                    pass
         shutil.rmtree(directory, ignore_errors=True)
 
 

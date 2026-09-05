@@ -13,10 +13,8 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-import shutil
 import re
 import sqlite3
-import tempfile
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
@@ -25,7 +23,8 @@ from typing import Any, Iterator
 
 import numpy as np
 
-from core.data_paths import ProjectPaths, resolve_data_root
+from core.data_paths import ProjectPaths
+from core.encrypted_store import AESGCMJsonStore, DeviceEncryptionKey, EncryptedStoreError
 
 try:
     import faiss
@@ -42,6 +41,7 @@ SOURCE_WEIGHTS = {
     "gpt_history_user": 0.16,
     "chatgpt_database_user": 0.12,
     "chatgpt_database_assistant": 0.10,
+    "knowledge_document": 0.08,
     "chatgpt_local_knowledge": 0.06,
 }
 SOURCE_PRIORITIES = {
@@ -51,8 +51,11 @@ SOURCE_PRIORITIES = {
     "gpt_history_user": 4,
     "chatgpt_database_user": 3,
     "chatgpt_database_assistant": 2,
+    "knowledge_document": 2,
     "chatgpt_local_knowledge": 1,
 }
+
+ENCRYPTED_FIELD_PREFIX = "trevor-aesgcm-v1:"
 
 
 @dataclass
@@ -65,7 +68,12 @@ class MemoryPaths:
 
 
 class ThreeLayerMemory:
-    def __init__(self, workspace: str | Path):
+    def __init__(
+        self,
+        workspace: str | Path,
+        *,
+        json_store: AESGCMJsonStore | None = None,
+    ):
         self.workspace = Path(workspace).expanduser().resolve()
         paths = ProjectPaths(self.workspace)
         self.root = paths.data / "knowledge_hub" / "memory_layers"
@@ -77,7 +85,29 @@ class ThreeLayerMemory:
             meta_path=self.root / "long_term_meta.json",
             vector_cache_path=self.root / "long_term_vectors.npz",
         )
+        self._json_store = json_store or AESGCMJsonStore(
+            DeviceEncryptionKey().get_or_create
+        )
         self._ensure_schema()
+
+    def _protect_text(self, value: str) -> str:
+        envelope = self._json_store.seal_json({"value": str(value or "")})
+        return ENCRYPTED_FIELD_PREFIX + json.dumps(
+            envelope, ensure_ascii=True, separators=(",", ":")
+        )
+
+    def _unprotect_text(self, value: Any) -> str:
+        raw = str(value or "")
+        if not raw.startswith(ENCRYPTED_FIELD_PREFIX):
+            return raw
+        try:
+            envelope = json.loads(raw[len(ENCRYPTED_FIELD_PREFIX) :])
+            payload = self._json_store.open_json(envelope)
+        except (json.JSONDecodeError, EncryptedStoreError) as exc:
+            raise EncryptedStoreError("memory_index_authentication_failed") from exc
+        if not isinstance(payload, dict) or "value" not in payload:
+            raise EncryptedStoreError("memory_index_payload_invalid")
+        return str(payload["value"] or "")
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -269,27 +299,19 @@ class ThreeLayerMemory:
         try:
             faiss.write_index(index, str(self.paths.faiss_path))
         except Exception:
-            shadow = self._faiss_shadow_path(self.paths.faiss_path)
-            shadow.parent.mkdir(parents=True, exist_ok=True)
-            faiss.write_index(index, str(shadow))
-            shutil.copyfile(shadow, self.paths.faiss_path)
-
-    def _faiss_shadow_path(self, source: Path) -> Path:
-        digest = hashlib.blake2b(str(source).encode("utf-8"), digest_size=8).hexdigest()
-        return Path(tempfile.gettempdir()) / "cheng_agent_faiss" / f"{digest}.faiss"
+            # Windows FAISS uses an ANSI path API.  Serializing in memory lets
+            # Python perform the Unicode-safe file write instead.
+            payload = faiss.serialize_index(index)
+            self.paths.faiss_path.write_bytes(payload.tobytes())
 
     def _read_faiss_index(self, source: Path):
         try:
             return faiss.read_index(str(source))
         except Exception:
-            # FAISS on Windows can fail on non-ASCII project paths even when
-            # Python itself can see the file. Copy to an ASCII temp path and
-            # read from there so Chinese workspace paths remain supported.
-            shadow = self._faiss_shadow_path(source)
-            shadow.parent.mkdir(parents=True, exist_ok=True)
-            if (not shadow.exists()) or shadow.stat().st_mtime < source.stat().st_mtime:
-                shutil.copyfile(source, shadow)
-            return faiss.read_index(str(shadow))
+            # Mirror the Unicode-safe write path above without asking FAISS to
+            # open the non-ASCII filename itself.
+            payload = np.frombuffer(source.read_bytes(), dtype=np.uint8)
+            return faiss.deserialize_index(payload)
 
     def _rank_memory_row(
         self,
@@ -298,9 +320,10 @@ class ThreeLayerMemory:
         row: sqlite3.Row,
         semantic_score: float = 0.0,
     ) -> dict[str, Any]:
-        content = row["content"]
-        summary = row["summary"] or ""
-        metadata = json.loads(row["metadata_json"])
+        content = self._unprotect_text(row["content"])
+        summary = self._unprotect_text(row["summary"])
+        metadata_raw = self._unprotect_text(row["metadata_json"])
+        metadata = json.loads(metadata_raw) if metadata_raw else {}
         content_tokens = set(self._tokenize(content))
         summary_tokens = set(self._tokenize(summary))
         overlap = len(query_tokens & (content_tokens | summary_tokens))
@@ -424,10 +447,10 @@ class ThreeLayerMemory:
                         source,
                         source_id,
                         role,
-                        content,
-                        summary,
+                        self._protect_text(content),
+                        self._protect_text(summary),
                         timestamp,
-                        json.dumps(metadata, ensure_ascii=False),
+                        self._protect_text(json.dumps(metadata, ensure_ascii=False)),
                         now,
                     ),
                 )
@@ -436,7 +459,7 @@ class ThreeLayerMemory:
                     INSERT INTO summary_memory (source, source_id, summary, updated_at)
                     VALUES (?, ?, ?, ?)
                     """,
-                    (source, source_id, summary, now),
+                    (source, source_id, self._protect_text(summary), now),
                 )
 
                 embeddings.append(self._embed_text(content))
@@ -446,10 +469,8 @@ class ThreeLayerMemory:
                         "source": source,
                         "source_id": source_id,
                         "role": role,
-                        "summary": summary,
                         "timestamp": timestamp,
                         "content_fingerprint": item.get("content_fingerprint", ""),
-                        "summary_signature": item.get("summary_signature", ""),
                     }
                 )
 
@@ -532,6 +553,9 @@ class ThreeLayerMemory:
             by_source = conn.execute(
                 "SELECT source, COUNT(*) AS c FROM long_term_memory GROUP BY source ORDER BY c DESC"
             ).fetchall()
+            sample = conn.execute(
+                "SELECT content FROM long_term_memory LIMIT 1"
+            ).fetchone()
         return {
             "sqlite_path": str(self.paths.sqlite_path),
             "faiss_path": str(self.paths.faiss_path),
@@ -541,11 +565,20 @@ class ThreeLayerMemory:
             "faiss_available": faiss is not None,
             "faiss_file_exists": self.paths.faiss_path.exists(),
             "faiss_ready": faiss is not None and self.paths.faiss_path.exists(),
+            "content_encrypted": (
+                None
+                if sample is None
+                else str(sample["content"] or "").startswith(ENCRYPTED_FIELD_PREFIX)
+            ),
             "source_weights": SOURCE_WEIGHTS,
         }
 
 
-def collect_memory_sources(workspace: str | Path) -> list[dict[str, Any]]:
+def collect_memory_sources(
+    workspace: str | Path,
+    *,
+    json_store: AESGCMJsonStore | None = None,
+) -> list[dict[str, Any]]:
     workspace = Path(workspace).expanduser().resolve()
     paths = ProjectPaths(workspace)
     sources: list[dict[str, Any]] = []
@@ -660,7 +693,10 @@ def collect_memory_sources(workspace: str | Path) -> list[dict[str, Any]]:
     agent_conversations = paths.data / "agent_memories" / "conversations.json"
     if agent_conversations.exists():
         try:
-            data = json.loads(agent_conversations.read_text(encoding="utf-8"))
+            private_store = json_store or AESGCMJsonStore(
+                DeviceEncryptionKey().get_or_create
+            )
+            data = private_store.read_json(agent_conversations, {})
             for conv_id, conv in data.items():
                 for idx, msg in enumerate(conv.get("messages", [])):
                     user = str(msg.get("user", "")).strip()
@@ -684,7 +720,38 @@ def collect_memory_sources(workspace: str | Path) -> list[dict[str, Any]]:
                             timestamp,
                             {"agent_name": conv.get("agent_name", "")},
                         )
-        except Exception:
+        except EncryptedStoreError as exc:
+            raise RuntimeError("agent_memory_unreadable") from exc
+        except (AttributeError, OSError, TypeError, ValueError):
+            pass
+
+    ingestion_documents = (
+        paths.data / "knowledge_hub" / "ingestion" / "documents.jsonl"
+    )
+    if ingestion_documents.exists():
+        try:
+            for line_number, line in enumerate(
+                ingestion_documents.read_text(encoding="utf-8").splitlines(),
+                start=1,
+            ):
+                if not line.strip():
+                    continue
+                document = json.loads(line)
+                if not isinstance(document, dict):
+                    continue
+                content = str(document.get("text", "")).strip()
+                append_source(
+                    "knowledge_document",
+                    str(document.get("doc_id") or f"document:{line_number}"),
+                    "system",
+                    content,
+                    metadata={
+                        "source": document.get("source", ""),
+                        "path": document.get("path", ""),
+                        "title": document.get("title", ""),
+                    },
+                )
+        except (OSError, json.JSONDecodeError):
             pass
 
     # GPT Chat History from SQLite

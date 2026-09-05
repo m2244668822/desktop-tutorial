@@ -25,7 +25,7 @@ class OpenClawForwardingContractTests(unittest.TestCase):
                 "OPENCLAW_GATEWAY_HOST": "127.0.0.1",
                 "OPENCLAW_GATEWAY_PORT": "18789",
                 "OPENCLAW_TASK_ENDPOINT": "",
-                "OPENCLAW_BIN": "/bin/echo",
+                "OPENCLAW_BIN": sys.executable,
             },
             clear=False,
         )

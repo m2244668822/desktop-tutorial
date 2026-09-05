@@ -51,6 +51,8 @@ def _git(repository: Path, *arguments: str) -> str:
         check=True,
         capture_output=True,
         text=True,
+        encoding='utf-8',
+        errors='replace',
     ).stdout.strip()
 
 
@@ -88,6 +90,8 @@ def revert_commit(
             check=False,
             capture_output=True,
             text=True,
+            encoding='utf-8',
+            errors='replace',
         )
         record_operation(
             data_root,

@@ -35,7 +35,13 @@ def resolve_data_root(
     environment = os.environ if env is None else env
     configured = str(environment.get("TREVOR_DATA_DIR", "") or "").strip()
     if configured:
-        return Path(configured).expanduser().resolve()
+        # Preserve caller-supplied path semantics.  In particular, resolving a
+        # POSIX path such as /var/lib/trevor on Windows incorrectly prepends the
+        # current drive and breaks cross-platform planning/tests.
+        configured_path = Path(configured).expanduser()
+        if os.name == "nt" and configured.startswith("/"):
+            return configured_path
+        return configured_path.resolve()
     workspace = Path(base_dir).expanduser().resolve()
     module_workspace = Path(__file__).resolve().parent.parent
     legacy_layout = str(environment.get("TREVOR_LEGACY_DATA_LAYOUT", "") or "").strip().lower()
@@ -76,6 +82,7 @@ class ProjectPaths:
     """Centralized path management for the AI Agent system."""
 
     def __init__(self, root: str | Path | None = None):
+        explicit_root = root is not None
         if root is None:
             # Try to resolve from environment or current file location
             env_root = os.environ.get("AGENT_WORKSPACE_ROOT")
@@ -88,7 +95,16 @@ class ProjectPaths:
             self.root = Path(root).expanduser().resolve()
 
         # Core directories
-        self.data = resolve_data_root(self.root)
+        module_workspace = Path(__file__).resolve().parent.parent
+        if explicit_root and self.root != module_workspace:
+            # An explicit alternate workspace is an isolation boundary.  Do not
+            # let a machine-wide TREVOR_DATA_DIR redirect tests or audits into
+            # the live device store.
+            isolated_env = dict(os.environ)
+            isolated_env.pop("TREVOR_DATA_DIR", None)
+            self.data = resolve_data_root(self.root, env=isolated_env)
+        else:
+            self.data = resolve_data_root(self.root)
         self.config = self.root / "config"
         self.logs = self.root / "logs"
         self.templates = self.root / "templates"

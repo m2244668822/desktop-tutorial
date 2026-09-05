@@ -58,7 +58,9 @@ class TaskBoardTrevorIdentityTests(unittest.TestCase):
                 encoding='utf-8',
             )
 
-            item = task_items_payload(tmp)['items'][0]
+            with patch.dict(os.environ):
+                os.environ.pop('TREVOR_DATA_DIR', None)
+                item = task_items_payload(tmp)['items'][0]
 
         self.assertEqual('trevor', item['assigned_agent'])
         self.assertEqual('崔佛', item['agent_label'])

@@ -204,7 +204,8 @@ def _append_checkpoint(path: Path, content_hash: str) -> None:
     except OSError as exc:
         raise RuntimeError('graphiti_checkpoint_unwritable') from exc
     try:
-        os.fchmod(descriptor, 0o600)
+        if hasattr(os, 'fchmod'):
+            os.fchmod(descriptor, 0o600)
         os.write(descriptor, f'{content_hash}\n'.encode('ascii'))
         os.fsync(descriptor)
     finally:
@@ -301,7 +302,8 @@ def _append_upload_journal(
     descriptor: int | None = None
     try:
         descriptor = os.open(path, flags, 0o600)
-        os.fchmod(descriptor, 0o600)
+        if hasattr(os, 'fchmod'):
+            os.fchmod(descriptor, 0o600)
         serialized = json.dumps(
             {
                 'schema_version': 1,

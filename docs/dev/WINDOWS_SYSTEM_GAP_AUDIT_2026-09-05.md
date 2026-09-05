@@ -19,17 +19,40 @@
 | AI Horde 網路 | ready | 官方 heartbeat 回覆 OK；匿名工作完成並下載 30,796-byte WebP |
 | 圖片 API 憑證層 | repaired | Windows Credential Manager 原生讀寫往返通過；API 回報 configured=true |
 
-## 需要處理的實質缺口
+## 本輪已修復的實質缺口
 
-### P1：資料已在裝置，但還沒有進入完整檢索層
+### P1：資料恢復、加密索引與完整檢索層（已修復）
 
-- 裝置資料盤點有 5,601 個去重對話回合、1,553 個對話串。
-- Knowledge Hub 目前只有 2 個項目。
-- FAISS 套件已安裝，但索引檔不存在，`faiss_ready=false`。
-- Knowledge manifest 不存在，舊 `complete_chatgpt_database.json` 也不存在。
+- 原遷移清單有 5,601 個去重回合／1,553 串，但現行加密主檔曾被精簡狀態覆寫成 1 回合／1 串。
+- 已先備份現行主檔，再由舊工作樹的完整 ChatGPT 資料庫與記憶來源重跑可重入遷移；目前為 5,602 回合／1,554 串。
+- 記憶收集器原本以一般 `json.loads` 讀取 AES-256-GCM 信封，實際無法看到加密內容；已改用裝置金鑰解密，驗證失敗會明確中止而非靜默略過。
+- 知識導入的 135 份文件已接入長期記憶來源。
+- 9,931 筆來源經內容雜湊去重後建立 9,569 筆索引；FAISS 已建立且 `faiss_ready=true`。
+- Knowledge Hub manifest 已重建，Windows 與 macOS 可依交接卡重新解析各自路徑。
+- SQLite 的內容、摘要與 metadata 改為 AES-256-GCM 欄位加密；FAISS 只保存向量，metadata 檔不保存摘要文字。抽樣原文未出現在 SQLite 或 metadata。
+- Windows 中文路徑下的 FAISS 改用記憶體序列化，再交由 Python Unicode 檔案 API 存取。
 - Graphiti 遷移為 pending，遷移數量 0。
 
-影響：聊天能運作，但「從大量舊資料精準找回關聯」仍不足。下一層工作應先確認資料來源，再 rebuild Knowledge Hub；不能直接把所有舊資料無篩選灌入長期記憶。
+剩餘影響：本機 SQLite／FAISS 搜尋已可用；跨關係圖記憶仍待 Graphiti sidecar 與明確的遠端資料邊界，低流量模式下不自動上傳。
+
+### P1：自治排程與工作器（已修復）
+
+- 新增 Windows `start/stop/restart/status/install/uninstall` 管理器。
+- 背景程序使用隱藏視窗、PID 與命令列雙重確認，避免 PID 重用誤殺程序。
+- 記憶金鑰已存入 Windows Credential Manager；背景程序啟動前移除繼承的 `TREVOR_MEMORY_KEY_B64`，避免長期暴露於環境變數。
+- Windows 政策拒絕註冊 Scheduled Task，因此自動使用目前使用者的 `HKCU Run` 作登入啟動 fallback；可由 `uninstall` 完整撤回。
+- combined daemon 已運行，scheduler／worker 共用心跳正常；pending=0、running=0、skill conflict=0。
+- 本機 API HMAC 與 local-admin token 已建立並存入 Windows Credential Manager；需要記憶權限的狀態端點可正常驗證，未輸出明文 token。
+
+### P1：Windows 可攜性與測試隔離（已修復）
+
+- 修正 `os.getuid()`、`os.fchmod()` 等 POSIX-only API 在 Windows 的崩潰。
+- Windows 長期憑證只接受 Credential Manager；不再把無法代表 ACL 的 `chmod` 位元誤當安全證據。
+- 修正臨時工作區被正式 `TREVOR_DATA_DIR` 污染、唯讀暫存憑證無法清理、Git 輸出 cp950 解碼與 macOS-only 測試邊界。
+- AEG 明文關鍵字圖只讀取 135 份公開系統文件，不再把私人對話蒸餾成明文關鍵字；目前為 137 個文字項目（含 Git 與 n8n 狀態）。
+- 完整測試現為 418 passed、0 failed、16 skipped、33 subtests passed。
+
+## 仍需要使用者選擇或外部服務的缺口
 
 ### P1：雲端語言模型全部未設定
 
@@ -39,30 +62,11 @@
 
 影響：Qwen 忙碌或能力不足時，沒有另一個已連線的模型接手。
 
-### P1：自治排程與工作器未常駐
-
-- Scheduler：`not_running`。
-- Worker：`not_running`。
-- 盤點時出現 7 個待處理項目，均確認為 API 測試寫入正式資料根的 `task-key` 假任務；已清除並修正該測試隔離。
-- Windows 缺少對應的常駐服務管理；現有管理腳本多為 `.sh`。
-
-影響：對話內的即時工作可跑，但關閉前端後，背景任務不會可靠地持續處理。
-
-### P1：舊工具與測試仍有 Windows 可攜性債
-
-- `tools/launch_trevor_backend.py` 仍直接使用 Windows 沒有的 `os.getuid()`。
-- 部分測試依賴未開啟 Developer Mode／管理員權限就不能建立的 symlink。
-- 一個加密記憶測試受外部 `TrevorData` 路徑影響，沒有完全隔離測試資料。
-
-影響：核心 Web 模式可用，但完整測試套件與部分部署工具在 Windows 仍不能做到全綠；後續修正要分離平台權限模型與測試資料根目錄，不能用關閉安全檢查硬壓過去。
-
-完整測試基線：385 passed、32 failed、8 skipped、33 subtests passed。圖片／憑證相關聚焦測試為 32 passed、5 subtests passed；32 個完整套件失敗集中在 Windows POSIX API、symlink 權限、中文路徑 FAISS、正式資料根污染測試，以及 macOS LaunchAgent 契約，不是本次圖片 API 回歸。
-
 ## 已安裝但未完成
 
 | 項目 | 現況 | 影響 |
 |---|---|---|
-| FAISS | 套件存在、索引不存在 | 降級成 SQLite 搜尋 |
+| FAISS | ready，9,569 筆加密記憶有向量索引 | 已完成本機檢索層 |
 | Graphiti | private、pending | 圖關係記憶尚未接軌 |
 | AI Horde | 匿名憑證已配置 | 能生成圖片，但最低排程優先級 |
 | AEG | ready，但只有少量來源 | 結構可用，內容覆蓋仍低 |
@@ -83,7 +87,7 @@
 ## 建議順序
 
 1. 先用匿名 AI Horde 完成實圖驗證；需要速度時再由使用者以隱藏提示設定個人金鑰。
-2. 盤點 5,601 回合的資料來源與敏感資料，再建立 Knowledge manifest 與 FAISS 索引。
-3. 建立 Windows 自治 worker 的啟停與開機常駐方式，處理現有 6 個待辦。
-4. 只選一個雲端語言模型作備援，不要一次塞滿所有金鑰。
+2. 維持本機 9,569 筆加密記憶與 FAISS；先做檢索品質評估，再決定是否啟用 Graphiti，避免無篩選上傳。
+3. 自治 worker 已常駐；先觀察心跳、錯誤日誌與夜間維護結果，不新增無明確目的的任務。
+4. 需要雲端備援時只選一個模型，由使用者自行提供金鑰；低流量模式維持 Qwen 優先。
 5. 有跨裝置或外網需求時才補 TLS/Tailscale；有視覺化排程需求時才安裝 n8n。
