@@ -41,20 +41,48 @@ export function extractMechanicalActions(text) {
   }
 }
 
+/**
+ * Archive stale human/Cursor Result so frontmatter status + daemon Result
+ * are the only "current" signals (observability hygiene).
+ */
+export function archiveStaleResult(text) {
+  const cursorMarker = "## Result（Cursor 回寫）";
+  if (!text.includes(cursorMarker)) return text;
+  const histMarker = "## History（archived Result）";
+  const extracted = text.match(
+    /## Result（Cursor 回寫）\n([\s\S]*?)(?=\n## (?!Result)|$)/
+  );
+  if (!extracted) return text;
+  const body = extracted[1].trim();
+  let next = text.replace(
+    /## Result（Cursor 回寫）[\s\S]*?(?=\n## (?!Result)|$)/,
+    ""
+  );
+  const entry = `### archived ${new Date().toISOString()}\n\n${body}\n`;
+  if (next.includes(histMarker)) {
+    next = next.replace(histMarker, `${histMarker}\n\n${entry}`);
+  } else if (/\n## Links\n/.test(next)) {
+    next = next.replace(/\n## Links\n/, `\n${histMarker}\n\n${entry}\n## Links\n`);
+  } else {
+    next = next.trimEnd() + `\n\n${histMarker}\n\n${entry}\n`;
+  }
+  return next;
+}
+
 export function upsertDaemonResult(text, resultMarkdown) {
+  let next = archiveStaleResult(text);
   const marker = "## Result（inbox-daemon 回寫）";
   const block = `${marker}\n\n${resultMarkdown.trim()}\n`;
-  if (text.includes(marker)) {
-    return text.replace(
+  if (next.includes(marker)) {
+    return next.replace(
       /## Result（inbox-daemon 回寫）[\s\S]*?(?=\n## (?!Result)|$)/,
       block + "\n"
     );
   }
-  // append before last Links if present, else end
-  if (/\n## Links\n/.test(text)) {
-    return text.replace(/\n## Links\n/, `\n${block}\n## Links\n`);
+  if (/\n## Links\n/.test(next)) {
+    return next.replace(/\n## Links\n/, `\n${block}\n## Links\n`);
   }
-  return text.trimEnd() + "\n\n" + block + "\n";
+  return next.trimEnd() + "\n\n" + block + "\n";
 }
 
 export function resolveInboxPath(vaultRoot) {

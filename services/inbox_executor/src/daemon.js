@@ -8,6 +8,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import {
   VaultWorkspace,
@@ -66,13 +67,19 @@ async function runContract() {
   fs.writeFileSync(inboxPath, next, "utf8");
 
   const mechanical = extractMechanicalActions(next);
+  const taskId =
+    (mechanical && mechanical.task_id) ||
+    (next.match(/task_id\s+([^\s\n]+)/)?.[1] ?? "unknown");
+  const traceId = crypto.randomUUID();
+  log(`trace_id=${traceId} task_id=${taskId}`);
+
   if (!mechanical) {
     const reason =
       "blocked: 無 ## Mechanical Actions JSON。非機械契約請用 Cursor「跑 inbox」，或請 ChatGPT 補機械動作區塊。";
     next = setStatus(next, "blocked");
     next = upsertDaemonResult(
       next,
-      `- 時間：${new Date().toISOString()}\n- 結果：\`${reason}\`\n- 下一步：補機械動作，或改由 Cursor 執行`
+      `- trace_id：\`${traceId}\`\n- task_id：\`${taskId}\`\n- 時間：${new Date().toISOString()}\n- 結果：\`${reason}\`\n- 下一步：補機械動作，或改由 Cursor 執行`
     );
     fs.writeFileSync(inboxPath, next, "utf8");
     log(reason);
@@ -144,10 +151,10 @@ async function runContract() {
     next = setStatus(fs.readFileSync(inboxPath, "utf8"), "done");
     next = upsertDaemonResult(
       next,
-      `- 時間：${new Date().toISOString()}\n- 結果：done\n- auto_approve：${autoApprove}\n- 動作：\n${summary}\n- 詳情：\n\`\`\`json\n${JSON.stringify(results, null, 2).slice(0, 4000)}\n\`\`\``
+      `- trace_id：\`${traceId}\`\n- task_id：\`${taskId}\`\n- 時間：${new Date().toISOString()}\n- 結果：done\n- auto_approve：${autoApprove}\n- 動作：\n${summary}\n- 詳情：\n\`\`\`json\n${JSON.stringify(results, null, 2).slice(0, 4000)}\n\`\`\``
     );
     fs.writeFileSync(inboxPath, next, "utf8");
-    log("done");
+    log(`done trace_id=${traceId}`);
   } catch (err) {
     const code = err.code || "error";
     next = setStatus(fs.readFileSync(inboxPath, "utf8"), "blocked");
@@ -157,10 +164,10 @@ async function runContract() {
         : "";
     next = upsertDaemonResult(
       next,
-      `- 時間：${new Date().toISOString()}\n- 結果：blocked\n- code：\`${code}\`\n- message：${err.message}${extra}\n- 提示：設 actions[].args.approval 或 mechanical.auto_approve=true／環境變數 INBOX_AUTO_APPROVE=1（僅信任契約時）`
+      `- trace_id：\`${traceId}\`\n- task_id：\`${taskId}\`\n- 時間：${new Date().toISOString()}\n- 結果：blocked\n- code：\`${code}\`\n- message：${err.message}${extra}\n- 提示：設 actions[].args.approval 或 mechanical.auto_approve=true／環境變數 INBOX_AUTO_APPROVE=1（僅信任契約時）`
     );
     fs.writeFileSync(inboxPath, next, "utf8");
-    log(`blocked: ${code} ${err.message}`);
+    log(`blocked: ${code} ${err.message} trace_id=${traceId}`);
   } finally {
     busy = false;
   }
