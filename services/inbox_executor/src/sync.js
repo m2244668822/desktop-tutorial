@@ -18,7 +18,8 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { readInbox, resolveInboxPath } from "./inbox.js";
+import { readInbox, resolveInboxPath, contractHash, taskIdFromText } from "./inbox.js";
+import { lookupAttempt, patchAttempt } from "./attempts.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const vaultRoot = path.resolve(
@@ -52,8 +53,33 @@ function mustGit(args) {
   return r.stdout || "";
 }
 
+function preflightProblem() {
+  const r = git(["rev-parse", "--git-dir"]);
+  if (r.status !== 0) return "git_dir_unreadable";
+  const raw = (r.stdout || "").trim();
+  const gitDir = path.isAbsolute(raw) ? raw : path.resolve(vaultRoot, raw);
+  for (const name of ["rebase-merge", "rebase-apply", "MERGE_HEAD"]) {
+    if (fs.existsSync(path.join(gitDir, name))) return name;
+  }
+  return null;
+}
+
+function remoteInboxText() {
+  const spec = `${remote}/${branch}:${inboxRel.replace(/\\/g, "/")}`;
+  const r = git(["show", spec]);
+  return r.status === 0 ? r.stdout || "" : "";
+}
+
 log(`vault=${vaultRoot}`);
 log(`pull=${doPull} push=${doPush} remote=${remote} branch=${branch}`);
+
+{
+  const problem = preflightProblem();
+  if (problem) {
+    log(`preflight_blocked reason=${problem}; no claim; remote_state_unchanged`);
+    process.exit(0);
+  }
+}
 
 // 1) fetch
 {
@@ -63,6 +89,63 @@ log(`pull=${doPull} push=${doPush} remote=${remote} branch=${branch}`);
     process.exit(2);
   }
   log("fetch_ok");
+}
+
+{
+  const problem = preflightProblem();
+  if (problem) {
+    log(`preflight_blocked reason=${problem}; no claim; remote_state_unchanged`);
+    process.exit(0);
+  }
+}
+
+const remoteText = doPull ? remoteInboxText() : "";
+if (remoteText) {
+  const remoteTask = taskIdFromText(remoteText);
+  const remoteHash = contractHash(remoteText);
+  const prev = lookupAttempt(vaultRoot, remoteTask);
+  if (prev && prev.hash === remoteHash && prev.auto_retry === false && prev.writeback_pending) {
+    log(
+      `retry_suppressed task_id=${remoteTask} trace_id=${prev.trace_id} code=${prev.code}; no new execution`
+    );
+    if (!doPush) {
+      log("push_skipped writeback_pending; remote_state_unchanged");
+      process.exit(0);
+    }
+    const authorName = process.env.GIT_AUTHOR_NAME || "inbox-sync";
+    const authorEmail =
+      process.env.GIT_AUTHOR_EMAIL || "inbox-sync@users.noreply.github.com";
+    const pushEnv = {
+      ...process.env,
+      GIT_AUTHOR_NAME: authorName,
+      GIT_AUTHOR_EMAIL: authorEmail,
+      GIT_COMMITTER_NAME: authorName,
+      GIT_COMMITTER_EMAIL: authorEmail,
+    };
+    const pull = spawnSync(
+      "git",
+      ["pull", "--rebase", "--autostash", remote, branch],
+      { cwd: vaultRoot, encoding: "utf8", env: pushEnv }
+    );
+    if (pull.status !== 0) {
+      log(`rebase_failed: ${(pull.stderr || pull.stdout || "").slice(0, 500)}`);
+      log("remote_state_unchanged");
+      process.exit(0);
+    }
+    const push = spawnSync("git", ["push", remote, `HEAD:${branch}`], {
+      cwd: vaultRoot,
+      encoding: "utf8",
+      env: pushEnv,
+    });
+    if (push.status !== 0) {
+      log(`push_failed: ${(push.stderr || push.stdout || "").slice(0, 500)}`);
+      log("remote_state_unchanged");
+      process.exit(0);
+    }
+    patchAttempt(vaultRoot, remoteTask, { pushed: true, writeback_pending: false });
+    log("push_ok");
+    process.exit(0);
+  }
 }
 
 // 2) checkout remote inbox only (does not merge other files)
@@ -149,8 +232,13 @@ log("commit_ok");
   );
   if (pull.status !== 0) {
     log(`rebase_failed: ${(pull.stderr || pull.stdout || "").slice(0, 500)}`);
-    log("hint: resolve rebase, then push manually; inbox Result is local");
-    process.exit(6);
+    log("remote_state_unchanged");
+    const failed = readInbox(inboxPath);
+    patchAttempt(vaultRoot, taskIdFromText(failed.text), {
+      writeback_pending: true,
+      pushed: false,
+    });
+    process.exit(0);
   }
   log("rebase_ok");
 }
@@ -163,9 +251,20 @@ log("commit_ok");
   });
   if (push.status !== 0) {
     log(`push_failed: ${(push.stderr || push.stdout || "").slice(0, 500)}`);
-    process.exit(7);
+    log("remote_state_unchanged");
+    const failed = readInbox(inboxPath);
+    patchAttempt(vaultRoot, taskIdFromText(failed.text), {
+      writeback_pending: true,
+      pushed: false,
+    });
+    process.exit(0);
   }
   log("push_ok");
+  const pushed = readInbox(inboxPath);
+  patchAttempt(vaultRoot, taskIdFromText(pushed.text), {
+    writeback_pending: false,
+    pushed: true,
+  });
 }
 
 process.exit(0);

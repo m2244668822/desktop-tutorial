@@ -17,10 +17,13 @@ import {
 import {
   readInbox,
   setStatus,
-  extractMechanicalActions,
+  classifyMechanicalActions,
+  contractHash,
+  taskIdFromText,
   upsertDaemonResult,
   resolveInboxPath,
 } from "./inbox.js";
+import { lookupAttempt, recordAttempt } from "./attempts.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const vaultRoot = path.resolve(
@@ -51,6 +54,24 @@ function log(msg) {
   process.stderr.write(`[inbox-executor] ${new Date().toISOString()} ${msg}\n`);
 }
 
+function failureClass(code, message, toolsFinished) {
+  const permanent = new Set([
+    "parse_error",
+    "missing_actions",
+    "approval_required",
+    "approval_incomplete",
+    "approval_expired",
+    "tool_not_allowed",
+    "done",
+  ]);
+  if (toolsFinished > 0) return { auto_retry: false, klass: "unknown_side_effect" };
+  if (permanent.has(code)) return { auto_retry: false, klass: code };
+  if (/timeout|timed out|econn|enotfound|network|fetch/i.test(`${code} ${message || ""}`)) {
+    return { auto_retry: false, klass: "unknown_side_effect" };
+  }
+  return { auto_retry: false, klass: "needs-review" };
+}
+
 async function runContract() {
   if (busy) return;
   if (!fs.existsSync(inboxPath)) {
@@ -61,27 +82,51 @@ async function runContract() {
   const { text, status } = readInbox(inboxPath);
   if (status !== "queued") return;
 
+  const taskId = taskIdFromText(text);
+  const hash = contractHash(text);
+  const prev = lookupAttempt(vaultRoot, taskId);
+  if (prev && prev.hash === hash && prev.auto_retry === false) {
+    log(
+      `retry_suppressed task_id=${taskId} trace_id=${prev.trace_id} code=${prev.code}`
+    );
+    const restoreStatus = prev.code === "done" ? "done" : "blocked";
+    let restored = setStatus(text, restoreStatus);
+    if (prev.result_markdown) {
+      restored = upsertDaemonResult(restored, prev.result_markdown);
+    }
+    fs.writeFileSync(inboxPath, restored, "utf8");
+    return;
+  }
+
   busy = true;
   log("detected queued → running");
   let next = setStatus(text, "running");
   fs.writeFileSync(inboxPath, next, "utf8");
 
-  const mechanical = extractMechanicalActions(next);
-  const taskId =
-    (mechanical && mechanical.task_id) ||
-    (next.match(/task_id\s+([^\s\n]+)/)?.[1] ?? "unknown");
+  const found = classifyMechanicalActions(next);
+  const mechanical = found.ok ? found.parsed : null;
   const traceId = crypto.randomUUID();
-  log(`trace_id=${traceId} task_id=${taskId}`);
+  log(`trace_id=${traceId} task_id=${taskId} parse=${found.code}`);
 
-  if (!mechanical) {
+  if (!found.ok) {
+    const code = found.code;
     const reason =
-      "blocked: 無 ## Mechanical Actions JSON。非機械契約請用 Cursor「跑 inbox」，或請 ChatGPT 補機械動作區塊。";
+      code === "parse_error"
+        ? `blocked: parse_error。Mechanical Actions JSON 無法解析（${found.message || "invalid"}）。同一 task_id 不再自動重跑。`
+        : "blocked: 無 ## Mechanical Actions JSON。非機械契約請用 Cursor「跑 inbox」，或請 ChatGPT 補機械動作區塊。";
+    const resultMarkdown = `- trace_id：\`${traceId}\`\n- task_id：\`${taskId}\`\n- 時間：${new Date().toISOString()}\n- 結果：blocked\n- code：\`${code}\`\n- message：${reason}`;
     next = setStatus(next, "blocked");
-    next = upsertDaemonResult(
-      next,
-      `- trace_id：\`${traceId}\`\n- task_id：\`${taskId}\`\n- 時間：${new Date().toISOString()}\n- 結果：\`${reason}\`\n- 下一步：補機械動作，或改由 Cursor 執行`
-    );
+    next = upsertDaemonResult(next, resultMarkdown);
     fs.writeFileSync(inboxPath, next, "utf8");
+    recordAttempt(vaultRoot, taskId, {
+      hash,
+      code,
+      trace_id: traceId,
+      auto_retry: false,
+      pushed: false,
+      writeback_pending: false,
+      result_markdown: resultMarkdown,
+    });
     log(reason);
     busy = false;
     return;
@@ -145,15 +190,20 @@ async function runContract() {
       results.push({ tool, ok: true, out: slim });
     }
 
-    const summary = results
-      .map((r) => `- \`${r.tool}\` ok`)
-      .join("\n");
+    const summary = results.map((r) => `- \`${r.tool}\` ok`).join("\n");
+    const resultMarkdown = `- trace_id：\`${traceId}\`\n- task_id：\`${taskId}\`\n- 時間：${new Date().toISOString()}\n- 結果：done\n- auto_approve：${autoApprove}\n- 動作：\n${summary}\n- 詳情：\n\`\`\`json\n${JSON.stringify(results, null, 2).slice(0, 4000)}\n\`\`\``;
     next = setStatus(fs.readFileSync(inboxPath, "utf8"), "done");
-    next = upsertDaemonResult(
-      next,
-      `- trace_id：\`${traceId}\`\n- task_id：\`${taskId}\`\n- 時間：${new Date().toISOString()}\n- 結果：done\n- auto_approve：${autoApprove}\n- 動作：\n${summary}\n- 詳情：\n\`\`\`json\n${JSON.stringify(results, null, 2).slice(0, 4000)}\n\`\`\``
-    );
+    next = upsertDaemonResult(next, resultMarkdown);
     fs.writeFileSync(inboxPath, next, "utf8");
+    recordAttempt(vaultRoot, taskId, {
+      hash,
+      code: "done",
+      trace_id: traceId,
+      auto_retry: false,
+      pushed: false,
+      writeback_pending: false,
+      result_markdown: resultMarkdown,
+    });
     log(`done trace_id=${traceId}`);
   } catch (err) {
     const code = err.code || "error";
@@ -162,12 +212,23 @@ async function runContract() {
       err.proposed != null
         ? `\n- proposed：\n\`\`\`json\n${JSON.stringify(err.proposed, null, 2)}\n\`\`\``
         : "";
-    next = upsertDaemonResult(
-      next,
-      `- trace_id：\`${traceId}\`\n- task_id：\`${taskId}\`\n- 時間：${new Date().toISOString()}\n- 結果：blocked\n- code：\`${code}\`\n- message：${err.message}${extra}\n- 提示：設 actions[].args.approval 或 mechanical.auto_approve=true／環境變數 INBOX_AUTO_APPROVE=1（僅信任契約時）`
-    );
+    const policy = failureClass(code, err.message, results.length);
+    const resultMarkdown = `- trace_id：\`${traceId}\`\n- task_id：\`${taskId}\`\n- 時間：${new Date().toISOString()}\n- 結果：blocked\n- code：\`${code}\`\n- failure_class：\`${policy.klass}\`\n- auto_retry：${policy.auto_retry}\n- message：${err.message}${extra}`;
+    next = upsertDaemonResult(next, resultMarkdown);
     fs.writeFileSync(inboxPath, next, "utf8");
-    log(`blocked: ${code} ${err.message} trace_id=${traceId}`);
+    recordAttempt(vaultRoot, taskId, {
+      hash,
+      code,
+      failure_class: policy.klass,
+      trace_id: traceId,
+      auto_retry: policy.auto_retry,
+      pushed: false,
+      writeback_pending: false,
+      result_markdown: resultMarkdown,
+    });
+    log(
+      `blocked: ${code} class=${policy.klass} auto_retry=${policy.auto_retry} trace_id=${traceId}`
+    );
   } finally {
     busy = false;
   }

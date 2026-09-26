@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -20,25 +21,85 @@ export function setStatus(text, status) {
   return text.replace(/^---\n/, `---\nstatus: ${status}\n`);
 }
 
+export function contractHash(text) {
+  const normalized = text.replace(STATUS_RE, "status: queued");
+  return crypto.createHash("sha256").update(normalized, "utf8").digest("hex");
+}
+
+export function taskIdFromText(text) {
+  return text.match(/task_id\s+([^\s\n]+)/)?.[1] ?? "unknown";
+}
+
 /**
- * Extract ```json ... ``` under ## Mechanical Actions (or ## 機械動作)
+ * JSON object slice that ignores braces and backticks inside strings.
+ * Contract fence ``` inside a string must not end the contract.
  */
-export function extractMechanicalActions(text) {
-  const sectionRe =
-    /##\s*(Mechanical Actions|機械動作)\s*\n([\s\S]*?)(?=\n##\s|\n#\s|$)/i;
-  const section = text.match(sectionRe);
-  if (!section) return null;
-  const body = section[2];
-  const fence = body.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (!fence) return null;
-  try {
-    const parsed = JSON.parse(fence[1].trim());
-    if (!parsed || typeof parsed !== "object") return null;
-    if (!Array.isArray(parsed.actions)) return null;
-    return parsed;
-  } catch {
-    return null;
+function balancedJsonObject(text, start) {
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = start; i < text.length; i++) {
+    const c = text[i];
+    if (inStr) {
+      if (esc) {
+        esc = false;
+        continue;
+      }
+      if (c === "\\") {
+        esc = true;
+        continue;
+      }
+      if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') {
+      inStr = true;
+      continue;
+    }
+    if (c === "{") depth++;
+    else if (c === "}") {
+      depth--;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
   }
+  return null;
+}
+
+/**
+ * @returns {{ ok: true, code: "ok", parsed: object } | { ok: false, code: "missing_actions" | "parse_error", message?: string }}
+ */
+export function classifyMechanicalActions(text) {
+  const heading = text.search(/^##\s*(Mechanical Actions|機械動作)\s*$/m);
+  if (heading < 0) {
+    return { ok: false, code: "missing_actions", message: "no Mechanical Actions heading" };
+  }
+  const after = text.slice(heading);
+  const fence = after.match(/```json[^\n]*\n/);
+  if (!fence) {
+    return { ok: false, code: "missing_actions", message: "no json fence" };
+  }
+  const jsonStart = after.indexOf("{", fence.index + fence[0].length);
+  if (jsonStart < 0) {
+    return { ok: false, code: "parse_error", message: "json object missing" };
+  }
+  const raw = balancedJsonObject(after, jsonStart);
+  if (!raw) {
+    return { ok: false, code: "parse_error", message: "unbalanced json" };
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.actions)) {
+      return { ok: false, code: "parse_error", message: "actions missing" };
+    }
+    return { ok: true, code: "ok", parsed };
+  } catch (err) {
+    return { ok: false, code: "parse_error", message: err.message };
+  }
+}
+
+export function extractMechanicalActions(text) {
+  const found = classifyMechanicalActions(text);
+  return found.ok ? found.parsed : null;
 }
 
 /**
