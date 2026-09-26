@@ -268,6 +268,21 @@ def build_capability_registry(
             fallback="local_models",
             providers=providers,
         ),
+        _capability(
+            capability_id="vault_workspace_mcp",
+            label="Vault Workspace MCP",
+            kind="mcp_tools",
+            ready=True,
+            required=False,
+            cost_class="local",
+            task_types=["workspace_list", "workspace_patch", "git_checkpoint"],
+            risk_level="medium",
+            owner_agent="總管中樞",
+            fallback="cursor_executor_via_chatgpt_inbox",
+            endpoint="services/vault_workspace_mcp/src/server.js",
+            approval_required=True,
+            notes="Node MCP adapter scoped to Obsidian vault; not a second agent.",
+        ),
     ]
     by_id = {item["id"]: item for item in capabilities}
     return {
