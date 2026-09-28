@@ -2865,8 +2865,9 @@ class DesktopBridge:
         # 決定後端：前端 model key 先正規化；auto discussion 固定本機優先。
         interaction_mode = self._normalize_interaction_mode(interaction_mode)
         purpose = infer_backend_purpose(message) if infer_backend_purpose else "discussion"
-        self._refresh_local_llm_health(force=False)
         requested_backend = self._normalize_frontend_model_key(model_key, purpose)
+        if requested_backend == "open_source":
+            self._refresh_local_llm_health(force=False)
 
         # 只有任務型 auto 才能在本機不可用時自動改走雲端；一般聊天不偷花額度。
         if (
