@@ -1,0 +1,17 @@
+{
+  "name": "vault-workspace-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Perob service: vault-scoped MCP file tools (list/search/read/create/patch/move/trash/git.checkpoint)",
+  "bin": {
+    "vault-workspace-mcp": "./src/server.js"
+  },
+  "scripts": {
+    "start": "node ./src/server.js",
+    "e2e": "node ./src/e2e.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

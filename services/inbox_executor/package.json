@@ -1,0 +1,15 @@
+{
+  "name": "inbox-executor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Path B: poll chatgpt-inbox queued contracts and run mechanical MCP actions (not a second agent)",
+  "scripts": {
+    "start": "node ./src/daemon.js",
+    "once": "node ./src/daemon.js --once",
+    "sync": "node ./src/sync.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
