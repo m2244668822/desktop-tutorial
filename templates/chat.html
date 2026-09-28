@@ -272,10 +272,6 @@
     <div class="tb-sub">桌面指揮中心</div>
   </div>
   <div class="tb-right">
-    <button class="low-restrict-btn" id="lowRestrictBtn" onclick="toggleLowRestrict()" title="最低權限模式：可繞過一般限制並允許外部代理程式直通">
-      <span class="low-restrict-dot"></span>
-      <span id="lowRestrictLabel">最低權限</span>
-    </button>
     <span class="tb-badge" id="apiBaseBadge" title="前端目前 API 基底">API: —</span>
     <span class="tb-badge" id="bridgeState">連線中...</span>
     <div class="tb-icon" id="reconnectBtn" title="重新聯網確認" onclick="reconnectAll()" style="cursor:pointer">🔄</div>
@@ -323,17 +319,12 @@
         <div class="mc" id="mc-auto" onclick="startChat('auto','自動選擇')">
           <div class="mc-top"><div class="mc-icon" style="background:rgba(76,29,149,.35)">⚡</div><div><div class="mc-name">自動選擇</div><div class="mc-sub">智慧路由</div></div></div>
           <div class="mc-desc">自動選最優模型</div>
-          <span class="badge b-local">本地優先</span>
+          <span class="badge b-local" id="mbadge-auto">本地優先</span>
         </div>
         <div class="mc" id="mc-ollama_qwen25_7b" onclick="startChat('ollama_qwen25_7b','Qwen2.5 7B')">
           <div class="mc-top"><div class="mc-icon" style="background:rgba(14,116,144,.35)">🧠</div><div><div class="mc-name">Qwen2.5 7B</div><div class="mc-sub">4.7 GB · 32K</div></div></div>
           <div class="mc-desc">本地高品質中文推理</div>
-          <span class="badge b-local">本地主力</span>
-        </div>
-        <div class="mc" id="mc-sidecar" onclick="startChat('sidecar','本地模型（跟隨 .env）')">
-          <div class="mc-top"><div class="mc-icon" style="background:rgba(20,83,45,.35)">🛠️</div><div><div class="mc-name">本地旁路模型</div><div class="mc-sub">跟隨 .env 設定</div></div></div>
-          <div class="mc-desc">使用 OPEN_SOURCE_CHAT_MODEL / OLLAMA_MODEL</div>
-          <span class="badge b-local">本地路由</span>
+          <span class="badge b-local" id="mbadge-local">檢查中</span>
         </div>
       </div>
 
@@ -361,11 +352,6 @@
           <div class="mc-top"><div class="mc-icon" style="background:rgba(124,45,18,.35)">⚡</div><div><div class="mc-name">Groq</div><div class="mc-sub" id="msub-groq">gpt-oss-20b</div></div></div>
           <div class="mc-desc">低延遲快速回覆</div>
           <span class="badge b-key" id="mbadge-groq">需 API 金鑰</span>
-        </div>
-        <div class="mc" onclick="openExternal('https://claude.ai')">
-          <div class="mc-top"><div class="mc-icon" style="background:rgba(120,53,15,.35)">🌊</div><div><div class="mc-name">Claude</div><div class="mc-sub">claude.ai</div></div></div>
-          <div class="mc-desc">Anthropic 助手（外部）</div>
-          <span class="badge b-tool">外部工具</span>
         </div>
       </div>
 
@@ -559,15 +545,14 @@ let state = {
   agentKey: "trevor",
   agentLabel: "崔佛",
   agentIcon: "🧭",
-  model: "ollama_qwen25_7b",
-  modelLabel: "Qwen2.5 7B",
+  model: "auto",
+  modelLabel: "自動選擇",
   interactionMode: "auto",
   capabilityMode: "general",
   deliberation: "auto",
   sessionId: newId(),
   composing: false,
   attachments: [],
-  lowRestrict: false,  // 最低權限模式：可繞過一般限制並允許外部代理程式直通
   pendingSend: null,
   pendingSendTimer: null,
   pendingForcedSource: "",
@@ -599,23 +584,6 @@ function __agentLog(hypothesisId, location, message, data = {}) {
 
 // Per-agent independent conversation storage
 const agentChats = {};
-
-/* ════════════════════════════════════════
-   最低權限模式（外部代理直通）
-   說明：啟用後，前端會附帶 bypass 標記，允許你手動呼叫外部代理流程。
-════════════════════════════════════════ */
-function toggleLowRestrict() {
-  state.lowRestrict = !state.lowRestrict;
-  const btn = document.getElementById("lowRestrictBtn");
-  const lbl = document.getElementById("lowRestrictLabel");
-  if (state.lowRestrict) {
-    btn.classList.add("on");
-    lbl.textContent = "最低權限 ON";
-  } else {
-    btn.classList.remove("on");
-    lbl.textContent = "最低權限";
-  }
-}
 
 const AGENT_META = {
   trevor: {
@@ -911,8 +879,10 @@ function startChat(modelKey, modelLabel) {
   if (card && card.classList.contains("mc-offline")) {
     const badge = card.querySelector("[id^='mbadge-']");
     const orig = badge ? badge.textContent : "";
-    if (badge) { badge.textContent = "請先設定 API 金鑰"; badge.className = "badge b-disabled"; }
-    setTimeout(() => { if (badge) { badge.textContent = orig || "未設定"; badge.className = "badge b-disabled"; } }, 2000);
+    const localModel = modelKey === "ollama_qwen25_7b";
+    const message = localModel ? "請先啟動 Ollama 或安裝模型" : "請先設定 API 金鑰";
+    if (badge) { badge.textContent = message; badge.className = "badge b-disabled"; }
+    setTimeout(() => { if (badge) { badge.textContent = orig || "未設定"; badge.className = "badge b-disabled"; } }, 2200);
     return;
   }
   state.model = modelKey;
@@ -1264,19 +1234,7 @@ async function sendMessage(options = {}) {
       session_id: state.sessionId,
       conversation,
     };
-    if (state.lowRestrict) {
-      payload.ethics_mode = "owner_relaxed";
-      payload.external_agent_proxy_allowed = true;
-      payload.execution_mode = "smp";
-      payload.permission_bypass = "low_restrict";
-    }
     const reqHeaders = { "Content-Type": "application/json" };
-    if (state.lowRestrict) {
-      reqHeaders["X-Agent-Internal"] = "agent-internal-bypass-2024";
-      reqHeaders["X-Agent-Sender"] = "owner_ui";
-      reqHeaders["X-External-Agent-Proxy"] = "allow";
-      reqHeaders["X-Execution-Mode"] = "smp";
-    }
     // #region agent log
     __agentLog("HUI4", "templates/chat.html:sendMessage", "about to call /chat/agent", {
       agent: state.agentKey,
@@ -1727,7 +1685,7 @@ function inferProviderKey(modelText) {
   if (!text) return "";
   if (text.includes("qwen2.5:7b") || (text.includes("qwen2.5") && text.includes("7b"))) return "ollama_qwen25_7b";
   if (text.includes("qwen")) return "ollama_qwen25_7b";
-  if (text.includes("tinyllama") || text.includes("mistral") || text.includes("ollama")) return "sidecar";
+  if (text.includes("tinyllama") || text.includes("mistral") || text.includes("ollama")) return "ollama_qwen25_7b";
   if (text.includes("openai") || text.includes("gpt-4o")) return "openai";
   if (text.includes("nvidia") || text.includes("llama")) return "nvidia";
   if (text.includes("gemini")) return "gemini";
@@ -1841,7 +1799,7 @@ async function fetchProviderStatus(force = false) {
   fs.lastAt = now;
   try {
     const headers = { "Content-Type": "application/json", "X-API-Token": window.__API_TOKEN__ || "" };
-    const r = await fetch("/status", { headers });
+    const r = await fetch("/api/get_api_onboarding_info", { headers });
     if (!r.ok) return;
     const d = await r.json();
     renderProviderStatusFromPayload(d);
@@ -1851,7 +1809,28 @@ async function fetchProviderStatus(force = false) {
   }
 }
 
-function renderProviderStatusFromPayload(d = {}) {
+function renderProviderStatusFromPayload(payload = {}) {
+    const d = payload.providers && typeof payload.providers === "object" ? payload.providers : payload;
+    const local = payload.local_llm && typeof payload.local_llm === "object"
+      ? payload.local_llm
+      : (d.local_llm && typeof d.local_llm === "object" ? d.local_llm : {});
+
+    const localCard = document.getElementById("mc-ollama_qwen25_7b");
+    const localBadge = document.getElementById("mbadge-local");
+    const autoBadge = document.getElementById("mbadge-auto");
+    if (localCard && Object.keys(local).length) {
+      if (local.healthy) {
+        localCard.classList.remove("mc-offline");
+        if (localBadge) { localBadge.className = "badge b-local"; localBadge.textContent = "本機可用"; }
+        if (autoBadge) { autoBadge.className = "badge b-local"; autoBadge.textContent = "本地優先"; }
+      } else {
+        localCard.classList.add("mc-offline");
+        const reason = local.failure_reason === "model_missing" ? "模型未安裝" : "Ollama 離線";
+        if (localBadge) { localBadge.className = "badge b-disabled"; localBadge.textContent = reason; }
+        if (autoBadge) { autoBadge.className = "badge b-disabled"; autoBadge.textContent = "離線降級"; }
+      }
+    }
+
     const visibleProviders = new Set(
       (d.provider_catalog || [])
         .filter(item => item && item.visible)
