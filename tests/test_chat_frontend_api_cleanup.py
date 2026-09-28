@@ -56,9 +56,11 @@ class ChatFrontendApiCleanupTests(unittest.TestCase):
             "onclick=\"showHubPanel('kalPanel')\"",
             "onclick=\"showHubPanel('tasksPanel')\"",
             "onclick=\"triggerFilePicker()\"",
-            "onclick=\"openExternal('https://claude.ai')\"",
         ]:
             self.assertIn(token, self.html)
+
+    def test_primary_chat_does_not_expose_dead_external_model_card(self):
+        self.assertNotIn("onclick=\"openExternal('https://claude.ai')\"", self.html)
 
     def test_topbar_logo_no_longer_depends_on_missing_static_asset(self):
         self.assertIn('<svg class="tb-logo"', self.html)
