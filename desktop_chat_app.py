@@ -3248,7 +3248,7 @@ class DesktopBridge:
             "llm_live": live_llm_meta,
             "purpose": purpose,
             "interaction_mode": interaction_mode,
-            "model": requested_backend,
+            "model": str(live_llm_meta.get("model") or requested_backend),
             "completion": completion,
             "escalation": escalation,
             "react": react_loop,
