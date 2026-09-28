@@ -285,8 +285,16 @@ class DesktopBridge:
         self.api_error_count = 0
         self.last_reminder_time = 0.0
         self.oss_is_healthy = False
-        self.chat_mode = "online"
-        self.offline_fallback_enabled = True
+        self.local_llm_state: dict[str, Any] = {
+            "healthy": False,
+            "service_alive": False,
+            "model_available": False,
+            "model": "",
+            "available_models": [],
+            "latency_ms": None,
+            "last_checked_at": 0.0,
+            "failure_reason": "not_checked",
+        }
         self.max_history = 10
         self.max_reply_history = 250
         self.base_context_window = max(
@@ -322,7 +330,6 @@ class DesktopBridge:
         self._available_models = None
         self._models_last_check = 0
         self.last_workflow_state: dict = {}
-        self.force_cloud_offload = True
         self.energy_policy = {
             "cpu_high": 70,
             "cpu_critical": 85,
@@ -508,6 +515,7 @@ class DesktopBridge:
                 continue
             try:
                 time.sleep(self.background_interval)
+                self._refresh_local_llm_health(force=False)
                 reminder = self._check_and_send_reminder(time.time())
                 if reminder:
                     self._broadcast_reminder_js(reminder)
@@ -2334,6 +2342,109 @@ class DesktopBridge:
         }
         return text.strip(), meta
 
+    def _local_llm_config(self) -> dict[str, str]:
+        env = self._load_merged_env_data()
+        chat_url = str(
+            env.get("OLLAMA_CHAT_URL", "http://127.0.0.1:11434/api/chat") or ""
+        ).strip()
+        tags_url = str(env.get("OLLAMA_TAGS_URL", "") or "").strip()
+        if not tags_url:
+            if "/api/" in chat_url:
+                tags_url = chat_url.split("/api/", 1)[0].rstrip("/") + "/api/tags"
+            else:
+                tags_url = chat_url.rstrip("/") + "/api/tags"
+        model = str(
+            env.get("OPEN_SOURCE_CHAT_MODEL", "")
+            or env.get("OLLAMA_MODEL", "")
+            or DEFAULT_CHAT_MODEL_BY_PROVIDER.get("open_source", "qwen2.5:7b")
+        ).strip()
+        return {"chat_url": chat_url, "tags_url": tags_url, "model": model}
+
+    @staticmethod
+    def _ollama_model_available(requested: str, available: list[str]) -> bool:
+        target = str(requested or "").strip().lower()
+        if not target:
+            return False
+        names = {str(item or "").strip().lower() for item in available if str(item or "").strip()}
+        if target in names:
+            return True
+        target_without_latest = target.removesuffix(":latest")
+        return any(name.removesuffix(":latest") == target_without_latest for name in names)
+
+    def _refresh_local_llm_health(self, force: bool = False) -> dict[str, Any]:
+        now = time.time()
+        last_checked = float(self.local_llm_state.get("last_checked_at", 0.0) or 0.0)
+        if (
+            not force
+            and last_checked > 0
+            and now - last_checked < float(self.oss_health_check_interval)
+        ):
+            return dict(self.local_llm_state)
+
+        config = self._local_llm_config()
+        state: dict[str, Any] = {
+            "healthy": False,
+            "service_alive": False,
+            "model_available": False,
+            "model": config["model"],
+            "available_models": [],
+            "latency_ms": None,
+            "last_checked_at": now,
+            "failure_reason": "",
+        }
+        started = time.time()
+        try:
+            req = urllib_request.Request(config["tags_url"], method="GET")
+            timeout = min(3.0, max(0.8, float(getattr(self, "live_llm_timeout_sec", 3.0))))
+            with urllib_request.urlopen(req, timeout=timeout) as resp:
+                body = resp.read().decode("utf-8", errors="ignore")
+            payload = json.loads(body or "{}")
+            models = payload.get("models", []) if isinstance(payload, dict) else []
+            available: list[str] = []
+            for item in models if isinstance(models, list) else []:
+                if isinstance(item, dict):
+                    name = str(item.get("name") or item.get("model") or "").strip()
+                    if name:
+                        available.append(name)
+            state["service_alive"] = True
+            state["available_models"] = available
+            state["model_available"] = self._ollama_model_available(config["model"], available)
+            state["healthy"] = bool(state["model_available"])
+            state["failure_reason"] = "" if state["healthy"] else "model_missing"
+        except urllib_error.HTTPError as exc:
+            state["failure_reason"] = f"http_{exc.code}"
+        except urllib_error.URLError:
+            state["failure_reason"] = "service_down"
+        except TimeoutError:
+            state["failure_reason"] = "timeout"
+        except (json.JSONDecodeError, ValueError):
+            state["failure_reason"] = "invalid_health_response"
+        except Exception as exc:
+            state["failure_reason"] = type(exc).__name__.lower()
+        state["latency_ms"] = round((time.time() - started) * 1000, 1)
+        self.local_llm_state = state
+        self.oss_is_healthy = bool(state["healthy"])
+        self.last_oss_health_check = now
+        return dict(state)
+
+    def _normalize_frontend_model_key(self, model_key: str, purpose: str) -> str:
+        key = str(model_key or "auto").strip().lower()
+        local_aliases = {
+            "open_source",
+            "ollama",
+            "ollama_qwen25_7b",
+            "qwen2.5:7b",
+            "local",
+            "sidecar",
+        }
+        if key in local_aliases:
+            return "open_source"
+        if key in {"nvidia", "openai", "groq", "gemini"}:
+            return key
+        if key in {"", "auto"}:
+            return self._requested_backend_for_purpose(purpose)
+        return self._requested_backend_for_purpose(purpose)
+
     def _call_ollama_chat(
         self, messages: list[dict[str, str]]
     ) -> tuple[str, dict[str, Any]]:
@@ -2544,14 +2655,16 @@ class DesktopBridge:
         return get_agent_system_prompt(agent_name, self.workspace)
 
     def _requested_backend_for_purpose(self, purpose: str) -> str:
+        normalized = str(purpose or "discussion").strip().lower()
+        if normalized == "discussion":
+            return "open_source"
+
         env = self._load_merged_env_data()
-        if purpose == "execution":
-            return "nvidia"
-        if purpose == "discussion":
-            return "nvidia"
-        pref = str(env.get("CHAT_PREFERRED_PROVIDER", "")).strip().lower()
-        if pref in {"nvidia", "openai", "groq", "gemini"}:
-            return pref
+        pref = str(env.get("CHAT_PREFERRED_PROVIDER", "") or "").strip().lower()
+        cloud_order = [pref, "nvidia", "groq", "gemini", "openai"]
+        for backend in cloud_order:
+            if backend in {"nvidia", "openai", "groq", "gemini"} and self._is_cloud_available(backend):
+                return backend
         return "open_source"
 
     def _allow_cloud_fallback_for_requested_backend(
@@ -2749,19 +2862,22 @@ class DesktopBridge:
             retrieval_brief=retrieval_brief,
         )
 
-        # 決定後端
+        # 決定後端：前端 model key 先正規化；auto discussion 固定本機優先。
         interaction_mode = self._normalize_interaction_mode(interaction_mode)
         purpose = infer_backend_purpose(message) if infer_backend_purpose else "discussion"
-        requested_backend = model_key if model_key != "auto" else self._requested_backend_for_purpose(purpose)
+        self._refresh_local_llm_health(force=False)
+        requested_backend = self._normalize_frontend_model_key(model_key, purpose)
 
-        # 自動討論保持最低流量；只有明確雲端或任務型需求才可雲端 fallback。
+        # 只有任務型 auto 才能在本機不可用時自動改走雲端；一般聊天不偷花額度。
         if (
             requested_backend == "open_source"
             and not self.oss_is_healthy
             and self._allow_cloud_fallback_for_requested_backend(purpose, model_key, interaction_mode)
         ):
-            if self._is_cloud_available("nvidia"): requested_backend = "nvidia"
-            elif self._is_cloud_available("groq"): requested_backend = "groq"
+            if self._is_cloud_available("nvidia"):
+                requested_backend = "nvidia"
+            elif self._is_cloud_available("groq"):
+                requested_backend = "groq"
 
         self._requested_backend = requested_backend
         skip_live_llm_reason = ""
@@ -2939,6 +3055,27 @@ class DesktopBridge:
                 )
                 if live_reply.strip():
                     reply = live_reply.strip()
+                elif requested_backend != "open_source":
+                    # 雲端配額耗盡／連線失敗時，以本機 Ollama 作最後真 LLM 後備。
+                    local_state = self._refresh_local_llm_health(force=True)
+                    if local_state.get("healthy"):
+                        cloud_backend = requested_backend
+                        local_reply, local_meta = self._generate_live_llm_reply(
+                            message=message,
+                            role=role,
+                            requested_backend="open_source",
+                            retrieval_brief=retrieval_brief,
+                            capability_mode=capability_mode,
+                            deliberation="fast",
+                        )
+                        if local_reply.strip():
+                            reply = local_reply.strip()
+                            requested_backend = "open_source"
+                            self._requested_backend = requested_backend
+                            live_llm_meta = dict(local_meta or {})
+                            live_llm_meta["fallback_used"] = True
+                            live_llm_meta["fallback_from"] = cloud_backend
+                            live_llm_meta["fallback_reason"] = "cloud_unavailable_local_recovery"
             workflow_payload["llm_live"] = dict(live_llm_meta)
 
         # 後備回覆：一般對談避免暴露巡檢細節；任務失敗才給簡短狀態。
@@ -3191,23 +3328,28 @@ class DesktopBridge:
         return {
             "reply_counter": self.reply_counter,
             "last_message_ts": self.last_message_ts,
-            "system": self._system_profile()
+            "system": self._system_profile(),
+            "local_llm": self._refresh_local_llm_health(force=False),
         }
 
     def get_api_onboarding_info(self) -> dict:
+        local_llm = self._refresh_local_llm_health(force=False)
         if cns_frontend_provider_status is not None:
             try:
-                return {"providers": cns_frontend_provider_status(self.workspace)}
+                return {
+                    "providers": cns_frontend_provider_status(self.workspace),
+                    "local_llm": local_llm,
+                }
             except Exception:
                 pass
         if cns_provider_matrix is not None:
             try:
                 env = self._load_merged_env_data()
                 rows = cns_provider_matrix(env)
-                return {"providers": {"rows": rows}}
+                return {"providers": {"rows": rows}, "local_llm": local_llm}
             except Exception:
                 pass
-        return {"providers": {}}
+        return {"providers": {}, "local_llm": local_llm}
 
     def get_trevor_provider_status(self) -> dict:
         return self.provider_registry.public_status()
@@ -3238,7 +3380,8 @@ class DesktopBridge:
         return True
 
     def _get_available_models(self) -> list:
-        return [{"name": "qwen2.5:7b", "size_gb": 4.7}]
+        state = self._refresh_local_llm_health(force=False)
+        return [{"name": name} for name in state.get("available_models", [])]
 
     def open_external(self, url: str) -> bool:
         webbrowser.open(url)
