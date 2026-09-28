@@ -118,13 +118,25 @@ class SuperPlatformContractTests(unittest.TestCase):
         self.assertEqual(decision["route_order"][:2], ["openclaw", "desktop_bridge"])
         self.assertFalse(decision["n8n_required"])
 
-    def test_auto_discussion_prefers_nvidia_control_core(self):
+    def test_auto_discussion_prefers_local_open_source(self):
         from desktop_chat_app import DesktopBridge
 
         bridge = DesktopBridge.__new__(DesktopBridge)
         bridge._load_merged_env_data = lambda: {"CHAT_PREFERRED_PROVIDER": "groq"}
 
-        self.assertEqual(bridge._requested_backend_for_purpose("discussion"), "nvidia")
+        self.assertEqual(bridge._requested_backend_for_purpose("discussion"), "open_source")
+
+    def test_frontend_local_model_keys_map_to_open_source(self):
+        from desktop_chat_app import DesktopBridge
+
+        bridge = DesktopBridge.__new__(DesktopBridge)
+        bridge._requested_backend_for_purpose = lambda _purpose: "open_source"
+
+        for model_key in ("ollama_qwen25_7b", "sidecar", "ollama", "qwen2.5:7b", "local"):
+            self.assertEqual(
+                bridge._normalize_frontend_model_key(model_key, "discussion"),
+                "open_source",
+            )
 
     def test_auto_discussion_does_not_spend_cloud_when_local_model_is_unhealthy(self):
         from desktop_chat_app import DesktopBridge
