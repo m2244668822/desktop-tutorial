@@ -31,10 +31,10 @@ git(["config", "user.name", "mcp-e2e"]);
 
 const relFile = "e2e-target.md";
 fs.writeFileSync(path.join(scratchRoot, relFile), "# e2e before\n", "utf8");
-fs.mkdirSync(path.join(scratchRoot, "tests"), { recursive: true });
+fs.mkdirSync(path.join(scratchRoot, "services", "smoke", "src"), { recursive: true });
 fs.writeFileSync(
-  path.join(scratchRoot, "tests", "test_runtime_smoke.py"),
-  "def test_runtime_smoke():\n    assert 1 + 1 == 2\n",
+  path.join(scratchRoot, "services", "smoke", "src", "e2e.js"),
+  "console.log('SMOKE_OK');\n",
   "utf8",
 );
 git(["add", "-A"]);
@@ -68,24 +68,25 @@ const runtime = await dispatch(ws, "runtime.capabilities", {});
 assert(runtime.executors?.workspace_mcp === true, "runtime capabilities missing workspace_mcp");
 
 const testRun = await dispatch(ws, "runtime.run_test", {
-  runner: "pytest",
-  target: "tests/test_runtime_smoke.py",
+  runner: "node_e2e",
+  target: "services/smoke/src/e2e.js",
   timeoutSec: 30,
 });
 assert(testRun.ok === true, `runtime.run_test failed: ${testRun.stderr}`);
 assert(testRun.exit_code === 0, "runtime.run_test exit code mismatch");
+assert(testRun.stdout.includes("SMOKE_OK"), "runtime.run_test output mismatch");
 
 let deniedTestTarget = false;
 try {
   await dispatch(ws, "runtime.run_test", {
-    runner: "pytest",
+    runner: "node_e2e",
     target: "e2e-target.md",
     timeoutSec: 30,
   });
 } catch (error) {
-  deniedTestTarget = error?.code === "test_target_outside_tests";
+  deniedTestTarget = error?.code === "node_e2e_target_denied";
 }
-assert(deniedTestTarget, "runtime.run_test must deny targets outside tests/");
+assert(deniedTestTarget, "runtime.run_test must deny arbitrary node targets");
 
 const originalFetch = globalThis.fetch;
 globalThis.fetch = async () =>
