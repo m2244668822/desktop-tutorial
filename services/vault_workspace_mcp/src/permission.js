@@ -16,6 +16,7 @@ export function riskForTool(toolName) {
       return "L0";
     case "workspace.create":
     case "trevor.web_search":
+    case "runtime.run_test":
       return "L1";
     case "workspace.patch":
     case "workspace.move":
