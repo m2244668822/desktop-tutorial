@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Perob service: vault-scoped MCP engineering tools (read/search/propose/patch, local capability discovery, Trevor web search, git checkpoints)",
+  "description": "Perob service: vault-scoped MCP engineering tools (read/search/propose/patch, bounded test execution, local capability discovery, Trevor web search, git checkpoints)",
   "bin": {
     "vault-workspace-mcp": "./src/server.js"
   },
