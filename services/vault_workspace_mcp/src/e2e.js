@@ -31,6 +31,12 @@ git(["config", "user.name", "mcp-e2e"]);
 
 const relFile = "e2e-target.md";
 fs.writeFileSync(path.join(scratchRoot, relFile), "# e2e before\n", "utf8");
+fs.mkdirSync(path.join(scratchRoot, "tests"), { recursive: true });
+fs.writeFileSync(
+  path.join(scratchRoot, "tests", "test_runtime_smoke.py"),
+  "def test_runtime_smoke():\n    assert 1 + 1 == 2\n",
+  "utf8",
+);
 git(["add", "-A"]);
 git(["commit", "-m", "e2e-seed"]);
 
@@ -52,6 +58,7 @@ const toolNames = new Set(TOOL_DEFS.map((item) => item.name));
 for (const expected of [
   "workspace.propose_patch",
   "runtime.capabilities",
+  "runtime.run_test",
   "trevor.web_search",
 ]) {
   assert(toolNames.has(expected), `missing MCP tool: ${expected}`);
@@ -59,6 +66,26 @@ for (const expected of [
 
 const runtime = await dispatch(ws, "runtime.capabilities", {});
 assert(runtime.executors?.workspace_mcp === true, "runtime capabilities missing workspace_mcp");
+
+const testRun = await dispatch(ws, "runtime.run_test", {
+  runner: "pytest",
+  target: "tests/test_runtime_smoke.py",
+  timeoutSec: 30,
+});
+assert(testRun.ok === true, `runtime.run_test failed: ${testRun.stderr}`);
+assert(testRun.exit_code === 0, "runtime.run_test exit code mismatch");
+
+let deniedTestTarget = false;
+try {
+  await dispatch(ws, "runtime.run_test", {
+    runner: "pytest",
+    target: "e2e-target.md",
+    timeoutSec: 30,
+  });
+} catch (error) {
+  deniedTestTarget = error?.code === "test_target_outside_tests";
+}
+assert(deniedTestTarget, "runtime.run_test must deny targets outside tests/");
 
 const originalFetch = globalThis.fetch;
 globalThis.fetch = async () =>
