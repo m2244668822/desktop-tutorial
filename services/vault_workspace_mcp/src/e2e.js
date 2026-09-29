@@ -8,7 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { VaultWorkspace } from "./workspace.js";
+import { VaultWorkspace, TOOL_DEFS, dispatch } from "./workspace.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const vaultRoot = path.resolve(__dirname, "..", "..", "..", "..");
@@ -47,6 +47,47 @@ function assert(cond, msg) {
 
 const read1 = await ws.read({ path: relFile });
 assert(read1.content.includes("e2e before"), "read failed");
+
+const toolNames = new Set(TOOL_DEFS.map((item) => item.name));
+for (const expected of [
+  "workspace.propose_patch",
+  "runtime.capabilities",
+  "trevor.web_search",
+]) {
+  assert(toolNames.has(expected), `missing MCP tool: ${expected}`);
+}
+
+const runtime = await dispatch(ws, "runtime.capabilities", {});
+assert(runtime.executors?.workspace_mcp === true, "runtime capabilities missing workspace_mcp");
+
+const originalFetch = globalThis.fetch;
+globalThis.fetch = async () =>
+  new Response(
+    JSON.stringify({
+      ok: true,
+      query: "VS Code MCP",
+      source: "test",
+      redaction_count: 0,
+      results: [
+        {
+          title: "VS Code MCP",
+          url: "https://code.visualstudio.com/",
+          snippet: "Official documentation",
+        },
+      ],
+    }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  );
+try {
+  const search = await dispatch(ws, "trevor.web_search", {
+    query: "VS Code MCP",
+    limit: 3,
+  });
+  assert(search.ok === true, "trevor.web_search failed");
+  assert(search.results.length === 1, "trevor.web_search result mismatch");
+} finally {
+  globalThis.fetch = originalFetch;
+}
 
 const proposed = await ws.proposePatch({
   path: relFile,

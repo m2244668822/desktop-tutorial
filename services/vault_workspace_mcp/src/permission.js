@@ -11,8 +11,11 @@ export function riskForTool(toolName) {
     case "workspace.list":
     case "workspace.search":
     case "workspace.read":
+    case "workspace.propose_patch":
+    case "runtime.capabilities":
       return "L0";
     case "workspace.create":
+    case "trevor.web_search":
       return "L1";
     case "workspace.patch":
     case "workspace.move":

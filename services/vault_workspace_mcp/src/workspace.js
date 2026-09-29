@@ -203,7 +203,7 @@ export class VaultWorkspace {
     const target = this.resolve(rel);
     const before = await fsp.readFile(target, "utf8");
     const diff = unifiedDiff(this.rel(target), before, content);
-    return {
+    const proposal = {
       path: this.rel(target),
       before_hash: sha256(before),
       after_hash: sha256(content),
@@ -211,6 +211,109 @@ export class VaultWorkspace {
       diff_hash: sha256(diff),
       action_id: crypto.randomUUID(),
       risk: riskForTool("workspace.patch"),
+    };
+    this.audit({
+      tool: "workspace.propose_patch",
+      risk: "L0",
+      target: proposal.path,
+      diff_hash: proposal.diff_hash,
+      before_hash: proposal.before_hash,
+      after_hash: proposal.after_hash,
+    });
+    return proposal;
+  }
+
+  runtimeCapabilities() {
+    const locator = process.platform === "win32" ? "where.exe" : "which";
+    const commands = ["git", "node", "python", "py", "code", "cursor", "agent"];
+    const available = {};
+    for (const command of commands) {
+      const result = spawnSync(locator, [command], {
+        cwd: this.root,
+        encoding: "utf8",
+        timeout: 2500,
+      });
+      available[command] = result.status === 0;
+    }
+    const payload = {
+      platform: process.platform,
+      workspace_root: this.root,
+      commands: available,
+      executors: {
+        workspace_mcp: true,
+        vscode_cli: Boolean(available.code),
+        cursor_editor_cli: Boolean(available.cursor),
+        cursor_agent_cli: Boolean(available.agent),
+      },
+    };
+    this.audit({
+      tool: "runtime.capabilities",
+      risk: "L0",
+      platform: payload.platform,
+      executors: payload.executors,
+    });
+    return payload;
+  }
+
+  async trevorWebSearch({ query, limit = 5 } = {}) {
+    const safeQuery = String(query || "").trim();
+    if (!safeQuery) {
+      throw Object.assign(new Error("query_required"), { code: "query_required" });
+    }
+    const safeLimit = Math.max(1, Math.min(Number(limit) || 5, 10));
+    const baseUrl = String(
+      process.env.TREVOR_BASE_URL || "http://127.0.0.1:5001"
+    ).replace(/\/+$/, "");
+    const token = String(process.env.TREVOR_API_TOKEN || "").trim();
+    const headers = { "Content-Type": "application/json" };
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10_000);
+    let response;
+    try {
+      response = await fetch(`${baseUrl}/api/trevor/search`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ query: safeQuery, limit: safeLimit }),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      const err = Object.assign(
+        new Error(error?.name === "AbortError" ? "trevor_search_timeout" : "trevor_search_unavailable"),
+        { code: error?.name === "AbortError" ? "trevor_search_timeout" : "trevor_search_unavailable" }
+      );
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+
+    let payload = {};
+    try {
+      payload = await response.json();
+    } catch {
+      payload = {};
+    }
+    if (!response.ok || payload?.ok === false) {
+      throw Object.assign(
+        new Error(String(payload?.error || `trevor_search_http_${response.status}`)),
+        { code: String(payload?.error || "trevor_search_failed") }
+      );
+    }
+    const results = Array.isArray(payload.results) ? payload.results.slice(0, safeLimit) : [];
+    this.audit({
+      tool: "trevor.web_search",
+      risk: "L1",
+      query_hash: sha256(safeQuery),
+      result_count: results.length,
+      source: String(payload.source || ""),
+    });
+    return {
+      ok: true,
+      query: String(payload.query || safeQuery),
+      source: String(payload.source || "trevor"),
+      redaction_count: Number(payload.redaction_count || 0),
+      results,
     };
   }
 
@@ -340,6 +443,38 @@ export const TOOL_DEFS = [
     },
   },
   {
+    name: "workspace.propose_patch",
+    description: "Generate a diff/hash proposal without writing. Use before workspace.patch.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string" },
+        content: { type: "string" },
+      },
+      required: ["path", "content"],
+    },
+  },
+  {
+    name: "runtime.capabilities",
+    description: "Inspect which local editor/agent CLIs are available without executing them.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+  },
+  {
+    name: "trevor.web_search",
+    description: "Search the web through Trevor's privacy-sanitized local search adapter. Prefer official sources for tool discovery.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string" },
+        limit: { type: "number" },
+      },
+      required: ["query"],
+    },
+  },
+  {
     name: "workspace.create",
     description: "Create a new file. L1+ may need approval.",
     inputSchema: {
@@ -408,6 +543,12 @@ export async function dispatch(ws, name, args = {}) {
       return ws.search(args);
     case "workspace.read":
       return ws.read(args);
+    case "workspace.propose_patch":
+      return ws.proposePatch(args);
+    case "runtime.capabilities":
+      return ws.runtimeCapabilities(args);
+    case "trevor.web_search":
+      return ws.trevorWebSearch(args);
     case "workspace.create":
       return ws.create(args);
     case "workspace.patch":
