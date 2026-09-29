@@ -255,6 +255,130 @@ export class VaultWorkspace {
     return payload;
   }
 
+  _findCommand(candidates = []) {
+    const locator = process.platform === "win32" ? "where.exe" : "which";
+    for (const candidate of candidates) {
+      const result = spawnSync(locator, [candidate], {
+        cwd: this.root,
+        encoding: "utf8",
+        timeout: 2500,
+      });
+      if (result.status === 0) return candidate;
+    }
+    return "";
+  }
+
+  runTest({ runner = "pytest", target = "tests", timeoutSec = 60 } = {}) {
+    const safeRunner = String(runner || "pytest").trim().toLowerCase();
+    const safeTimeoutMs = Math.max(
+      5_000,
+      Math.min(Number(timeoutSec || 60) * 1000, 120_000),
+    );
+    const maxOutput = 60_000;
+
+    let command = "";
+    let args = [];
+    let normalizedTarget = String(target || "").trim().replace(/\\/g, "/");
+
+    if (safeRunner === "pytest") {
+      normalizedTarget = normalizedTarget || "tests";
+      const targetPath = this.resolve(normalizedTarget);
+      const relTarget = this.rel(targetPath);
+      if (!(relTarget === "tests" || relTarget.startsWith("tests/"))) {
+        throw Object.assign(new Error("test_target_outside_tests"), {
+          code: "test_target_outside_tests",
+        });
+      }
+      if (!fs.existsSync(targetPath)) {
+        throw Object.assign(new Error("test_target_missing"), {
+          code: "test_target_missing",
+        });
+      }
+      command = this._findCommand(["python", "py", "python3"]);
+      if (!command) {
+        throw Object.assign(new Error("python_unavailable"), {
+          code: "python_unavailable",
+        });
+      }
+      args = ["-m", "pytest", "-q", "--maxfail=1", relTarget];
+      normalizedTarget = relTarget;
+    } else if (safeRunner === "node_e2e") {
+      if (!/^services\/[A-Za-z0-9_.-]+\/src\/e2e\.js$/.test(normalizedTarget)) {
+        throw Object.assign(new Error("node_e2e_target_denied"), {
+          code: "node_e2e_target_denied",
+        });
+      }
+      const targetPath = this.resolve(normalizedTarget);
+      if (!fs.existsSync(targetPath)) {
+        throw Object.assign(new Error("test_target_missing"), {
+          code: "test_target_missing",
+        });
+      }
+      command = this._findCommand(["node"]);
+      if (!command) {
+        throw Object.assign(new Error("node_unavailable"), {
+          code: "node_unavailable",
+        });
+      }
+      args = [normalizedTarget];
+    } else {
+      throw Object.assign(new Error("test_runner_denied"), {
+        code: "test_runner_denied",
+      });
+    }
+
+    const started = Date.now();
+    const result = spawnSync(command, args, {
+      cwd: this.root,
+      encoding: "utf8",
+      timeout: safeTimeoutMs,
+      shell: false,
+      env: {
+        ...process.env,
+        CI: "1",
+        PYTHONUNBUFFERED: "1",
+      },
+      maxBuffer: 2 * 1024 * 1024,
+    });
+    const durationMs = Date.now() - started;
+    const stdoutRaw = String(result.stdout || "");
+    const stderrRaw = String(result.stderr || "");
+    const stdout = stdoutRaw.slice(-maxOutput);
+    const stderr = stderrRaw.slice(-maxOutput);
+    const timedOut = Boolean(
+      result.error && (result.error.code === "ETIMEDOUT" || result.error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER")
+    );
+    const exitCode = Number.isInteger(result.status) ? result.status : null;
+    const ok = !result.error && exitCode === 0;
+
+    const row = this.audit({
+      tool: "runtime.run_test",
+      risk: "L1",
+      runner: safeRunner,
+      target: normalizedTarget,
+      ok,
+      exit_code: exitCode,
+      timed_out: timedOut,
+      duration_ms: durationMs,
+    });
+
+    return {
+      ok,
+      runner: safeRunner,
+      target: normalizedTarget,
+      command,
+      args,
+      exit_code: exitCode,
+      timed_out: timedOut,
+      duration_ms: durationMs,
+      stdout,
+      stderr,
+      truncated: stdoutRaw.length > maxOutput || stderrRaw.length > maxOutput,
+      error: result.error ? String(result.error.message || result.error) : "",
+      audit: row,
+    };
+  }
+
   async trevorWebSearch({ query, limit = 5 } = {}) {
     const safeQuery = String(query || "").trim();
     if (!safeQuery) {
@@ -463,6 +587,18 @@ export const TOOL_DEFS = [
     },
   },
   {
+    name: "runtime.run_test",
+    description: "Run a bounded repository test only. Supports pytest targets under tests/ and service-owned src/e2e.js scripts; no arbitrary shell.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        runner: { type: "string", enum: ["pytest", "node_e2e"] },
+        target: { type: "string" },
+        timeoutSec: { type: "number" },
+      },
+    },
+  },
+  {
     name: "trevor.web_search",
     description: "Search the web through Trevor's privacy-sanitized local search adapter. Prefer official sources for tool discovery.",
     inputSchema: {
@@ -547,6 +683,8 @@ export async function dispatch(ws, name, args = {}) {
       return ws.proposePatch(args);
     case "runtime.capabilities":
       return ws.runtimeCapabilities(args);
+    case "runtime.run_test":
+      return ws.runTest(args);
     case "trevor.web_search":
       return ws.trevorWebSearch(args);
     case "workspace.create":
