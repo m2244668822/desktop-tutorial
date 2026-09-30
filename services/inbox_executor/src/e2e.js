@@ -62,6 +62,14 @@ assert.equal(mismatchResult.ok, false);
 assert.equal(mismatchResult.code, "executor_identity_mismatch");
 assert.deepEqual(mismatchResult.mismatches, ["executor_id", "executor_product"]);
 
+const indentedIdentitySections = `   ## Executor Claim\n\n- task_id：\`${taskId}\`\n- executor_identity：\n\`\`\`json\n${JSON.stringify(codex, null, 2)}\n\`\`\`\n\n  ## Result（inbox-daemon 回寫）\n\n- task_id：\`${taskId}\`\n- executor_identity：\n\`\`\`json\n${JSON.stringify(mismatch, null, 2)}\n\`\`\`\n`;
+assert.deepEqual(validatePersistedClaimResult(indentedIdentitySections, taskId), {
+  ok: false,
+  code: "executor_identity_mismatch",
+  legacy: false,
+  mismatches: ["executor_id", "executor_product"],
+});
+
 const legacy = `---\nstatus: done\n---\n\ntask_id       legacy-task\n`;
 assert.equal(taskIdFromText(legacy), "legacy-task");
 assert.deepEqual(extractExecutorClaim(legacy), {

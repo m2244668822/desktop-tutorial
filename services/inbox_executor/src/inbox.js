@@ -151,11 +151,13 @@ export function topLevelSections(text) {
       fence = { char: fenceMatch[1][0], length: fenceMatch[1].length };
       continue;
     }
-    if (line.startsWith("## ")) headings.push({ heading: line, start: match.index });
+    const headingMatch = line.match(/^ {0,3}(## .*)$/);
+    if (headingMatch) headings.push({ heading: headingMatch[1], start: match.index });
   }
   return headings.map((item, index) => {
     const end = headings[index + 1]?.start ?? text.length;
-    return { ...item, end, text: text.slice(item.start, end) };
+    const sectionText = text.slice(item.start, end).replace(/^ {0,3}(?=## )/, "");
+    return { ...item, end, text: sectionText };
   });
 }
 
