@@ -91,7 +91,12 @@ async function runContract() {
   const taskId = taskIdFromText(text);
   const hash = contractHash(text);
   const prev = lookupAttempt(vaultRoot, taskId);
-  if (prev && prev.hash === hash && prev.auto_retry === false) {
+  if (
+    prev &&
+    prev.hash === hash &&
+    prev.auto_retry === false &&
+    !(prev.code === "executor_identity_invalid" && prev.identity_configuration_failure === true)
+  ) {
     log(
       `retry_suppressed task_id=${taskId} trace_id=${prev.trace_id} code=${prev.code}`
     );
@@ -105,7 +110,31 @@ async function runContract() {
   }
 
   busy = true;
-  const executorIdentity = executorIdentityFromEnvironment(process.env);
+  let executorIdentity;
+  try {
+    executorIdentity = executorIdentityFromEnvironment(process.env);
+  } catch (err) {
+    const traceId = crypto.randomUUID();
+    const code = err.code || "executor_identity_invalid";
+    const resultMarkdown = `- trace_id：\`${traceId}\`\n- task_id：\`${taskId}\`\n- 時間：${new Date().toISOString()}\n- 結果：blocked\n- identity_validation：\`executor_identity_invalid\`\n- code：\`${code}\`\n- failure_class：\`needs-review\`\n- auto_retry：false\n- message：${err.message}`;
+    let blocked = setStatus(text, "blocked");
+    blocked = upsertDaemonResult(blocked, resultMarkdown);
+    fs.writeFileSync(inboxPath, blocked, "utf8");
+    recordAttempt(vaultRoot, taskId, {
+      hash,
+      code,
+      failure_class: "needs-review",
+      identity_configuration_failure: true,
+      trace_id: traceId,
+      auto_retry: false,
+      pushed: false,
+      writeback_pending: false,
+      result_markdown: resultMarkdown,
+    });
+    log(`blocked: ${code} class=needs-review auto_retry=false trace_id=${traceId}`);
+    busy = false;
+    return;
+  }
   log(`detected queued → running executor_id=${executorIdentity.executor_id}`);
   let next = setStatus(text, "running");
   next = upsertExecutorClaim(next, taskId, executorIdentity);

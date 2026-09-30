@@ -130,15 +130,66 @@ export function archiveStaleResult(text) {
   return next;
 }
 
+export function topLevelSections(text) {
+  const headings = [];
+  let fence = null;
+  let listContentIndent = null;
+  for (const match of text.matchAll(/^.*$/gm)) {
+    const line = match[0].replace(/\r$/, "");
+    const indentation = line.match(/^ */)[0].length;
+    if (listContentIndent !== null && line.trim() && indentation < listContentIndent) {
+      listContentIndent = null;
+    }
+    const backtickFence = line.match(/^ {0,3}(`{3,})([^`]*)$/);
+    const tildeFence = line.match(/^ {0,3}(~{3,})(.*)$/);
+    const fenceRun = backtickFence?.[1] ?? tildeFence?.[1] ?? null;
+    if (fence) {
+      if (
+        fenceRun &&
+        fenceRun[0] === fence.char &&
+        fenceRun.length >= fence.length &&
+        /^ {0,3}(`{3,}|~{3,})\s*$/.test(line)
+      ) {
+        fence = null;
+      }
+      continue;
+    }
+    if (fenceRun) {
+      fence = { char: fenceRun[0], length: fenceRun.length };
+      continue;
+    }
+    const isListNested = listContentIndent !== null && indentation >= listContentIndent;
+    const listItem = line.match(/^( {0,3})([-+*]|\d{1,9}[.)])( {1,4}|\t)/);
+    if (!isListNested && listItem) {
+      listContentIndent =
+        listItem[1].length + listItem[2].length + (listItem[3] === "\t" ? 4 : listItem[3].length);
+    }
+    const headingMatch = line.match(/^ {0,3}(## .*)$/);
+    if (!isListNested && headingMatch) {
+      headings.push({ heading: headingMatch[1], start: match.index });
+    }
+  }
+  return headings.map((item, index) => {
+    const end = headings[index + 1]?.start ?? text.length;
+    const sectionText = text.slice(item.start, end).replace(/^ {0,3}(?=## )/, "");
+    return { ...item, end, text: sectionText };
+  });
+}
+
 export function upsertDaemonResult(text, resultMarkdown) {
   let next = archiveStaleResult(text);
   const marker = "## Result（inbox-daemon 回寫）";
   const block = `${marker}\n\n${resultMarkdown.trim()}\n`;
-  if (next.includes(marker)) {
-    return next.replace(
-      /## Result（inbox-daemon 回寫）[\s\S]*?(?=\n## (?!Result)|$)/,
-      block + "\n"
-    );
+  const ranges = topLevelSections(next).filter((section) => section.heading === marker);
+  if (ranges.length > 0) {
+    let cursor = 0;
+    let reconciled = "";
+    ranges.forEach((range, index) => {
+      reconciled += next.slice(cursor, range.start);
+      if (index === 0) reconciled += block + "\n";
+      cursor = range.end;
+    });
+    return reconciled + next.slice(cursor);
   }
   if (/\n## Links\n/.test(next)) {
     return next.replace(/\n## Links\n/, `\n${block}\n## Links\n`);
