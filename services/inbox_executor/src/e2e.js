@@ -134,6 +134,16 @@ assert.match(preservedFencedExample, /notes-after-backtick-example/);
 assert.match(preservedFencedExample, /notes-after-tilde-example/);
 assert.deepEqual(extractExecutorResultIdentity(preservedFencedExample, taskId).identity, codex);
 
+const listNestedDaemonExample = `${running}\n## Result（inbox-daemon 回寫）\n\n- task_id：\`${taskId}\`\n- executor_identity：\n\`\`\`json\n${JSON.stringify(mismatch, null, 2)}\n\`\`\`\n\n## Notes\n\n- Example output:\n\n  ## Result（inbox-daemon 回寫）\n\n  example-body-must-remain\n\n## Links\n`;
+const preservedListExample = upsertDaemonResult(
+  listNestedDaemonExample,
+  `- task_id：\`${taskId}\`\n- executor_identity：\n\`\`\`json\n${JSON.stringify(codex, null, 2)}\n\`\`\``
+);
+assert.match(preservedListExample, /  ## Result（inbox-daemon 回寫）/);
+assert.match(preservedListExample, /example-body-must-remain/);
+assert.match(preservedListExample, /## Links/);
+assert.deepEqual(extractExecutorResultIdentity(preservedListExample, taskId).identity, codex);
+
 const declaredDaemon = executorIdentityFromEnvironment(
   { CODEX_CLI_AVAILABLE: "1", CURSOR_CLI_AVAILABLE: "1" },
   new Date(claimedAt)

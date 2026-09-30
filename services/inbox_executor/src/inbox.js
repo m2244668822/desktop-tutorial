@@ -133,8 +133,13 @@ export function archiveStaleResult(text) {
 export function topLevelSections(text) {
   const headings = [];
   let fence = null;
+  let listContentIndent = null;
   for (const match of text.matchAll(/^.*$/gm)) {
     const line = match[0].replace(/\r$/, "");
+    const indentation = line.match(/^ */)[0].length;
+    if (listContentIndent !== null && line.trim() && indentation < listContentIndent) {
+      listContentIndent = null;
+    }
     const backtickFence = line.match(/^ {0,3}(`{3,})([^`]*)$/);
     const tildeFence = line.match(/^ {0,3}(~{3,})(.*)$/);
     const fenceRun = backtickFence?.[1] ?? tildeFence?.[1] ?? null;
@@ -153,8 +158,16 @@ export function topLevelSections(text) {
       fence = { char: fenceRun[0], length: fenceRun.length };
       continue;
     }
+    const isListNested = listContentIndent !== null && indentation >= listContentIndent;
+    const listItem = line.match(/^( {0,3})([-+*]|\d{1,9}[.)])( {1,4}|\t)/);
+    if (!isListNested && listItem) {
+      listContentIndent =
+        listItem[1].length + listItem[2].length + (listItem[3] === "\t" ? 4 : listItem[3].length);
+    }
     const headingMatch = line.match(/^ {0,3}(## .*)$/);
-    if (headingMatch) headings.push({ heading: headingMatch[1], start: match.index });
+    if (!isListNested && headingMatch) {
+      headings.push({ heading: headingMatch[1], start: match.index });
+    }
   }
   return headings.map((item, index) => {
     const end = headings[index + 1]?.start ?? text.length;
