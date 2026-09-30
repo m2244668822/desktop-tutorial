@@ -95,7 +95,7 @@ async function runContract() {
     prev &&
     prev.hash === hash &&
     prev.auto_retry === false &&
-    prev.code !== "executor_identity_invalid"
+    prev.identity_configuration_failure !== true
   ) {
     log(
       `retry_suppressed task_id=${taskId} trace_id=${prev.trace_id} code=${prev.code}`
@@ -124,6 +124,7 @@ async function runContract() {
       hash,
       code,
       failure_class: "needs-review",
+      identity_configuration_failure: true,
       trace_id: traceId,
       auto_retry: false,
       pushed: false,

@@ -14,7 +14,7 @@ import {
   validateExecutorIdentityMatch,
   validatePersistedClaimResult,
 } from "./executor_identity.js";
-import { taskIdFromText, upsertDaemonResult } from "./inbox.js";
+import { contractHash, taskIdFromText, upsertDaemonResult } from "./inbox.js";
 
 const claimedAt = "2026-09-30T00:00:00.000Z";
 const codex = normalizeExecutorIdentity({
@@ -176,6 +176,10 @@ for (const invalidIdentity of ["{", JSON.stringify({ executor_id: "codex" })]) {
       legacy: false,
       mismatches: ["result_identity_invalid"],
     });
+    const invalidLedger = JSON.parse(
+      fs.readFileSync(path.join(invalidRoot, "runtime", ".inbox-attempts.json"), "utf8")
+    );
+    assert.equal(invalidLedger.tasks[taskId].identity_configuration_failure, true);
 
     fs.writeFileSync(path.join(inboxDir, "chatgpt-inbox.md"), retryableContract, "utf8");
     const retried = spawnSync(process.execPath, [path.join(__dirname, "daemon.js"), "--once"], {
@@ -193,6 +197,47 @@ for (const invalidIdentity of ["{", JSON.stringify({ executor_id: "codex" })]) {
   } finally {
     fs.rmSync(invalidRoot, { recursive: true, force: true });
   }
+}
+
+const suppressedRoot = fs.mkdtempSync(path.join(os.tmpdir(), "executor-identity-suppressed-e2e-"));
+try {
+  const inboxDir = path.join(suppressedRoot, "智能體");
+  const runtimeDir = path.join(suppressedRoot, "runtime");
+  fs.mkdirSync(inboxDir, { recursive: true });
+  fs.mkdirSync(runtimeDir, { recursive: true });
+  const suppressedContract = `---\nstatus: queued\n---\n\ntask_id       ${taskId}\n\n## Mechanical Actions\n\n\`\`\`json\n{"actions":[{"tool":"workspace.read","args":{"path":"missing.md"}}]}\n\`\`\`\n`;
+  const suppressedResult = `- task_id：\`${taskId}\`\n- 結果：blocked\n- code：\`executor_identity_invalid\`\n- message：post-action validation failed`;
+  fs.writeFileSync(path.join(inboxDir, "chatgpt-inbox.md"), suppressedContract, "utf8");
+  fs.writeFileSync(
+    path.join(runtimeDir, ".inbox-attempts.json"),
+    JSON.stringify({
+      tasks: {
+        [taskId]: {
+          hash: contractHash(suppressedContract),
+          code: "executor_identity_invalid",
+          failure_class: "unknown_side_effect",
+          auto_retry: false,
+          result_markdown: suppressedResult,
+        },
+      },
+    }),
+    "utf8"
+  );
+  const suppressed = spawnSync(process.execPath, [path.join(__dirname, "daemon.js"), "--once"], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      VAULT_WORKSPACE_ROOT: suppressedRoot,
+      INBOX_EXECUTOR_IDENTITY: JSON.stringify(codex),
+    },
+  });
+  assert.equal(suppressed.status, 0, suppressed.stderr);
+  const restored = fs.readFileSync(path.join(inboxDir, "chatgpt-inbox.md"), "utf8");
+  assert.match(restored, /^status: blocked$/m);
+  assert.match(restored, /post-action validation failed/);
+  assert.doesNotMatch(restored, /## Executor Claim/);
+} finally {
+  fs.rmSync(suppressedRoot, { recursive: true, force: true });
 }
 
 if (process.env.INBOX_IDENTITY_VERIFY_PATH) {
