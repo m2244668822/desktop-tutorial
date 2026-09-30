@@ -135,20 +135,22 @@ export function topLevelSections(text) {
   let fence = null;
   for (const match of text.matchAll(/^.*$/gm)) {
     const line = match[0].replace(/\r$/, "");
-    const fenceMatch = line.match(/^ {0,3}(`{3,}|~{3,})(?:[^`~]*)$/);
+    const backtickFence = line.match(/^ {0,3}(`{3,})([^`]*)$/);
+    const tildeFence = line.match(/^ {0,3}(~{3,})(.*)$/);
+    const fenceRun = backtickFence?.[1] ?? tildeFence?.[1] ?? null;
     if (fence) {
       if (
-        fenceMatch &&
-        fenceMatch[1][0] === fence.char &&
-        fenceMatch[1].length >= fence.length &&
+        fenceRun &&
+        fenceRun[0] === fence.char &&
+        fenceRun.length >= fence.length &&
         /^ {0,3}(`{3,}|~{3,})\s*$/.test(line)
       ) {
         fence = null;
       }
       continue;
     }
-    if (fenceMatch) {
-      fence = { char: fenceMatch[1][0], length: fenceMatch[1].length };
+    if (fenceRun) {
+      fence = { char: fenceRun[0], length: fenceRun.length };
       continue;
     }
     const headingMatch = line.match(/^ {0,3}(## .*)$/);

@@ -124,7 +124,7 @@ const reconciledDaemonResult = upsertDaemonResult(
 assert.equal((reconciledDaemonResult.match(/^## Result（inbox-daemon 回寫）$/gm) || []).length, 1);
 assert.deepEqual(extractExecutorResultIdentity(reconciledDaemonResult, taskId).identity, codex);
 
-const fencedDaemonExample = `${running}\n## Result（inbox-daemon 回寫）\n\n- task_id：\`${taskId}\`\n- executor_identity：\n\`\`\`json\n${JSON.stringify(mismatch, null, 2)}\n\`\`\`\n\n## Notes\n\n\`\`\`md\n## Result（inbox-daemon 回寫）\n\n- task_id：\`${taskId}\`\n- executor_identity：\n\`\`\`json\n${JSON.stringify(mismatch, null, 2)}\n\`\`\`\n\nnotes-after-backtick-example\n\n~~~md\n## Result（inbox-daemon 回寫）\n\n- task_id：\`${taskId}\`\n- executor_identity：\n\`\`\`json\n${JSON.stringify(mismatch, null, 2)}\n\`\`\`\n~~~\n\nnotes-after-tilde-example\n`;
+const fencedDaemonExample = `${running}\n## Result（inbox-daemon 回寫）\n\n- task_id：\`${taskId}\`\n- executor_identity：\n\`\`\`json\n${JSON.stringify(mismatch, null, 2)}\n\`\`\`\n\n## Notes\n\n\`\`\`md~example\n## Result（inbox-daemon 回寫）\n\n- task_id：\`${taskId}\`\n- executor_identity：\n\`\`\`json\n${JSON.stringify(mismatch, null, 2)}\n\`\`\`\n\nnotes-after-backtick-example\n\n~~~md\`example\n## Result（inbox-daemon 回寫）\n\n- task_id：\`${taskId}\`\n- executor_identity：\n\`\`\`json\n${JSON.stringify(mismatch, null, 2)}\n\`\`\`\n~~~\n\nnotes-after-tilde-example\n`;
 const preservedFencedExample = upsertDaemonResult(
   fencedDaemonExample,
   `- task_id：\`${taskId}\`\n- executor_identity：\n\`\`\`json\n${JSON.stringify(codex, null, 2)}\n\`\`\``
