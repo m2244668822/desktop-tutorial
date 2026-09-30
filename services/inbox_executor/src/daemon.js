@@ -24,6 +24,12 @@ import {
   resolveInboxPath,
 } from "./inbox.js";
 import { lookupAttempt, recordAttempt } from "./attempts.js";
+import {
+  executorIdentityFromEnvironment,
+  executorIdentityMarkdown,
+  upsertExecutorClaim,
+  validateClaimResult,
+} from "./executor_identity.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const vaultRoot = path.resolve(
@@ -99,8 +105,10 @@ async function runContract() {
   }
 
   busy = true;
-  log("detected queued → running");
+  const executorIdentity = executorIdentityFromEnvironment(process.env);
+  log(`detected queued → running executor_id=${executorIdentity.executor_id}`);
   let next = setStatus(text, "running");
+  next = upsertExecutorClaim(next, taskId, executorIdentity);
   fs.writeFileSync(inboxPath, next, "utf8");
 
   const found = classifyMechanicalActions(next);
@@ -114,7 +122,8 @@ async function runContract() {
       code === "parse_error"
         ? `blocked: parse_error。Mechanical Actions JSON 無法解析（${found.message || "invalid"}）。同一 task_id 不再自動重跑。`
         : "blocked: 無 ## Mechanical Actions JSON。非機械契約請用 Cursor「跑 inbox」，或請 ChatGPT 補機械動作區塊。";
-    const resultMarkdown = `- trace_id：\`${traceId}\`\n- task_id：\`${taskId}\`\n- 時間：${new Date().toISOString()}\n- 結果：blocked\n- code：\`${code}\`\n- message：${reason}`;
+    const identityValidation = validateClaimResult(next, taskId, executorIdentity);
+    const resultMarkdown = `- trace_id：\`${traceId}\`\n- task_id：\`${taskId}\`\n- 時間：${new Date().toISOString()}\n- 結果：blocked\n${executorIdentityMarkdown(executorIdentity, identityValidation)}\n- code：\`${code}\`\n- message：${reason}`;
     next = setStatus(next, "blocked");
     next = upsertDaemonResult(next, resultMarkdown);
     fs.writeFileSync(inboxPath, next, "utf8");
@@ -126,6 +135,8 @@ async function runContract() {
       pushed: false,
       writeback_pending: false,
       result_markdown: resultMarkdown,
+      executor_identity: executorIdentity,
+      identity_validation: identityValidation,
     });
     log(reason);
     busy = false;
@@ -190,8 +201,19 @@ async function runContract() {
       results.push({ tool, ok: true, out: slim });
     }
 
+    const identityValidation = validateClaimResult(
+      fs.readFileSync(inboxPath, "utf8"),
+      taskId,
+      executorIdentity
+    );
+    if (!identityValidation.ok) {
+      throw Object.assign(new Error(identityValidation.code), {
+        code: identityValidation.code,
+        identityValidation,
+      });
+    }
     const summary = results.map((r) => `- \`${r.tool}\` ok`).join("\n");
-    const resultMarkdown = `- trace_id：\`${traceId}\`\n- task_id：\`${taskId}\`\n- 時間：${new Date().toISOString()}\n- 結果：done\n- auto_approve：${autoApprove}\n- 動作：\n${summary}\n- 詳情：\n\`\`\`json\n${JSON.stringify(results, null, 2).slice(0, 4000)}\n\`\`\``;
+    const resultMarkdown = `- trace_id：\`${traceId}\`\n- task_id：\`${taskId}\`\n- 時間：${new Date().toISOString()}\n- 結果：done\n${executorIdentityMarkdown(executorIdentity, identityValidation)}\n- auto_approve：${autoApprove}\n- 動作：\n${summary}\n- 詳情：\n\`\`\`json\n${JSON.stringify(results, null, 2).slice(0, 4000)}\n\`\`\``;
     next = setStatus(fs.readFileSync(inboxPath, "utf8"), "done");
     next = upsertDaemonResult(next, resultMarkdown);
     fs.writeFileSync(inboxPath, next, "utf8");
@@ -203,6 +225,8 @@ async function runContract() {
       pushed: false,
       writeback_pending: false,
       result_markdown: resultMarkdown,
+      executor_identity: executorIdentity,
+      identity_validation: identityValidation,
     });
     log(`done trace_id=${traceId}`);
   } catch (err) {
@@ -213,7 +237,10 @@ async function runContract() {
         ? `\n- proposed：\n\`\`\`json\n${JSON.stringify(err.proposed, null, 2)}\n\`\`\``
         : "";
     const policy = failureClass(code, err.message, results.length);
-    const resultMarkdown = `- trace_id：\`${traceId}\`\n- task_id：\`${taskId}\`\n- 時間：${new Date().toISOString()}\n- 結果：blocked\n- code：\`${code}\`\n- failure_class：\`${policy.klass}\`\n- auto_retry：${policy.auto_retry}\n- message：${err.message}${extra}`;
+    const identityValidation =
+      err.identityValidation ||
+      validateClaimResult(fs.readFileSync(inboxPath, "utf8"), taskId, executorIdentity);
+    const resultMarkdown = `- trace_id：\`${traceId}\`\n- task_id：\`${taskId}\`\n- 時間：${new Date().toISOString()}\n- 結果：blocked\n${executorIdentityMarkdown(executorIdentity, identityValidation)}\n- code：\`${code}\`\n- failure_class：\`${policy.klass}\`\n- auto_retry：${policy.auto_retry}\n- message：${err.message}${extra}`;
     next = upsertDaemonResult(next, resultMarkdown);
     fs.writeFileSync(inboxPath, next, "utf8");
     recordAttempt(vaultRoot, taskId, {
@@ -225,6 +252,8 @@ async function runContract() {
       pushed: false,
       writeback_pending: false,
       result_markdown: resultMarkdown,
+      executor_identity: executorIdentity,
+      identity_validation: identityValidation,
     });
     log(
       `blocked: ${code} class=${policy.klass} auto_retry=${policy.auto_retry} trace_id=${traceId}`

@@ -54,3 +54,12 @@ node src/sync.js
 
 Or: `runtime\跑 inbox-sync-once.cmd` / `runtime\啟動 inbox-sync-loop.cmd`.
 Pushback requires `INBOX_SYNC_PUSH=1`.
+
+## Executor Identity Contract
+
+每次 `queued → running` 會先寫入 `Executor Claim`。Claim 與 Result 共用同一份 identity，至少包含：
+
+- `executor_id`、`executor_type`、`executor_provider`、`executor_product`
+- `executor_mode`、`executor_version`、`executor_capabilities`、`claimed_at`
+
+目前執行者以主動宣告為準：可用 `INBOX_EXECUTOR_IDENTITY` JSON，或使用 `INBOX_EXECUTOR_*` 欄位。CLI／工具是否存在只代表 capability，不得推定為目前 executor。舊任務沒有 identity 欄位時仍可讀為 legacy；新 claim 與 Result 不一致則回傳 `executor_identity_mismatch`。
