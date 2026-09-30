@@ -101,6 +101,16 @@ const reconciledDaemonResult = upsertDaemonResult(
 assert.equal((reconciledDaemonResult.match(/^## Result（inbox-daemon 回寫）$/gm) || []).length, 1);
 assert.deepEqual(extractExecutorResultIdentity(reconciledDaemonResult, taskId).identity, codex);
 
+const fencedDaemonExample = `${running}\n## Result（inbox-daemon 回寫）\n\n- task_id：\`${taskId}\`\n- executor_identity：\n\`\`\`json\n${JSON.stringify(mismatch, null, 2)}\n\`\`\`\n\n## Notes\n\n\`\`\`md\n## Result（inbox-daemon 回寫）\n\n- task_id：\`example-only\`\n\`\`\`\n\nnotes-after-example\n`;
+const preservedFencedExample = upsertDaemonResult(
+  fencedDaemonExample,
+  `- task_id：\`${taskId}\`\n- executor_identity：\n\`\`\`json\n${JSON.stringify(codex, null, 2)}\n\`\`\``
+);
+assert.equal((preservedFencedExample.match(/^## Result（inbox-daemon 回寫）$/gm) || []).length, 2);
+assert.match(preservedFencedExample, /- task_id：`example-only`/);
+assert.match(preservedFencedExample, /notes-after-example/);
+assert.deepEqual(extractExecutorResultIdentity(preservedFencedExample, taskId).identity, codex);
+
 const declaredDaemon = executorIdentityFromEnvironment(
   { CODEX_CLI_AVAILABLE: "1", CURSOR_CLI_AVAILABLE: "1" },
   new Date(claimedAt)
@@ -194,6 +204,24 @@ for (const invalidIdentity of ["{", JSON.stringify({ executor_id: "codex" })]) {
     const completed = fs.readFileSync(path.join(inboxDir, "chatgpt-inbox.md"), "utf8");
     assert.match(completed, /^status: done$/m);
     assert.match(completed, /- identity_validation：`executor_identity_match`/);
+
+    fs.writeFileSync(path.join(inboxDir, "chatgpt-inbox.md"), retryableContract, "utf8");
+    const suppressedAfterRecovery = spawnSync(
+      process.execPath,
+      [path.join(__dirname, "daemon.js"), "--once"],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          VAULT_WORKSPACE_ROOT: invalidRoot,
+          INBOX_EXECUTOR_IDENTITY: JSON.stringify(codex),
+        },
+      }
+    );
+    assert.equal(suppressedAfterRecovery.status, 0, suppressedAfterRecovery.stderr);
+    const restoredDone = fs.readFileSync(path.join(inboxDir, "chatgpt-inbox.md"), "utf8");
+    assert.match(restoredDone, /^status: done$/m);
+    assert.doesNotMatch(restoredDone, /## Executor Claim/);
   } finally {
     fs.rmSync(invalidRoot, { recursive: true, force: true });
   }

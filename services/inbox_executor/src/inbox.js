@@ -130,21 +130,39 @@ export function archiveStaleResult(text) {
   return next;
 }
 
+function topLevelSectionRanges(text, heading) {
+  const ranges = [];
+  let inFence = false;
+  for (const match of text.matchAll(/^.*$/gm)) {
+    const line = match[0].replace(/\r$/, "");
+    if (/^\s*```/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence || !line.startsWith("## ")) continue;
+    const open = ranges.at(-1);
+    if (open && open.end == null) open.end = match.index;
+    if (line === heading) ranges.push({ start: match.index, end: null });
+  }
+  const open = ranges.at(-1);
+  if (open && open.end == null) open.end = text.length;
+  return ranges;
+}
+
 export function upsertDaemonResult(text, resultMarkdown) {
   let next = archiveStaleResult(text);
   const marker = "## Result（inbox-daemon 回寫）";
   const block = `${marker}\n\n${resultMarkdown.trim()}\n`;
-  if (next.includes(marker)) {
-    let replaced = false;
-    return next
-      .split(/(?=^## )/m)
-      .map((section) => {
-        if (!section.startsWith(marker)) return section;
-        if (replaced) return "";
-        replaced = true;
-        return block + "\n";
-      })
-      .join("");
+  const ranges = topLevelSectionRanges(next, marker);
+  if (ranges.length > 0) {
+    let cursor = 0;
+    let reconciled = "";
+    ranges.forEach((range, index) => {
+      reconciled += next.slice(cursor, range.start);
+      if (index === 0) reconciled += block + "\n";
+      cursor = range.end;
+    });
+    return reconciled + next.slice(cursor);
   }
   if (/\n## Links\n/.test(next)) {
     return next.replace(/\n## Links\n/, `\n${block}\n## Links\n`);
