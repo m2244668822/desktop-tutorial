@@ -41,6 +41,13 @@ assert.deepEqual(validateClaimResult(running, taskId, codex), {
   mismatches: [],
 });
 
+const fencedClaimExamples = `---\nstatus: queued\n---\n\n\`\`\`md\n## Executor Claim\n\n- task_id：\`example-claim\`\n\`\`\`\n\n~~~md\n## Result\n\n- task_id：\`example-result\`\n~~~\n`;
+const claimOutsideExamples = upsertExecutorClaim(fencedClaimExamples, taskId, codex);
+assert.deepEqual(extractExecutorClaim(claimOutsideExamples).identity, codex);
+assert.match(claimOutsideExamples, /- task_id：`example-claim`/);
+assert.match(claimOutsideExamples, /- task_id：`example-result`/);
+assert.equal((claimOutsideExamples.match(/^## Executor Claim$/gm) || []).length, 2);
+
 const mismatch = { ...codex, executor_id: "cursor", executor_product: "cursor" };
 const mismatchResult = validateExecutorIdentityMatch(codex, mismatch);
 assert.equal(mismatchResult.ok, false);

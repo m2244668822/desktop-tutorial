@@ -89,13 +89,20 @@ export function executorIdentityFromEnvironment(env = process.env, now = new Dat
 export function upsertExecutorClaim(text, taskId, identity) {
   const normalized = normalizeExecutorIdentity(identity);
   const block = `${CLAIM_MARKER}\n\n- task_id：\`${taskId}\`\n- status：\`running\`\n\n\`\`\`json\n${JSON.stringify(normalized, null, 2)}\n\`\`\`\n`;
-  const claimPattern = /## Executor Claim(?:（[^）]+）)?[\s\S]*?(?=\n## |$)/;
-  if (claimPattern.test(text)) {
-    return text.replace(claimPattern, block.trimEnd());
+  const sections = topLevelSections(text);
+  const claimSection = sections.find((section) =>
+    /^## Executor Claim(?:（[^）]+）)?[ \t]*$/.test(section.heading)
+  );
+  if (claimSection) {
+    return `${text.slice(0, claimSection.start)}${block.trimEnd()}${text.slice(
+      claimSection.end
+    )}`;
   }
-  const resultIndex = text.search(/^## Result/m);
-  if (resultIndex >= 0) {
-    return `${text.slice(0, resultIndex).trimEnd()}\n\n${block}\n${text.slice(resultIndex)}`;
+  const resultSection = sections.find((section) => section.heading.startsWith("## Result"));
+  if (resultSection) {
+    return `${text.slice(0, resultSection.start).trimEnd()}\n\n${block}\n${text.slice(
+      resultSection.start
+    )}`;
   }
   return `${text.trimEnd()}\n\n${block}`;
 }
