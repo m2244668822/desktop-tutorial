@@ -14,7 +14,7 @@ import {
   validateExecutorIdentityMatch,
   validatePersistedClaimResult,
 } from "./executor_identity.js";
-import { taskIdFromText } from "./inbox.js";
+import { taskIdFromText, upsertDaemonResult } from "./inbox.js";
 
 const claimedAt = "2026-09-30T00:00:00.000Z";
 const codex = normalizeExecutorIdentity({
@@ -93,6 +93,14 @@ assert.deepEqual(extractExecutorResultIdentity(staleThenDaemon, taskId).identity
 const latestResult = `${running}\n## Result（first）\n\n- task_id：\`${taskId}\`\n- executor_identity：\n\`\`\`json\n${JSON.stringify(mismatch, null, 2)}\n\`\`\`\n\n## Result（latest）\n\n- task_id：\`${taskId}\`\n- executor_identity：\n\`\`\`json\n${JSON.stringify(codex, null, 2)}\n\`\`\`\n`;
 assert.deepEqual(extractExecutorResultIdentity(latestResult, taskId).identity, codex);
 
+const duplicateDaemonResults = `${running}\n## Result（inbox-daemon 回寫）\n\n- task_id：\`${taskId}\`\n- executor_identity：\n\`\`\`json\n${JSON.stringify(mismatch, null, 2)}\n\`\`\`\n\n## Notes\n\nstale separator\n\n## Result（inbox-daemon 回寫）\n\n- task_id：\`${taskId}\`\n- executor_identity：\n\`\`\`json\n${JSON.stringify(mismatch, null, 2)}\n\`\`\`\n`;
+const reconciledDaemonResult = upsertDaemonResult(
+  duplicateDaemonResults,
+  `- task_id：\`${taskId}\`\n- executor_identity：\n\`\`\`json\n${JSON.stringify(codex, null, 2)}\n\`\`\``
+);
+assert.equal((reconciledDaemonResult.match(/^## Result（inbox-daemon 回寫）$/gm) || []).length, 1);
+assert.deepEqual(extractExecutorResultIdentity(reconciledDaemonResult, taskId).identity, codex);
+
 const declaredDaemon = executorIdentityFromEnvironment(
   { CODEX_CLI_AVAILABLE: "1", CURSOR_CLI_AVAILABLE: "1" },
   new Date(claimedAt)
@@ -142,9 +150,11 @@ for (const invalidIdentity of ["{", JSON.stringify({ executor_id: "codex" })]) {
   try {
     const inboxDir = path.join(invalidRoot, "智能體");
     fs.mkdirSync(inboxDir, { recursive: true });
+    fs.writeFileSync(path.join(invalidRoot, "sample.md"), "# sample\n", "utf8");
+    const retryableContract = `---\nstatus: queued\n---\n\n## 現在這一份契約\n\n\`\`\`text\ntask_id       ${taskId}\n\`\`\`\n\n## Mechanical Actions\n\n\`\`\`json\n{"actions":[{"tool":"workspace.read","args":{"path":"sample.md"}}]}\n\`\`\`\n\n## Result\n`;
     fs.writeFileSync(
       path.join(inboxDir, "chatgpt-inbox.md"),
-      `---\nstatus: queued\n---\n\ntask_id       ${taskId}\n\n## Result\n`,
+      retryableContract,
       "utf8"
     );
     const executed = spawnSync(process.execPath, [path.join(__dirname, "daemon.js"), "--once"], {
@@ -160,6 +170,26 @@ for (const invalidIdentity of ["{", JSON.stringify({ executor_id: "codex" })]) {
     assert.match(blocked, /^status: blocked$/m);
     assert.match(blocked, /- 結果：blocked/);
     assert.match(blocked, /- code：`executor_identity_invalid`/);
+    assert.deepEqual(validatePersistedClaimResult(blocked, taskId), {
+      ok: false,
+      code: "executor_identity_invalid",
+      legacy: false,
+      mismatches: ["result_identity_invalid"],
+    });
+
+    fs.writeFileSync(path.join(inboxDir, "chatgpt-inbox.md"), retryableContract, "utf8");
+    const retried = spawnSync(process.execPath, [path.join(__dirname, "daemon.js"), "--once"], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        VAULT_WORKSPACE_ROOT: invalidRoot,
+        INBOX_EXECUTOR_IDENTITY: JSON.stringify(codex),
+      },
+    });
+    assert.equal(retried.status, 0, retried.stderr);
+    const completed = fs.readFileSync(path.join(inboxDir, "chatgpt-inbox.md"), "utf8");
+    assert.match(completed, /^status: done$/m);
+    assert.match(completed, /- identity_validation：`executor_identity_match`/);
   } finally {
     fs.rmSync(invalidRoot, { recursive: true, force: true });
   }

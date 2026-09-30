@@ -135,10 +135,16 @@ export function upsertDaemonResult(text, resultMarkdown) {
   const marker = "## Result（inbox-daemon 回寫）";
   const block = `${marker}\n\n${resultMarkdown.trim()}\n`;
   if (next.includes(marker)) {
-    return next.replace(
-      /## Result（inbox-daemon 回寫）[\s\S]*?(?=\n## (?!Result)|$)/,
-      block + "\n"
-    );
+    let replaced = false;
+    return next
+      .split(/(?=^## )/m)
+      .map((section) => {
+        if (!section.startsWith(marker)) return section;
+        if (replaced) return "";
+        replaced = true;
+        return block + "\n";
+      })
+      .join("");
   }
   if (/\n## Links\n/.test(next)) {
     return next.replace(/\n## Links\n/, `\n${block}\n## Links\n`);

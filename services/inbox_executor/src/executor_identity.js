@@ -142,7 +142,18 @@ export function extractExecutorResultIdentity(text, taskId) {
     blocks.at(-1);
   if (!block) return { legacy: true, task_id: taskId, identity: null };
   const match = block.match(/- (?:executor_identity|identity)：\s*\n```json\s*\n([\s\S]*?)\n```/);
-  if (!match) return { legacy: true, task_id: taskId, identity: null };
+  if (!match) {
+    const validation = block.match(/^- identity_validation：`([^`]+)`/m)?.[1];
+    if (validation === "executor_identity_invalid") {
+      return {
+        legacy: false,
+        task_id: taskId,
+        identity: null,
+        error: validation,
+      };
+    }
+    return { legacy: true, task_id: taskId, identity: null };
+  }
   try {
     return {
       legacy: false,
