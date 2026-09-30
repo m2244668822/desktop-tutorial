@@ -48,6 +48,14 @@ assert.match(claimOutsideExamples, /- task_id：`example-claim`/);
 assert.match(claimOutsideExamples, /- task_id：`example-result`/);
 assert.equal((claimOutsideExamples.match(/^## Executor Claim$/gm) || []).length, 2);
 
+const replacedClaim = upsertExecutorClaim(running, taskId, codex);
+assert.doesNotMatch(replacedClaim, /```## Result/);
+assert.deepEqual(extractExecutorResultIdentity(replacedClaim, taskId), {
+  legacy: true,
+  task_id: taskId,
+  identity: null,
+});
+
 const mismatch = { ...codex, executor_id: "cursor", executor_product: "cursor" };
 const mismatchResult = validateExecutorIdentityMatch(codex, mismatch);
 assert.equal(mismatchResult.ok, false);

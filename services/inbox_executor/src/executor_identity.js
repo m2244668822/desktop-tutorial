@@ -94,7 +94,7 @@ export function upsertExecutorClaim(text, taskId, identity) {
     /^## Executor Claim(?:（[^）]+）)?[ \t]*$/.test(section.heading)
   );
   if (claimSection) {
-    return `${text.slice(0, claimSection.start)}${block.trimEnd()}${text.slice(
+    return `${text.slice(0, claimSection.start)}${block}${text.slice(
       claimSection.end
     )}`;
   }
