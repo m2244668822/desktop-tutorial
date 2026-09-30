@@ -21,6 +21,37 @@ class TrevorAutonomyLaunchAgentTests(unittest.TestCase):
         self.assertIn("--evaluation 900", content)
         self.assertIn(".venv312", content)
 
+    def test_stop_and_status_do_not_require_provider_credentials(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            environment = dict(os.environ)
+            environment.update(
+                {
+                    'HOME': str(root / 'home'),
+                    'TREVOR_DATA_DIR': str(root / 'data'),
+                    'TREVOR_CREDENTIAL_SOURCE_DIR': str(root / 'missing-credentials'),
+                }
+            )
+            stop = subprocess.run(
+                ['bash', str(AUTONOMY_MANAGER), 'stop'],
+                capture_output=True,
+                text=True,
+                env=environment,
+                check=False,
+            )
+            status = subprocess.run(
+                ['bash', str(AUTONOMY_MANAGER), 'status'],
+                capture_output=True,
+                text=True,
+                env=environment,
+                check=False,
+            )
+
+        self.assertEqual(0, stop.returncode, stop.stderr)
+        self.assertEqual(1, status.returncode, status.stderr)
+        self.assertNotIn('missing private credential', stop.stderr + status.stderr)
+        self.assertFalse((root / 'data').exists())
+
     def test_python_path_preserves_virtualenv_symlink(self):
         from tools.install_trevor_autonomy_launchagent import normalize_executable_path
 
