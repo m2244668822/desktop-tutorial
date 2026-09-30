@@ -101,14 +101,14 @@ const reconciledDaemonResult = upsertDaemonResult(
 assert.equal((reconciledDaemonResult.match(/^## Result（inbox-daemon 回寫）$/gm) || []).length, 1);
 assert.deepEqual(extractExecutorResultIdentity(reconciledDaemonResult, taskId).identity, codex);
 
-const fencedDaemonExample = `${running}\n## Result（inbox-daemon 回寫）\n\n- task_id：\`${taskId}\`\n- executor_identity：\n\`\`\`json\n${JSON.stringify(mismatch, null, 2)}\n\`\`\`\n\n## Notes\n\n\`\`\`md\n## Result（inbox-daemon 回寫）\n\n- task_id：\`example-only\`\n\`\`\`\n\nnotes-after-example\n`;
+const fencedDaemonExample = `${running}\n## Result（inbox-daemon 回寫）\n\n- task_id：\`${taskId}\`\n- executor_identity：\n\`\`\`json\n${JSON.stringify(mismatch, null, 2)}\n\`\`\`\n\n## Notes\n\n\`\`\`md\n## Result（inbox-daemon 回寫）\n\n- task_id：\`${taskId}\`\n- executor_identity：\n\`\`\`json\n${JSON.stringify(mismatch, null, 2)}\n\`\`\`\n\nnotes-after-backtick-example\n\n~~~md\n## Result（inbox-daemon 回寫）\n\n- task_id：\`${taskId}\`\n- executor_identity：\n\`\`\`json\n${JSON.stringify(mismatch, null, 2)}\n\`\`\`\n~~~\n\nnotes-after-tilde-example\n`;
 const preservedFencedExample = upsertDaemonResult(
   fencedDaemonExample,
   `- task_id：\`${taskId}\`\n- executor_identity：\n\`\`\`json\n${JSON.stringify(codex, null, 2)}\n\`\`\``
 );
-assert.equal((preservedFencedExample.match(/^## Result（inbox-daemon 回寫）$/gm) || []).length, 2);
-assert.match(preservedFencedExample, /- task_id：`example-only`/);
-assert.match(preservedFencedExample, /notes-after-example/);
+assert.equal((preservedFencedExample.match(/^## Result（inbox-daemon 回寫）$/gm) || []).length, 3);
+assert.match(preservedFencedExample, /notes-after-backtick-example/);
+assert.match(preservedFencedExample, /notes-after-tilde-example/);
 assert.deepEqual(extractExecutorResultIdentity(preservedFencedExample, taskId).identity, codex);
 
 const declaredDaemon = executorIdentityFromEnvironment(

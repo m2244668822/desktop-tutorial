@@ -1,3 +1,5 @@
+import { topLevelSections } from "./inbox.js";
+
 const CLAIM_MARKER = "## Executor Claim";
 
 export const EXECUTOR_IDENTITY_FIELDS = Object.freeze([
@@ -99,9 +101,9 @@ export function upsertExecutorClaim(text, taskId, identity) {
 }
 
 export function extractExecutorClaim(text) {
-  const block = text
-    .split(/(?=^## )/m)
-    .find((candidate) => /^## Executor Claim(?:（[^）]+）)?[ \t]*\r?$/m.test(candidate));
+  const block = topLevelSections(text).find((section) =>
+    /^## Executor Claim(?:（[^）]+）)?[ \t]*$/.test(section.heading)
+  )?.text;
   if (!block) return { legacy: true, task_id: null, identity: null };
   const taskId = block.match(/^- task_id：`([^`]+)`/m)?.[1] ?? null;
   const identityJson = block.match(/```json\s*\r?\n([\s\S]*?)\r?\n```/)?.[1];
@@ -130,8 +132,9 @@ export function extractExecutorClaim(text) {
 }
 
 export function extractExecutorResultIdentity(text, taskId) {
-  const blocks = text
-    .split(/(?=^## Result)/m)
+  const blocks = topLevelSections(text)
+    .filter((section) => section.heading.startsWith("## Result"))
+    .map((section) => section.text)
     .filter(
       (candidate) =>
         candidate.startsWith("## Result") &&

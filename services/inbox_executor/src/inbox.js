@@ -130,30 +130,40 @@ export function archiveStaleResult(text) {
   return next;
 }
 
-function topLevelSectionRanges(text, heading) {
-  const ranges = [];
-  let inFence = false;
+export function topLevelSections(text) {
+  const headings = [];
+  let fence = null;
   for (const match of text.matchAll(/^.*$/gm)) {
     const line = match[0].replace(/\r$/, "");
-    if (/^\s*```/.test(line)) {
-      inFence = !inFence;
+    const fenceMatch = line.match(/^ {0,3}(`{3,}|~{3,})(?:[^`~]*)$/);
+    if (fence) {
+      if (
+        fenceMatch &&
+        fenceMatch[1][0] === fence.char &&
+        fenceMatch[1].length >= fence.length &&
+        /^ {0,3}(`{3,}|~{3,})\s*$/.test(line)
+      ) {
+        fence = null;
+      }
       continue;
     }
-    if (inFence || !line.startsWith("## ")) continue;
-    const open = ranges.at(-1);
-    if (open && open.end == null) open.end = match.index;
-    if (line === heading) ranges.push({ start: match.index, end: null });
+    if (fenceMatch) {
+      fence = { char: fenceMatch[1][0], length: fenceMatch[1].length };
+      continue;
+    }
+    if (line.startsWith("## ")) headings.push({ heading: line, start: match.index });
   }
-  const open = ranges.at(-1);
-  if (open && open.end == null) open.end = text.length;
-  return ranges;
+  return headings.map((item, index) => {
+    const end = headings[index + 1]?.start ?? text.length;
+    return { ...item, end, text: text.slice(item.start, end) };
+  });
 }
 
 export function upsertDaemonResult(text, resultMarkdown) {
   let next = archiveStaleResult(text);
   const marker = "## Result（inbox-daemon 回寫）";
   const block = `${marker}\n\n${resultMarkdown.trim()}\n`;
-  const ranges = topLevelSectionRanges(next, marker);
+  const ranges = topLevelSections(next).filter((section) => section.heading === marker);
   if (ranges.length > 0) {
     let cursor = 0;
     let reconciled = "";
