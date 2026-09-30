@@ -99,20 +99,30 @@ export function upsertExecutorClaim(text, taskId, identity) {
 }
 
 export function extractExecutorClaim(text) {
-  const match = text.match(
-    /## Executor Claim(?:（[^）]+）)?[\s\S]*?- task_id：`([^`]+)`[\s\S]*?```json\s*\n([\s\S]*?)\n```/
-  );
-  if (!match) return { legacy: true, task_id: null, identity: null };
+  const block = text
+    .split(/(?=^## )/m)
+    .find((candidate) => /^## Executor Claim(?:（[^）]+）)?[ \t]*\r?$/m.test(candidate));
+  if (!block) return { legacy: true, task_id: null, identity: null };
+  const taskId = block.match(/^- task_id：`([^`]+)`/m)?.[1] ?? null;
+  const identityJson = block.match(/```json\s*\r?\n([\s\S]*?)\r?\n```/)?.[1];
+  if (!taskId || !identityJson) {
+    return {
+      legacy: false,
+      task_id: taskId,
+      identity: null,
+      error: "executor_identity_invalid",
+    };
+  }
   try {
     return {
       legacy: false,
-      task_id: match[1],
-      identity: normalizeExecutorIdentity(JSON.parse(match[2])),
+      task_id: taskId,
+      identity: normalizeExecutorIdentity(JSON.parse(identityJson)),
     };
   } catch (error) {
     return {
       legacy: false,
-      task_id: match[1],
+      task_id: taskId,
       identity: null,
       error: error.code || "executor_identity_invalid",
     };
@@ -120,14 +130,16 @@ export function extractExecutorClaim(text) {
 }
 
 export function extractExecutorResultIdentity(text, taskId) {
-  const blocks = text.split(/(?=^## Result)/m);
-  const block = blocks.find(
-    (candidate) =>
-      candidate.startsWith("## Result") &&
-      new RegExp(`- task_id：\\\`${taskId.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}\\\``).test(
-        candidate
-      )
-  );
+  const blocks = text
+    .split(/(?=^## Result)/m)
+    .filter(
+      (candidate) =>
+        candidate.startsWith("## Result") &&
+        candidate.match(/^- task_id：`([^`]+)`/m)?.[1] === taskId
+    );
+  const block =
+    blocks.filter((candidate) => candidate.startsWith("## Result（inbox-daemon 回寫）")).at(-1) ??
+    blocks.at(-1);
   if (!block) return { legacy: true, task_id: taskId, identity: null };
   const match = block.match(/- (?:executor_identity|identity)：\s*\n```json\s*\n([\s\S]*?)\n```/);
   if (!match) return { legacy: true, task_id: taskId, identity: null };
