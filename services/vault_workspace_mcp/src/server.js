@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Minimal MCP stdio server for vault-scoped workspace tools.
- * Transport: JSON-RPC lines on stdin/stdout (Content-Length framing + newline JSON).
+ * Transport: newline-delimited JSON-RPC on stdin/stdout by default; optional legacy Content-Length framing.
  */
 
 import readline from "node:readline";
@@ -34,8 +34,9 @@ const ws = new VaultWorkspace({
 
 function send(msg) {
   const body = JSON.stringify(msg);
-  // Support both newline-delimited and Content-Length (Cursor/Claude often use CL)
-  const useCL = process.env.MCP_FRAMING !== "newline";
+  // MCP stdio uses newline-delimited JSON. Keep Content-Length only as an explicit legacy opt-in.
+  const framing = String(process.env.MCP_FRAMING || "newline").toLowerCase();
+  const useCL = framing === "content-length" || framing === "content_length" || framing === "cl";
   if (useCL) {
     process.stdout.write(`Content-Length: ${Buffer.byteLength(body, "utf8")}\r\n\r\n${body}`);
   } else {
