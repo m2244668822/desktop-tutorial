@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * Minimal MCP stdio server for vault-scoped workspace tools.
- * Transport: JSON-RPC lines on stdin/stdout (Content-Length framing + newline JSON).
+ * Transport: MCP stdio using newline-delimited JSON-RPC by default.
+ * Legacy Content-Length output remains opt-in via MCP_FRAMING=content-length.
  */
 
 import readline from "node:readline";
@@ -12,8 +13,18 @@ import { VaultWorkspace, TOOL_DEFS, dispatch } from "./workspace.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 function defaultVaultRoot() {
-  // services/vault_workspace_mcp/src -> vault root = ../../../../
-  return path.resolve(__dirname, "..", "..", "..", "..");
+  // Resolve the runtime repo first, then infer the vault root for the
+  // supported layouts:
+  //   <vault>/runtime/desktop-tutorial/...
+  //   <vault>/apps/angel-runtime/...
+  // Direct checkout under <vault>/desktop-tutorial is also supported.
+  const repoRoot = path.resolve(__dirname, "..", "..", "..");
+  const parent = path.dirname(repoRoot);
+  const containerName = path.basename(parent).toLowerCase();
+  if (containerName === "runtime" || containerName === "apps") {
+    return path.dirname(parent);
+  }
+  return parent;
 }
 
 const workspaceRoot = process.env.VAULT_WORKSPACE_ROOT || defaultVaultRoot();
@@ -34,8 +45,13 @@ const ws = new VaultWorkspace({
 
 function send(msg) {
   const body = JSON.stringify(msg);
-  // Support both newline-delimited and Content-Length (Cursor/Claude often use CL)
-  const useCL = process.env.MCP_FRAMING !== "newline";
+  // MCP stdio clients expect one JSON-RPC message per line.
+  // Keep legacy Content-Length framing only when explicitly requested.
+  const framing = String(process.env.MCP_FRAMING || "newline").toLowerCase();
+  const useCL =
+    framing === "content-length" ||
+    framing === "content_length" ||
+    framing === "cl";
   if (useCL) {
     process.stdout.write(`Content-Length: ${Buffer.byteLength(body, "utf8")}\r\n\r\n${body}`);
   } else {
