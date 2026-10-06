@@ -1,0 +1,17 @@
+{
+  "servers": {
+    "runtime-workspace": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "${workspaceFolder}/services/vault_workspace_mcp/src/server.js"
+      ],
+      "env": {
+        "VAULT_WORKSPACE_ROOT": "${workspaceFolder}",
+        "MCP_AUTO_APPROVE": "0",
+        "TREVOR_BASE_URL": "http://127.0.0.1:5001",
+        "MCP_FRAMING": "newline"
+      }
+    }
+  }
+}
