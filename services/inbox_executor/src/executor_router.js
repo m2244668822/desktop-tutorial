@@ -66,6 +66,20 @@ export function routeInboxTask(text, capabilities = {}, env = process.env) {
     };
   }
 
+  const project = contractField(text, "project");
+  if (!project) {
+    return {
+      ok: false,
+      route,
+      requested_executor: requested,
+      selected_executor: null,
+      reason: "agentic_project_required",
+      code: "project_required",
+      headless: true,
+      requires_ui: false,
+    };
+  }
+
   if (requested === "mechanical" || requested === "inbox-daemon") {
     return {
       ok: false,
