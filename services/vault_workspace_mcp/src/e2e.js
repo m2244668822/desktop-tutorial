@@ -96,7 +96,7 @@ for (const expected of [
   "runtime.run_test",
   "trevor.web_search",
 ]) {
-  assert(toolNames.has(expected), `missing MCP tool: ${expected}`);
+  assert(toolNames.has(expected), `missing internal MCP tool: ${expected}`);
 }
 
 const runtime = await dispatch(ws, "runtime.capabilities", {});
@@ -352,16 +352,35 @@ async function stdioHandshake() {
     );
 
     const listed = await request(101, "tools/list", {});
-    const names = new Set((listed.result?.tools || []).map((tool) => tool.name));
+    const listedTools = listed.result?.tools || [];
+    const names = new Set(listedTools.map((tool) => tool.name));
     for (const expected of [
-      "workspace.read",
-      "workspace.propose_patch",
-      "runtime.capabilities",
-      "runtime.run_test",
+      "workspace_read",
+      "workspace_propose_patch",
+      "runtime_capabilities",
+      "runtime_run_test",
     ]) {
       assert(names.has(expected), `stdio tools/list missing ${expected}`);
     }
+    for (const tool of listedTools) {
+      assert(
+        /^[a-z0-9_-]+$/i.test(String(tool.name || "")),
+        `stdio tools/list exposed invalid host tool name: ${tool.name}`,
+      );
+    }
 
+    const capabilities = await request(102, "tools/call", {
+      name: "runtime_capabilities",
+      arguments: {},
+    });
+    const capabilityText = capabilities.result?.content?.[0]?.text || "";
+    assert(
+      capabilityText.includes('"workspace_mcp": true'),
+      "stdio tools/call runtime_capabilities failed",
+    );
+
+    console.log("STDIO_HOST_TOOL_NAMES_PASS");
+    console.log("STDIO_TOOL_CALL_PASS");
     console.log("STDIO_HANDSHAKE_PASS");
   } finally {
     child.stdin.end();
