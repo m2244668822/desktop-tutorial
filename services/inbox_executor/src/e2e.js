@@ -14,7 +14,7 @@ import {
   validateExecutorIdentityMatch,
   validatePersistedClaimResult,
 } from "./executor_identity.js";
-import { contractHash, taskIdFromText, upsertDaemonResult } from "./inbox.js";
+import { classifyMechanicalActions, contractHash, currentTaskEnvelope, taskIdFromText, upsertDaemonResult } from "./inbox.js";
 import { contractField, routeInboxTask } from "./executor_router.js";
 
 const claimedAt = "2026-09-30T00:00:00.000Z";
@@ -88,6 +88,72 @@ executor      auto
 `;
 assert.equal(routeInboxTask(mechanicalRouteText, readyCaps).selected_executor, "inbox-daemon");
 assert.equal(routeInboxTask(mechanicalRouteText, readyCaps).route, "mechanical");
+
+const longLivedInbox = `---
+status: queued
+---
+
+## 過去任務
+
+task_id       old-task
+route         mechanical
+executor      cursor
+project       old-project
+
+## Mechanical Actions
+
+\`\`\`json
+{"actions":[{"tool":"workspace.read","args":{"path":"old.md"}}]}
+\`\`\`
+
+## 現在這一份契約
+
+task_id       current-task
+route         agentic
+executor      codex
+project       desktop-tutorial
+Goal          fix current task only
+
+## Result（old 回寫）
+
+- task_id：\`old-task\`
+
+## 待排入
+
+task_id       future-task
+executor      vscode
+`;
+assert.equal(taskIdFromText(longLivedInbox), "current-task");
+assert.equal(contractField(longLivedInbox, "executor"), "codex");
+assert.equal(contractField(longLivedInbox, "project"), "desktop-tutorial");
+assert.equal(routeInboxTask(longLivedInbox, readyCaps).route, "agentic");
+assert.equal(routeInboxTask(longLivedInbox, readyCaps).selected_executor, "codex");
+assert.equal(classifyMechanicalActions(longLivedInbox).ok, false);
+assert.match(currentTaskEnvelope(longLivedInbox), /task_id       current-task/);
+assert.doesNotMatch(currentTaskEnvelope(longLivedInbox), /old-task/);
+assert.doesNotMatch(currentTaskEnvelope(longLivedInbox), /future-task/);
+
+const longLivedMechanicalInbox = longLivedInbox.replace(
+  `route         agentic
+executor      codex
+project       desktop-tutorial
+Goal          fix current task only`,
+  `route         mechanical
+executor      auto
+project       desktop-tutorial
+Goal          read current README
+
+## Mechanical Actions
+
+\`\`\`json
+{"actions":[{"tool":"workspace.read","args":{"path":"README.md"}}]}
+\`\`\``
+);
+assert.equal(classifyMechanicalActions(longLivedMechanicalInbox).ok, true);
+assert.equal(
+  routeInboxTask(longLivedMechanicalInbox, readyCaps).selected_executor,
+  "inbox-daemon"
+);
 const running = upsertExecutorClaim(queued, taskId, codex);
 const claim = extractExecutorClaim(running);
 assert.equal(claim.legacy, false);
