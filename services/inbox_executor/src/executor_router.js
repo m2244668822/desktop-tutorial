@@ -13,8 +13,9 @@ export function contractField(text, name) {
 }
 
 function normalizeRequested(value) {
-  const requested = String(value || "auto").trim().toLowerCase();
-  return EXECUTORS.has(requested) ? requested : "auto";
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return { requested: "auto", valid: true };
+  return { requested: raw, valid: EXECUTORS.has(raw) };
 }
 
 function readiness(capabilities, executor) {
@@ -28,7 +29,8 @@ function readiness(capabilities, executor) {
 }
 
 export function routeInboxTask(text, capabilities = {}, env = process.env) {
-  const requested = normalizeRequested(contractField(text, "executor"));
+  const requestedState = normalizeRequested(contractField(text, "executor"));
+  const requested = requestedState.requested;
   const explicitRoute = String(contractField(text, "route") || "").toLowerCase();
   const mechanical = classifyMechanicalActions(text);
   const route = ROUTES.has(explicitRoute)
@@ -36,6 +38,19 @@ export function routeInboxTask(text, capabilities = {}, env = process.env) {
     : mechanical.ok
       ? "mechanical"
       : "agentic";
+
+  if (!requestedState.valid) {
+    return {
+      ok: false,
+      route,
+      requested_executor: requested,
+      selected_executor: null,
+      reason: "unknown_executor",
+      code: "invalid_executor",
+      headless: true,
+      requires_ui: false,
+    };
+  }
 
   if (route === "mechanical") {
     if (!mechanical.ok) {
