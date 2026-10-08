@@ -225,32 +225,111 @@ export class VaultWorkspace {
 
   runtimeCapabilities() {
     const locator = process.platform === "win32" ? "where.exe" : "which";
-    const commands = ["git", "node", "python", "py", "code", "cursor", "agent"];
+    const commands = ["git", "node", "python", "py", "code", "cursor", "agent", "codex"];
+    const locations = {};
     const available = {};
+
     for (const command of commands) {
       const result = spawnSync(locator, [command], {
         cwd: this.root,
         encoding: "utf8",
         timeout: 2500,
+        shell: false,
       });
-      available[command] = result.status === 0;
+      const located = String(result.stdout || "")
+        .split(/\r?\n/)
+        .map((item) => item.trim())
+        .find(Boolean) || "";
+      locations[command] = result.status === 0 ? located : "";
+      available[command] = Boolean(locations[command]);
     }
+
+    const probe = (command, args, timeout = 5000) => {
+      const located = locations[command];
+      if (!located) {
+        return { installed: false, ok: false, output: "", path: "" };
+      }
+
+      const isBatchShim =
+        process.platform === "win32" && /\.(?:cmd|bat)$/i.test(located);
+      const executable = isBatchShim ? (process.env.ComSpec || "cmd.exe") : located;
+      const executableArgs = isBatchShim
+        ? ["/d", "/s", "/c", command, ...args]
+        : args;
+      const result = spawnSync(executable, executableArgs, {
+        cwd: this.root,
+        encoding: "utf8",
+        timeout,
+        shell: false,
+        env: process.env,
+      });
+      const output = String(result.stdout || result.stderr || "")
+        .trim()
+        .split(/\r?\n/)
+        .slice(0, 3)
+        .join(" ");
+      return {
+        installed: true,
+        ok: result.status === 0 && !result.error,
+        output: output.slice(0, 300),
+        path: located,
+      };
+    };
+
+    const codexVersion = probe("codex", ["--version"], 3000);
+    const codexAuth = probe("codex", ["login", "status"], 5000);
+    const cursorVersion = probe("agent", ["--version"], 3000);
+    const cursorAuth = probe("agent", ["status"], 5000);
+    const vscodeVersion = probe("code", ["--version"], 3000);
+
     const payload = {
       platform: process.platform,
       workspace_root: this.root,
       commands: available,
+      command_paths: locations,
       executors: {
         workspace_mcp: true,
         vscode_cli: Boolean(available.code),
+        vscode_agent_host: Boolean(available.code),
         cursor_editor_cli: Boolean(available.cursor),
         cursor_agent_cli: Boolean(available.agent),
+        codex_cli: Boolean(available.codex),
+      },
+      executor_readiness: {
+        codex: {
+          installed: codexVersion.installed,
+          version: codexVersion.output,
+          path: codexVersion.path,
+          authenticated: codexAuth.ok,
+          headless_ready: codexVersion.installed && codexAuth.ok,
+        },
+        cursor: {
+          installed: cursorVersion.installed,
+          version: cursorVersion.output,
+          path: cursorVersion.path,
+          authenticated: cursorAuth.ok,
+          headless_ready: cursorVersion.installed && cursorAuth.ok,
+        },
+        vscode: {
+          installed: vscodeVersion.installed,
+          version: vscodeVersion.output,
+          path: vscodeVersion.path,
+          interactive_only: true,
+          headless_ready: false,
+        },
       },
     };
+
     this.audit({
       tool: "runtime.capabilities",
       risk: "L0",
       platform: payload.platform,
       executors: payload.executors,
+      readiness: {
+        codex: payload.executor_readiness.codex.headless_ready,
+        cursor: payload.executor_readiness.cursor.headless_ready,
+        vscode: payload.executor_readiness.vscode.installed,
+      },
     });
     return payload;
   }
@@ -268,76 +347,226 @@ export class VaultWorkspace {
     return "";
   }
 
-  runTest({ runner = "pytest", target = "tests", timeoutSec = 60 } = {}) {
+  runTest({ runner = "pytest", target = "tests", projectDir = "", timeoutSec = 60 } = {}) {
     const safeRunner = String(runner || "pytest").trim().toLowerCase();
     const safeTimeoutMs = Math.max(
       5_000,
       Math.min(Number(timeoutSec || 60) * 1000, 120_000),
     );
     const maxOutput = 60_000;
+    const normalizedProjectDir = String(projectDir || "").trim().replace(/\\/g, "/");
+    const lexicalProjectRoot = normalizedProjectDir ? this.resolve(normalizedProjectDir) : this.root;
+    if (!fs.existsSync(lexicalProjectRoot) || !fs.statSync(lexicalProjectRoot).isDirectory()) {
+      throw Object.assign(new Error("test_project_missing"), { code: "test_project_missing" });
+    }
+
+    const workspaceReal = fs.realpathSync(this.root);
+    const projectRoot = fs.realpathSync(lexicalProjectRoot);
+    const projectFromWorkspace = path.relative(workspaceReal, projectRoot);
+    if (projectFromWorkspace.startsWith("..") || path.isAbsolute(projectFromWorkspace)) {
+      throw Object.assign(new Error("test_project_outside_workspace"), {
+        code: "test_project_outside_workspace",
+      });
+    }
+
+    const assertRealInProject = (candidate, code) => {
+      const real = fs.realpathSync(candidate);
+      const rel = path.relative(projectRoot, real);
+      if (rel.startsWith("..") || path.isAbsolute(rel)) {
+        throw Object.assign(new Error(code), { code });
+      }
+      return { real, rel: rel.replace(/\\/g, "/") };
+    };
+
+    const testEnv = {};
+    for (const key of [
+      "PATH",
+      "Path",
+      "SystemRoot",
+      "WINDIR",
+      "ComSpec",
+      "TEMP",
+      "TMP",
+      "HOME",
+      "USERPROFILE",
+      "LOCALAPPDATA",
+      "APPDATA",
+      "ProgramFiles",
+      "ProgramFiles(x86)",
+      "NODE_PATH",
+    ]) {
+      if (process.env[key]) testEnv[key] = process.env[key];
+    }
+    testEnv.CI = "1";
+    testEnv.PYTHONUNBUFFERED = "1";
 
     let command = "";
     let args = [];
     let normalizedTarget = String(target || "").trim().replace(/\\/g, "/");
 
+    if (safeRunner === "static_smoke") {
+      normalizedTarget = normalizedTarget || "index.html";
+      const entryPath = path.resolve(projectRoot, normalizedTarget);
+      if (!fs.existsSync(entryPath)) {
+        throw Object.assign(new Error("static_smoke_entry_missing"), {
+          code: "static_smoke_entry_missing",
+        });
+      }
+      assertRealInProject(entryPath, "static_smoke_target_outside_project");
+      const node = this._findCommand(["node"]);
+      if (!node) {
+        throw Object.assign(new Error("node_unavailable"), { code: "node_unavailable" });
+      }
+      const jsFiles = fs
+        .readdirSync(projectRoot, { withFileTypes: true })
+        .filter((item) => item.isFile() && item.name.endsWith(".js"))
+        .map((item) => item.name)
+        .slice(0, 50);
+      const started = Date.now();
+      const checks = [];
+      let ok = true;
+      for (const jsFile of jsFiles) {
+        const jsPath = path.join(projectRoot, jsFile);
+        assertRealInProject(jsPath, "static_smoke_target_outside_project");
+        const result = spawnSync(node, ["--check", jsFile], {
+          cwd: projectRoot,
+          encoding: "utf8",
+          timeout: safeTimeoutMs,
+          shell: false,
+          env: testEnv,
+          maxBuffer: 2 * 1024 * 1024,
+        });
+        const passed = !result.error && result.status === 0;
+        ok = ok && passed;
+        checks.push({
+          file: jsFile,
+          ok: passed,
+          stderr: String(result.stderr || "").slice(-4000),
+        });
+        if (!passed) break;
+      }
+      const durationMs = Date.now() - started;
+      const stdoutRaw = JSON.stringify({ entry: normalizedTarget, js_checks: checks }, null, 2);
+      const row = this.audit({
+        tool: "runtime.run_test",
+        risk: "L1",
+        runner: safeRunner,
+        project_dir: normalizedProjectDir,
+        target: normalizedTarget,
+        ok,
+        exit_code: ok ? 0 : 1,
+        timed_out: false,
+        duration_ms: durationMs,
+      });
+      return {
+        ok,
+        runner: safeRunner,
+        project_dir: normalizedProjectDir,
+        target: normalizedTarget,
+        command: node,
+        args: ["--check", "<top-level-js-files>"],
+        exit_code: ok ? 0 : 1,
+        timed_out: false,
+        duration_ms: durationMs,
+        stdout: stdoutRaw.slice(-maxOutput),
+        stderr: "",
+        truncated: stdoutRaw.length > maxOutput,
+        error: "",
+        audit: row,
+      };
+    }
+
     if (safeRunner === "pytest") {
       normalizedTarget = normalizedTarget || "tests";
-      const targetPath = this.resolve(normalizedTarget);
-      const relTarget = this.rel(targetPath);
-      if (!(relTarget === "tests" || relTarget.startsWith("tests/"))) {
+      const targetPath = path.resolve(projectRoot, normalizedTarget);
+      if (!fs.existsSync(targetPath)) {
+        throw Object.assign(new Error("test_target_missing"), { code: "test_target_missing" });
+      }
+      const targetInfo = assertRealInProject(targetPath, "test_target_outside_tests");
+      if (!(targetInfo.rel === "tests" || targetInfo.rel.startsWith("tests/"))) {
         throw Object.assign(new Error("test_target_outside_tests"), {
           code: "test_target_outside_tests",
         });
       }
-      if (!fs.existsSync(targetPath)) {
-        throw Object.assign(new Error("test_target_missing"), {
-          code: "test_target_missing",
-        });
-      }
       command = this._findCommand(["python", "py", "python3"]);
       if (!command) {
-        throw Object.assign(new Error("python_unavailable"), {
-          code: "python_unavailable",
-        });
+        throw Object.assign(new Error("python_unavailable"), { code: "python_unavailable" });
       }
-      args = ["-m", "pytest", "-q", "--maxfail=1", relTarget];
-      normalizedTarget = relTarget;
+      args = ["-m", "pytest", "-q", "--maxfail=1", targetInfo.rel];
+      normalizedTarget = targetInfo.rel;
     } else if (safeRunner === "node_e2e") {
       if (!/^services\/[A-Za-z0-9_.-]+\/src\/e2e\.js$/.test(normalizedTarget)) {
-        throw Object.assign(new Error("node_e2e_target_denied"), {
-          code: "node_e2e_target_denied",
-        });
+        throw Object.assign(new Error("node_e2e_target_denied"), { code: "node_e2e_target_denied" });
       }
-      const targetPath = this.resolve(normalizedTarget);
+      const targetPath = path.resolve(projectRoot, normalizedTarget);
       if (!fs.existsSync(targetPath)) {
-        throw Object.assign(new Error("test_target_missing"), {
-          code: "test_target_missing",
-        });
+        throw Object.assign(new Error("test_target_missing"), { code: "test_target_missing" });
+      }
+      const targetInfo = assertRealInProject(targetPath, "node_e2e_target_outside_project");
+      command = this._findCommand(["node"]);
+      if (!command) {
+        throw Object.assign(new Error("node_unavailable"), { code: "node_unavailable" });
+      }
+      args = [targetInfo.rel];
+      normalizedTarget = targetInfo.rel;
+    } else if (safeRunner === "node_test") {
+      normalizedTarget = normalizedTarget || "tests";
+      const targetPath = path.resolve(projectRoot, normalizedTarget);
+      if (!fs.existsSync(targetPath)) {
+        throw Object.assign(new Error("test_target_missing"), { code: "test_target_missing" });
+      }
+      const targetInfo = assertRealInProject(targetPath, "node_test_target_outside_project");
+      if (!(targetInfo.rel === "tests" || targetInfo.rel.startsWith("tests/"))) {
+        throw Object.assign(new Error("node_test_target_denied"), { code: "node_test_target_denied" });
       }
       command = this._findCommand(["node"]);
       if (!command) {
-        throw Object.assign(new Error("node_unavailable"), {
-          code: "node_unavailable",
+        throw Object.assign(new Error("node_unavailable"), { code: "node_unavailable" });
+      }
+
+      const testFiles = [];
+      const collect = (dir) => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+          if (testFiles.length >= 200) break;
+          const candidate = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            collect(candidate);
+            continue;
+          }
+          if (!entry.isFile() || !/\.test\.(?:c|m)?js$/i.test(entry.name)) continue;
+          const info = assertRealInProject(candidate, "node_test_target_outside_project");
+          testFiles.push(info.rel);
+        }
+      };
+
+      if (fs.statSync(targetPath).isDirectory()) {
+        collect(targetPath);
+      } else if (/\.test\.(?:c|m)?js$/i.test(path.basename(targetPath))) {
+        testFiles.push(targetInfo.rel);
+      } else {
+        throw Object.assign(new Error("node_test_target_denied"), {
+          code: "node_test_target_denied",
         });
       }
-      args = [normalizedTarget];
+
+      if (testFiles.length === 0) {
+        throw Object.assign(new Error("node_test_files_missing"), {
+          code: "node_test_files_missing",
+        });
+      }
+      args = ["--test", ...testFiles];
+      normalizedTarget = targetInfo.rel;
     } else {
-      throw Object.assign(new Error("test_runner_denied"), {
-        code: "test_runner_denied",
-      });
+      throw Object.assign(new Error("test_runner_denied"), { code: "test_runner_denied" });
     }
 
     const started = Date.now();
     const result = spawnSync(command, args, {
-      cwd: this.root,
+      cwd: projectRoot,
       encoding: "utf8",
       timeout: safeTimeoutMs,
       shell: false,
-      env: {
-        ...process.env,
-        CI: "1",
-        PYTHONUNBUFFERED: "1",
-      },
+      env: testEnv,
       maxBuffer: 2 * 1024 * 1024,
     });
     const durationMs = Date.now() - started;
@@ -346,7 +575,9 @@ export class VaultWorkspace {
     const stdout = stdoutRaw.slice(-maxOutput);
     const stderr = stderrRaw.slice(-maxOutput);
     const timedOut = Boolean(
-      result.error && (result.error.code === "ETIMEDOUT" || result.error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER")
+      result.error &&
+        (result.error.code === "ETIMEDOUT" ||
+          result.error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER")
     );
     const exitCode = Number.isInteger(result.status) ? result.status : null;
     const ok = !result.error && exitCode === 0;
@@ -355,6 +586,7 @@ export class VaultWorkspace {
       tool: "runtime.run_test",
       risk: "L1",
       runner: safeRunner,
+      project_dir: normalizedProjectDir,
       target: normalizedTarget,
       ok,
       exit_code: exitCode,
@@ -365,6 +597,7 @@ export class VaultWorkspace {
     return {
       ok,
       runner: safeRunner,
+      project_dir: normalizedProjectDir,
       target: normalizedTarget,
       command,
       args,
@@ -588,12 +821,13 @@ export const TOOL_DEFS = [
   },
   {
     name: "runtime.run_test",
-    description: "Run a bounded repository test only. Supports pytest targets under tests/ and service-owned src/e2e.js scripts; no arbitrary shell.",
+    description: "Run a bounded repository test only. Supports pytest, service-owned node E2E, fixed node --test, and static smoke checks with sanitized test environments; no repository-controlled shell scripts.",
     inputSchema: {
       type: "object",
       properties: {
-        runner: { type: "string", enum: ["pytest", "node_e2e"] },
+        runner: { type: "string", enum: ["pytest", "node_e2e", "node_test", "static_smoke"] },
         target: { type: "string" },
+        projectDir: { type: "string" },
         timeoutSec: { type: "number" },
       },
     },

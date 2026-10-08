@@ -8,7 +8,9 @@
     "start": "node ./src/daemon.js",
     "once": "node ./src/daemon.js --once",
     "sync": "node ./src/sync.js",
-    "e2e": "node ./src/e2e.js"
+    "e2e": "node ./src/e2e.js",
+    "route": "node ./src/router_cli.js",
+    "agentic": "node ./src/agentic_executor.js"
   },
   "engines": {
     "node": ">=18"

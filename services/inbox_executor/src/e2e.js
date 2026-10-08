@@ -14,7 +14,8 @@ import {
   validateExecutorIdentityMatch,
   validatePersistedClaimResult,
 } from "./executor_identity.js";
-import { contractHash, taskIdFromText, upsertDaemonResult } from "./inbox.js";
+import { classifyMechanicalActions, contractHash, currentTaskEnvelope, taskIdFromText, upsertDaemonResult } from "./inbox.js";
+import { contractField, routeInboxTask } from "./executor_router.js";
 
 const claimedAt = "2026-09-30T00:00:00.000Z";
 const codex = normalizeExecutorIdentity({
@@ -29,7 +30,139 @@ const codex = normalizeExecutorIdentity({
 });
 
 const taskId = "angel-executor-identity-contract-20260930";
+
+const readyCaps = {
+  executor_readiness: {
+    codex: { installed: true, authenticated: true, headless_ready: true },
+    cursor: { installed: true, authenticated: true, headless_ready: true },
+    vscode: { installed: true, interactive_only: true, headless_ready: false },
+  },
+};
+const agenticAuto = `task_id       route-test
+route         agentic
+executor      auto
+project       desktop-tutorial
+Goal          fix the failing test
+`;
+assert.equal(contractField(agenticAuto, "executor"), "auto");
+assert.deepEqual(
+  routeInboxTask(agenticAuto, readyCaps, { WHITE_STUDIO_EXECUTOR_ORDER: "codex,cursor" }),
+  {
+    ok: true,
+    route: "agentic",
+    requested_executor: "auto",
+    selected_executor: "codex",
+    reason: "auto_selected_codex",
+    code: "ok",
+    headless: true,
+    requires_ui: false,
+  }
+);
+assert.equal(
+  routeInboxTask(agenticAuto, {
+    executor_readiness: {
+      codex: { installed: true, authenticated: false, headless_ready: false },
+      cursor: { installed: true, authenticated: true, headless_ready: true },
+    },
+  }).selected_executor,
+  "cursor"
+);
+assert.equal(
+  routeInboxTask(agenticAuto.replace("executor      auto", "executor      vscode"), readyCaps).code,
+  "interactive_executor_required"
+);
+assert.equal(
+  routeInboxTask(agenticAuto, { executor_readiness: {} }).code,
+  "executor_unavailable"
+);
+assert.equal(
+  routeInboxTask(agenticAuto.replace("project       desktop-tutorial\n", ""), readyCaps).code,
+  "project_required"
+);
+assert.equal(
+  routeInboxTask(agenticAuto.replace("executor      auto", "executor      codxe"), readyCaps).code,
+  "invalid_executor"
+);
+
 const queued = `---\nstatus: queued\n---\n\ntask_id       ${taskId}\n\n## Result\n`;
+const mechanicalRouteText = `task_id       mechanical-route
+route         mechanical
+executor      auto
+
+## Mechanical Actions
+
+\`\`\`json
+{"actions":[{"tool":"workspace.read","args":{"path":"README.md"}}]}
+\`\`\`
+`;
+assert.equal(routeInboxTask(mechanicalRouteText, readyCaps).selected_executor, "inbox-daemon");
+assert.equal(routeInboxTask(mechanicalRouteText, readyCaps).route, "mechanical");
+
+const longLivedInbox = `---
+status: queued
+---
+
+## 過去任務
+
+task_id       old-task
+route         mechanical
+executor      cursor
+project       old-project
+
+## Mechanical Actions
+
+\`\`\`json
+{"actions":[{"tool":"workspace.read","args":{"path":"old.md"}}]}
+\`\`\`
+
+## 現在這一份契約
+
+task_id       current-task
+route         agentic
+executor      codex
+project       desktop-tutorial
+Goal          fix current task only
+
+## Result（old 回寫）
+
+- task_id：\`old-task\`
+
+## 待排入
+
+task_id       future-task
+executor      vscode
+`;
+assert.equal(taskIdFromText(longLivedInbox), "current-task");
+assert.equal(contractField(longLivedInbox, "executor"), "codex");
+assert.equal(contractField(longLivedInbox, "project"), "desktop-tutorial");
+assert.equal(routeInboxTask(longLivedInbox, readyCaps).route, "agentic");
+assert.equal(routeInboxTask(longLivedInbox, readyCaps).selected_executor, "codex");
+assert.equal(classifyMechanicalActions(longLivedInbox).ok, false);
+assert.match(currentTaskEnvelope(longLivedInbox), /task_id       current-task/);
+assert.doesNotMatch(currentTaskEnvelope(longLivedInbox), /old-task/);
+assert.doesNotMatch(currentTaskEnvelope(longLivedInbox), /future-task/);
+
+const longLivedMechanicalInbox = longLivedInbox.replace(
+  `route         agentic
+executor      codex
+project       desktop-tutorial
+Goal          fix current task only`,
+  `route         mechanical
+executor      auto
+project       desktop-tutorial
+Goal          read current README
+
+## Mechanical Actions
+
+\`\`\`json
+{"actions":[{"tool":"workspace.read","args":{"path":"README.md"}}]}
+\`\`\``
+);
+assert.equal(classifyMechanicalActions(longLivedMechanicalInbox).ok, true);
+assert.equal(
+  routeInboxTask(longLivedMechanicalInbox, readyCaps).selected_executor,
+  "inbox-daemon"
+);
 const running = upsertExecutorClaim(queued, taskId, codex);
 const claim = extractExecutorClaim(running);
 assert.equal(claim.legacy, false);

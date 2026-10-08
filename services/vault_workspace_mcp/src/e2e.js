@@ -5,6 +5,7 @@
  */
 
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
@@ -37,6 +38,40 @@ fs.writeFileSync(
   "console.log('SMOKE_OK');\n",
   "utf8",
 );
+
+fs.mkdirSync(path.join(scratchRoot, "projects", "npm-smoke", "tests"), { recursive: true });
+fs.writeFileSync(
+  path.join(scratchRoot, "projects", "npm-smoke", "package.json"),
+  JSON.stringify(
+    {
+      name: "npm-smoke",
+      private: true,
+      type: "module",
+      scripts: { test: "node --test" },
+    },
+    null,
+    2,
+  ) + "\n",
+  "utf8",
+);
+fs.writeFileSync(
+  path.join(scratchRoot, "projects", "npm-smoke", "tests", "basic.test.js"),
+  "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('ok', () => assert.equal(1, 1));\n",
+  "utf8",
+);
+
+fs.mkdirSync(path.join(scratchRoot, "projects", "static-smoke"), { recursive: true });
+fs.writeFileSync(
+  path.join(scratchRoot, "projects", "static-smoke", "index.html"),
+  "<!doctype html><script src=\"app.js\"></script>\n",
+  "utf8",
+);
+fs.writeFileSync(
+  path.join(scratchRoot, "projects", "static-smoke", "app.js"),
+  "const ready = true;\nconsole.log(ready);\n",
+  "utf8",
+);
+
 git(["add", "-A"]);
 git(["commit", "-m", "e2e-seed"]);
 
@@ -66,6 +101,14 @@ for (const expected of [
 
 const runtime = await dispatch(ws, "runtime.capabilities", {});
 assert(runtime.executors?.workspace_mcp === true, "runtime capabilities missing workspace_mcp");
+assert(
+  Object.prototype.hasOwnProperty.call(runtime.executors || {}, "codex_cli"),
+  "runtime capabilities missing codex_cli",
+);
+assert(
+  runtime.executor_readiness?.vscode?.interactive_only === true,
+  "VS Code must remain interactive_only",
+);
 
 const testRun = await dispatch(ws, "runtime.run_test", {
   runner: "node_e2e",
@@ -75,6 +118,67 @@ const testRun = await dispatch(ws, "runtime.run_test", {
 assert(testRun.ok === true, `runtime.run_test failed: ${testRun.stderr}`);
 assert(testRun.exit_code === 0, "runtime.run_test exit code mismatch");
 assert(testRun.stdout.includes("SMOKE_OK"), "runtime.run_test output mismatch");
+
+const nodeTest = await dispatch(ws, "runtime.run_test", {
+  runner: "node_test",
+  projectDir: "projects/npm-smoke",
+  target: "tests",
+  timeoutSec: 60,
+});
+assert(nodeTest.ok === true, `node_test failed:\nstdout=${nodeTest.stdout}\nstderr=${nodeTest.stderr}`);
+assert(nodeTest.exit_code === 0, "node_test exit code mismatch");
+
+const staticSmoke = await dispatch(ws, "runtime.run_test", {
+  runner: "static_smoke",
+  projectDir: "projects/static-smoke",
+  target: "index.html",
+  timeoutSec: 30,
+});
+assert(staticSmoke.ok === true, `static_smoke failed: ${staticSmoke.stderr}`);
+assert(staticSmoke.stdout.includes("app.js"), "static_smoke must inspect top-level JS");
+
+let deniedNodeOutsideProject = false;
+try {
+  await dispatch(ws, "runtime.run_test", {
+    runner: "node_test",
+    projectDir: "../outside",
+    target: "tests",
+    timeoutSec: 30,
+  });
+} catch (error) {
+  deniedNodeOutsideProject =
+    error?.code === "path_outside_workspace" ||
+    error?.code === "test_project_missing" ||
+    error?.code === "test_project_outside_workspace";
+}
+assert(deniedNodeOutsideProject, "node_test must deny projects outside workspace");
+
+if (process.platform !== "win32") {
+  const outsideRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-test-outside-"));
+  try {
+    fs.mkdirSync(path.join(outsideRoot, "tests"), { recursive: true });
+    fs.writeFileSync(
+      path.join(outsideRoot, "tests", "escape.test.js"),
+      "import test from 'node:test'; test('escape', () => {});\n",
+      "utf8",
+    );
+    fs.symlinkSync(outsideRoot, path.join(scratchRoot, "projects", "escape-link"), "dir");
+    let deniedSymlinkProject = false;
+    try {
+      await dispatch(ws, "runtime.run_test", {
+        runner: "node_test",
+        projectDir: "projects/escape-link",
+        target: "tests",
+        timeoutSec: 30,
+      });
+    } catch (error) {
+      deniedSymlinkProject = error?.code === "test_project_outside_workspace";
+    }
+    assert(deniedSymlinkProject, "symlinked project outside workspace must be denied");
+  } finally {
+    fs.rmSync(outsideRoot, { recursive: true, force: true });
+  }
+}
 
 let deniedTestTarget = false;
 try {

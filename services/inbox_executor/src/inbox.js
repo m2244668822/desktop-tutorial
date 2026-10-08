@@ -22,12 +22,16 @@ export function setStatus(text, status) {
 }
 
 export function contractHash(text) {
-  const normalized = text.replace(STATUS_RE, "status: queued");
+  const envelope = currentTaskEnvelope(text);
+  const normalized =
+    envelope === String(text || "")
+      ? envelope.replace(STATUS_RE, "status: queued")
+      : envelope;
   return crypto.createHash("sha256").update(normalized, "utf8").digest("hex");
 }
 
 export function taskIdFromText(text) {
-  return text.match(/task_id\s+([^\s\n]+)/)?.[1] ?? "unknown";
+  return currentTaskEnvelope(text).match(/task_id\s+([^\s\n]+)/)?.[1] ?? "unknown";
 }
 
 /**
@@ -66,14 +70,44 @@ function balancedJsonObject(text, start) {
 }
 
 /**
+ * Return only the active contract envelope from the long-lived Inbox document.
+ *
+ * The active task starts at "## 現在這一份契約" and may include following
+ * task-owned sections such as "## Mechanical Actions". It ends before the
+ * first Claim/Result/history/queue boundary. If the marker is absent, retain
+ * backward compatibility and return the original text.
+ */
+export function currentTaskEnvelope(text) {
+  const source = String(text || "");
+  const sections = topLevelSections(source);
+  const currentIndex = sections.findIndex(
+    (section) => section.heading === "## 現在這一份契約"
+  );
+  if (currentIndex < 0) return source;
+
+  const stop = sections
+    .slice(currentIndex + 1)
+    .find((section) =>
+      /^## (?:Executor Claim|Result|History|Links|待排入|待處理|過去任務)/.test(
+        section.heading
+      )
+    );
+
+  const start = sections[currentIndex].start;
+  const end = stop?.start ?? source.length;
+  return source.slice(start, end);
+}
+
+/**
  * @returns {{ ok: true, code: "ok", parsed: object } | { ok: false, code: "missing_actions" | "parse_error", message?: string }}
  */
 export function classifyMechanicalActions(text) {
-  const heading = text.search(/^##\s*(Mechanical Actions|機械動作)\s*$/m);
+  const envelope = currentTaskEnvelope(text);
+  const heading = envelope.search(/^##\s*(Mechanical Actions|機械動作)\s*$/m);
   if (heading < 0) {
     return { ok: false, code: "missing_actions", message: "no Mechanical Actions heading" };
   }
-  const after = text.slice(heading);
+  const after = envelope.slice(heading);
   const fence = after.match(/```json[^\n]*\n/);
   if (!fence) {
     return { ok: false, code: "missing_actions", message: "no json fence" };
@@ -227,11 +261,15 @@ export function topLevelSections(text) {
   });
 }
 
-export function upsertDaemonResult(text, resultMarkdown) {
+export function upsertNamedResult(text, marker, resultMarkdown) {
   let next = archiveStaleResult(text);
-  const marker = "## Result（inbox-daemon 回寫）";
-  const block = `${marker}\n\n${resultMarkdown.trim()}\n`;
-  const ranges = topLevelSections(next).filter((section) => section.heading === marker);
+  const safeMarker = String(marker || "").trim();
+  if (!/^## Result/.test(safeMarker)) {
+    throw Object.assign(new Error("result_marker_invalid"), { code: "result_marker_invalid" });
+  }
+  const block = `${safeMarker}\n\n${resultMarkdown.trim()}\n`;
+  const sections = topLevelSections(next);
+  const ranges = sections.filter((section) => section.heading === safeMarker);
   if (ranges.length > 0) {
     let cursor = 0;
     let reconciled = "";
@@ -242,10 +280,15 @@ export function upsertDaemonResult(text, resultMarkdown) {
     });
     return reconciled + next.slice(cursor);
   }
-  if (/\n## Links\n/.test(next)) {
-    return next.replace(/\n## Links\n/, `\n${block}\n## Links\n`);
+  const links = sections.find((section) => section.heading === "## Links");
+  if (links) {
+    return `${next.slice(0, links.start).trimEnd()}\n\n${block}\n${next.slice(links.start)}`;
   }
   return next.trimEnd() + "\n\n" + block + "\n";
+}
+
+export function upsertDaemonResult(text, resultMarkdown) {
+  return upsertNamedResult(text, "## Result（inbox-daemon 回寫）", resultMarkdown);
 }
 
 export function resolveInboxPath(vaultRoot) {
