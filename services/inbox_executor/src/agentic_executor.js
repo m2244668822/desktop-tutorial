@@ -7,11 +7,11 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { VaultWorkspace } from "../../vault_workspace_mcp/src/workspace.js";
 import {
+  currentTaskEnvelope,
   readInbox,
   resolveInboxPath,
   setStatus,
   taskIdFromText,
-  topLevelSections,
   upsertNamedResult,
 } from "./inbox.js";
 import {
@@ -55,10 +55,7 @@ function safeTaskName(taskId) {
 }
 
 function currentContract(text) {
-  const section = topLevelSections(text).find(
-    (item) => item.heading === "## 現在這一份契約"
-  );
-  return (section?.text || String(text || "")).slice(0, 24000);
+  return currentTaskEnvelope(text).slice(0, 24000);
 }
 
 function resolveAssignedProject(project) {
