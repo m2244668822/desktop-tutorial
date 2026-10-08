@@ -45,6 +45,7 @@ fs.writeFileSync(
     {
       name: "npm-smoke",
       private: true,
+      type: "module",
       scripts: { test: "node --test" },
     },
     null,
