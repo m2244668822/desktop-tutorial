@@ -226,6 +226,7 @@ export class VaultWorkspace {
   runtimeCapabilities() {
     const locator = process.platform === "win32" ? "where.exe" : "which";
     const commands = ["git", "node", "python", "py", "code", "cursor", "agent", "codex"];
+    const locations = {};
     const available = {};
 
     for (const command of commands) {
@@ -233,15 +234,29 @@ export class VaultWorkspace {
         cwd: this.root,
         encoding: "utf8",
         timeout: 2500,
+        shell: false,
       });
-      available[command] = result.status === 0;
+      const located = String(result.stdout || "")
+        .split(/\r?\n/)
+        .map((item) => item.trim())
+        .find(Boolean) || "";
+      locations[command] = result.status === 0 ? located : "";
+      available[command] = Boolean(locations[command]);
     }
 
     const probe = (command, args, timeout = 5000) => {
-      if (!available[command]) {
-        return { installed: false, ok: false, output: "" };
+      const located = locations[command];
+      if (!located) {
+        return { installed: false, ok: false, output: "", path: "" };
       }
-      const result = spawnSync(command, args, {
+
+      const isBatchShim =
+        process.platform === "win32" && /\.(?:cmd|bat)$/i.test(located);
+      const executable = isBatchShim ? (process.env.ComSpec || "cmd.exe") : located;
+      const executableArgs = isBatchShim
+        ? ["/d", "/s", "/c", command, ...args]
+        : args;
+      const result = spawnSync(executable, executableArgs, {
         cwd: this.root,
         encoding: "utf8",
         timeout,
@@ -257,6 +272,7 @@ export class VaultWorkspace {
         installed: true,
         ok: result.status === 0 && !result.error,
         output: output.slice(0, 300),
+        path: located,
       };
     };
 
@@ -270,6 +286,7 @@ export class VaultWorkspace {
       platform: process.platform,
       workspace_root: this.root,
       commands: available,
+      command_paths: locations,
       executors: {
         workspace_mcp: true,
         vscode_cli: Boolean(available.code),
@@ -282,18 +299,21 @@ export class VaultWorkspace {
         codex: {
           installed: codexVersion.installed,
           version: codexVersion.output,
+          path: codexVersion.path,
           authenticated: codexAuth.ok,
           headless_ready: codexVersion.installed && codexAuth.ok,
         },
         cursor: {
           installed: cursorVersion.installed,
           version: cursorVersion.output,
+          path: cursorVersion.path,
           authenticated: cursorAuth.ok,
           headless_ready: cursorVersion.installed && cursorAuth.ok,
         },
         vscode: {
           installed: vscodeVersion.installed,
           version: vscodeVersion.output,
+          path: vscodeVersion.path,
           interactive_only: true,
           headless_ready: false,
         },
