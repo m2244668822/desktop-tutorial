@@ -1,11 +1,16 @@
-import { classifyMechanicalActions } from "./inbox.js";
+import { classifyMechanicalActions, currentTaskEnvelope } from "./inbox.js";
 
 const EXECUTORS = new Set(["auto", "mechanical", "inbox-daemon", "codex", "cursor", "vscode"]);
 const ROUTES = new Set(["mechanical", "agentic"]);
 
 export function contractField(text, name) {
+  const escaped = String(name).replace(/[.*+?^${}()|[\]\\]/g, "\\export function contractField(text, name) {
   const escaped = String(name).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const match = String(text || "").match(
+    new RegExp("^\\s*" + escaped + "\\s+(?:`([^`]+)`|([^\\s#]+))\\s*$", "mi")
+  );");
+  const envelope = currentTaskEnvelope(text);
+  const match = envelope.match(
     new RegExp("^\\s*" + escaped + "\\s+(?:`([^`]+)`|([^\\s#]+))\\s*$", "mi")
   );
   return String(match?.[1] || match?.[2] || "").trim();
