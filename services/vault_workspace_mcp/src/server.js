@@ -10,6 +10,38 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { VaultWorkspace, TOOL_DEFS, dispatch } from "./workspace.js";
 
+const HOST_TOOL_NAME_BY_INTERNAL = Object.freeze({
+  "workspace.list": "workspace_list",
+  "workspace.search": "workspace_search",
+  "workspace.read": "workspace_read",
+  "workspace.propose_patch": "workspace_propose_patch",
+  "runtime.capabilities": "runtime_capabilities",
+  "runtime.run_test": "runtime_run_test",
+  "trevor.web_search": "trevor_web_search",
+  "workspace.create": "workspace_create",
+  "workspace.patch": "workspace_patch",
+  "workspace.move": "workspace_move",
+  "workspace.trash": "workspace_trash",
+  "git.checkpoint": "git_checkpoint",
+});
+
+const INTERNAL_TOOL_NAME_BY_HOST = Object.freeze(
+  Object.fromEntries(
+    Object.entries(HOST_TOOL_NAME_BY_INTERNAL).map(([internal, host]) => [host, internal]),
+  ),
+);
+
+function hostToolDefs() {
+  return TOOL_DEFS.map((tool) => ({
+    ...tool,
+    name: HOST_TOOL_NAME_BY_INTERNAL[tool.name] || tool.name.replace(/[^a-z0-9_-]/gi, "_"),
+  }));
+}
+
+function internalToolName(name) {
+  return INTERNAL_TOOL_NAME_BY_HOST[name] || name;
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 function defaultVaultRoot() {
@@ -79,11 +111,12 @@ async function handle(msg) {
     return {
       jsonrpc: "2.0",
       id,
-      result: { tools: TOOL_DEFS },
+      result: { tools: hostToolDefs() },
     };
   }
   if (method === "tools/call") {
-    const name = params?.name;
+    const requestedName = params?.name;
+    const name = internalToolName(requestedName);
     const args = params?.arguments || {};
     try {
       const result = await dispatch(ws, name, args);
