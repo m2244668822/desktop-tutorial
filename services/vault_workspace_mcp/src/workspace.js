@@ -523,7 +523,38 @@ export class VaultWorkspace {
       if (!command) {
         throw Object.assign(new Error("node_unavailable"), { code: "node_unavailable" });
       }
-      args = ["--test", targetInfo.rel];
+
+      const testFiles = [];
+      const collect = (dir) => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+          if (testFiles.length >= 200) break;
+          const candidate = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            collect(candidate);
+            continue;
+          }
+          if (!entry.isFile() || !/\.test\.(?:c|m)?js$/i.test(entry.name)) continue;
+          const info = assertRealInProject(candidate, "node_test_target_outside_project");
+          testFiles.push(info.rel);
+        }
+      };
+
+      if (fs.statSync(targetPath).isDirectory()) {
+        collect(targetPath);
+      } else if (/\.test\.(?:c|m)?js$/i.test(path.basename(targetPath))) {
+        testFiles.push(targetInfo.rel);
+      } else {
+        throw Object.assign(new Error("node_test_target_denied"), {
+          code: "node_test_target_denied",
+        });
+      }
+
+      if (testFiles.length === 0) {
+        throw Object.assign(new Error("node_test_files_missing"), {
+          code: "node_test_files_missing",
+        });
+      }
+      args = ["--test", ...testFiles];
       normalizedTarget = targetInfo.rel;
     } else {
       throw Object.assign(new Error("test_runner_denied"), { code: "test_runner_denied" });
