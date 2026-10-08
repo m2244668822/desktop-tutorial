@@ -41,6 +41,7 @@ const readyCaps = {
 const agenticAuto = `task_id       route-test
 route         agentic
 executor      auto
+project       desktop-tutorial
 Goal          fix the failing test
 `;
 assert.equal(contractField(agenticAuto, "executor"), "auto");
@@ -73,6 +74,10 @@ assert.equal(
 assert.equal(
   routeInboxTask(agenticAuto, { executor_readiness: {} }).code,
   "executor_unavailable"
+);
+assert.equal(
+  routeInboxTask(agenticAuto.replace("project       desktop-tutorial\n", ""), readyCaps).code,
+  "project_required"
 );
 
 const queued = `---\nstatus: queued\n---\n\ntask_id       ${taskId}\n\n## Result\n`;
