@@ -1,3 +1,5 @@
+import { topLevelSections } from "./inbox.js";
+
 const CLAIM_MARKER = "## Executor Claim";
 
 export const EXECUTOR_IDENTITY_FIELDS = Object.freeze([
@@ -87,32 +89,49 @@ export function executorIdentityFromEnvironment(env = process.env, now = new Dat
 export function upsertExecutorClaim(text, taskId, identity) {
   const normalized = normalizeExecutorIdentity(identity);
   const block = `${CLAIM_MARKER}\n\n- task_id：\`${taskId}\`\n- status：\`running\`\n\n\`\`\`json\n${JSON.stringify(normalized, null, 2)}\n\`\`\`\n`;
-  const claimPattern = /## Executor Claim(?:（[^）]+）)?[\s\S]*?(?=\n## |$)/;
-  if (claimPattern.test(text)) {
-    return text.replace(claimPattern, block.trimEnd());
+  const sections = topLevelSections(text);
+  const claimSection = sections.find((section) =>
+    /^## Executor Claim(?:（[^）]+）)?[ \t]*$/.test(section.heading)
+  );
+  if (claimSection) {
+    return `${text.slice(0, claimSection.start)}${block}${text.slice(
+      claimSection.end
+    )}`;
   }
-  const resultIndex = text.search(/^## Result/m);
-  if (resultIndex >= 0) {
-    return `${text.slice(0, resultIndex).trimEnd()}\n\n${block}\n${text.slice(resultIndex)}`;
+  const resultSection = sections.find((section) => section.heading.startsWith("## Result"));
+  if (resultSection) {
+    return `${text.slice(0, resultSection.start).trimEnd()}\n\n${block}\n${text.slice(
+      resultSection.start
+    )}`;
   }
   return `${text.trimEnd()}\n\n${block}`;
 }
 
 export function extractExecutorClaim(text) {
-  const match = text.match(
-    /## Executor Claim(?:（[^）]+）)?[\s\S]*?- task_id：`([^`]+)`[\s\S]*?```json\s*\n([\s\S]*?)\n```/
-  );
-  if (!match) return { legacy: true, task_id: null, identity: null };
+  const block = topLevelSections(text).find((section) =>
+    /^## Executor Claim(?:（[^）]+）)?[ \t]*$/.test(section.heading)
+  )?.text;
+  if (!block) return { legacy: true, task_id: null, identity: null };
+  const taskId = block.match(/^- task_id：`([^`]+)`/m)?.[1] ?? null;
+  const identityJson = block.match(/```json\s*\r?\n([\s\S]*?)\r?\n```/)?.[1];
+  if (!taskId || !identityJson) {
+    return {
+      legacy: false,
+      task_id: taskId,
+      identity: null,
+      error: "executor_identity_invalid",
+    };
+  }
   try {
     return {
       legacy: false,
-      task_id: match[1],
-      identity: normalizeExecutorIdentity(JSON.parse(match[2])),
+      task_id: taskId,
+      identity: normalizeExecutorIdentity(JSON.parse(identityJson)),
     };
   } catch (error) {
     return {
       legacy: false,
-      task_id: match[1],
+      task_id: taskId,
       identity: null,
       error: error.code || "executor_identity_invalid",
     };
@@ -120,17 +139,31 @@ export function extractExecutorClaim(text) {
 }
 
 export function extractExecutorResultIdentity(text, taskId) {
-  const blocks = text.split(/(?=^## Result)/m);
-  const block = blocks.find(
-    (candidate) =>
-      candidate.startsWith("## Result") &&
-      new RegExp(`- task_id：\\\`${taskId.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}\\\``).test(
-        candidate
-      )
-  );
+  const blocks = topLevelSections(text)
+    .filter((section) => section.heading.startsWith("## Result"))
+    .map((section) => section.text)
+    .filter(
+      (candidate) =>
+        candidate.startsWith("## Result") &&
+        candidate.match(/^- task_id：`([^`]+)`/m)?.[1] === taskId
+    );
+  const block =
+    blocks.filter((candidate) => candidate.startsWith("## Result（inbox-daemon 回寫）")).at(-1) ??
+    blocks.at(-1);
   if (!block) return { legacy: true, task_id: taskId, identity: null };
   const match = block.match(/- (?:executor_identity|identity)：\s*\n```json\s*\n([\s\S]*?)\n```/);
-  if (!match) return { legacy: true, task_id: taskId, identity: null };
+  if (!match) {
+    const validation = block.match(/^- identity_validation：`([^`]+)`/m)?.[1];
+    if (validation === "executor_identity_invalid") {
+      return {
+        legacy: false,
+        task_id: taskId,
+        identity: null,
+        error: validation,
+      };
+    }
+    return { legacy: true, task_id: taskId, identity: null };
+  }
   try {
     return {
       legacy: false,
