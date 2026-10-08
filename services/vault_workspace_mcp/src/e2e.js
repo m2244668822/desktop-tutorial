@@ -124,7 +124,7 @@ const nodeTest = await dispatch(ws, "runtime.run_test", {
   target: "tests",
   timeoutSec: 60,
 });
-assert(nodeTest.ok === true, `node_test failed: ${nodeTest.stderr}`);
+assert(nodeTest.ok === true, `node_test failed:\nstdout=${nodeTest.stdout}\nstderr=${nodeTest.stderr}`);
 assert(nodeTest.exit_code === 0, "node_test exit code mismatch");
 
 const staticSmoke = await dispatch(ws, "runtime.run_test", {
