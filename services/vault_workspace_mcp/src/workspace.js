@@ -355,10 +355,50 @@ export class VaultWorkspace {
     );
     const maxOutput = 60_000;
     const normalizedProjectDir = String(projectDir || "").trim().replace(/\\/g, "/");
-    const projectRoot = normalizedProjectDir ? this.resolve(normalizedProjectDir) : this.root;
-    if (!fs.existsSync(projectRoot) || !fs.statSync(projectRoot).isDirectory()) {
+    const lexicalProjectRoot = normalizedProjectDir ? this.resolve(normalizedProjectDir) : this.root;
+    if (!fs.existsSync(lexicalProjectRoot) || !fs.statSync(lexicalProjectRoot).isDirectory()) {
       throw Object.assign(new Error("test_project_missing"), { code: "test_project_missing" });
     }
+
+    const workspaceReal = fs.realpathSync(this.root);
+    const projectRoot = fs.realpathSync(lexicalProjectRoot);
+    const projectFromWorkspace = path.relative(workspaceReal, projectRoot);
+    if (projectFromWorkspace.startsWith("..") || path.isAbsolute(projectFromWorkspace)) {
+      throw Object.assign(new Error("test_project_outside_workspace"), {
+        code: "test_project_outside_workspace",
+      });
+    }
+
+    const assertRealInProject = (candidate, code) => {
+      const real = fs.realpathSync(candidate);
+      const rel = path.relative(projectRoot, real);
+      if (rel.startsWith("..") || path.isAbsolute(rel)) {
+        throw Object.assign(new Error(code), { code });
+      }
+      return { real, rel: rel.replace(/\\/g, "/") };
+    };
+
+    const testEnv = {};
+    for (const key of [
+      "PATH",
+      "Path",
+      "SystemRoot",
+      "WINDIR",
+      "ComSpec",
+      "TEMP",
+      "TMP",
+      "HOME",
+      "USERPROFILE",
+      "LOCALAPPDATA",
+      "APPDATA",
+      "ProgramFiles",
+      "ProgramFiles(x86)",
+      "NODE_PATH",
+    ]) {
+      if (process.env[key]) testEnv[key] = process.env[key];
+    }
+    testEnv.CI = "1";
+    testEnv.PYTHONUNBUFFERED = "1";
 
     let command = "";
     let args = [];
@@ -367,17 +407,12 @@ export class VaultWorkspace {
     if (safeRunner === "static_smoke") {
       normalizedTarget = normalizedTarget || "index.html";
       const entryPath = path.resolve(projectRoot, normalizedTarget);
-      const relEntry = path.relative(projectRoot, entryPath);
-      if (relEntry.startsWith("..") || path.isAbsolute(relEntry)) {
-        throw Object.assign(new Error("static_smoke_target_outside_project"), {
-          code: "static_smoke_target_outside_project",
-        });
-      }
       if (!fs.existsSync(entryPath)) {
         throw Object.assign(new Error("static_smoke_entry_missing"), {
           code: "static_smoke_entry_missing",
         });
       }
+      assertRealInProject(entryPath, "static_smoke_target_outside_project");
       const node = this._findCommand(["node"]);
       if (!node) {
         throw Object.assign(new Error("node_unavailable"), { code: "node_unavailable" });
@@ -391,12 +426,14 @@ export class VaultWorkspace {
       const checks = [];
       let ok = true;
       for (const jsFile of jsFiles) {
+        const jsPath = path.join(projectRoot, jsFile);
+        assertRealInProject(jsPath, "static_smoke_target_outside_project");
         const result = spawnSync(node, ["--check", jsFile], {
           cwd: projectRoot,
           encoding: "utf8",
           timeout: safeTimeoutMs,
           shell: false,
-          env: { ...process.env, CI: "1" },
+          env: testEnv,
           maxBuffer: 2 * 1024 * 1024,
         });
         const passed = !result.error && result.status === 0;
@@ -442,66 +479,52 @@ export class VaultWorkspace {
     if (safeRunner === "pytest") {
       normalizedTarget = normalizedTarget || "tests";
       const targetPath = path.resolve(projectRoot, normalizedTarget);
-      const relTarget = path.relative(projectRoot, targetPath).replace(/\\/g, "/");
-      if (!(relTarget === "tests" || relTarget.startsWith("tests/"))) {
+      if (!fs.existsSync(targetPath)) {
+        throw Object.assign(new Error("test_target_missing"), { code: "test_target_missing" });
+      }
+      const targetInfo = assertRealInProject(targetPath, "test_target_outside_tests");
+      if (!(targetInfo.rel === "tests" || targetInfo.rel.startsWith("tests/"))) {
         throw Object.assign(new Error("test_target_outside_tests"), {
           code: "test_target_outside_tests",
         });
-      }
-      if (!fs.existsSync(targetPath)) {
-        throw Object.assign(new Error("test_target_missing"), { code: "test_target_missing" });
       }
       command = this._findCommand(["python", "py", "python3"]);
       if (!command) {
         throw Object.assign(new Error("python_unavailable"), { code: "python_unavailable" });
       }
-      args = ["-m", "pytest", "-q", "--maxfail=1", relTarget];
-      normalizedTarget = relTarget;
+      args = ["-m", "pytest", "-q", "--maxfail=1", targetInfo.rel];
+      normalizedTarget = targetInfo.rel;
     } else if (safeRunner === "node_e2e") {
       if (!/^services\/[A-Za-z0-9_.-]+\/src\/e2e\.js$/.test(normalizedTarget)) {
         throw Object.assign(new Error("node_e2e_target_denied"), { code: "node_e2e_target_denied" });
       }
       const targetPath = path.resolve(projectRoot, normalizedTarget);
-      const relTarget = path.relative(projectRoot, targetPath).replace(/\\/g, "/");
-      if (relTarget.startsWith("../") || path.isAbsolute(relTarget)) {
-        throw Object.assign(new Error("node_e2e_target_outside_project"), {
-          code: "node_e2e_target_outside_project",
-        });
-      }
       if (!fs.existsSync(targetPath)) {
         throw Object.assign(new Error("test_target_missing"), { code: "test_target_missing" });
+      }
+      const targetInfo = assertRealInProject(targetPath, "node_e2e_target_outside_project");
+      command = this._findCommand(["node"]);
+      if (!command) {
+        throw Object.assign(new Error("node_unavailable"), { code: "node_unavailable" });
+      }
+      args = [targetInfo.rel];
+      normalizedTarget = targetInfo.rel;
+    } else if (safeRunner === "node_test") {
+      normalizedTarget = normalizedTarget || "tests";
+      const targetPath = path.resolve(projectRoot, normalizedTarget);
+      if (!fs.existsSync(targetPath)) {
+        throw Object.assign(new Error("test_target_missing"), { code: "test_target_missing" });
+      }
+      const targetInfo = assertRealInProject(targetPath, "node_test_target_outside_project");
+      if (!(targetInfo.rel === "tests" || targetInfo.rel.startsWith("tests/"))) {
+        throw Object.assign(new Error("node_test_target_denied"), { code: "node_test_target_denied" });
       }
       command = this._findCommand(["node"]);
       if (!command) {
         throw Object.assign(new Error("node_unavailable"), { code: "node_unavailable" });
       }
-      args = [relTarget];
-      normalizedTarget = relTarget;
-    } else if (safeRunner === "npm_test") {
-      const packagePath = path.join(projectRoot, "package.json");
-      if (!fs.existsSync(packagePath)) {
-        throw Object.assign(new Error("package_json_missing"), { code: "package_json_missing" });
-      }
-      let pkg;
-      try {
-        pkg = JSON.parse(fs.readFileSync(packagePath, "utf8"));
-      } catch {
-        throw Object.assign(new Error("package_json_invalid"), { code: "package_json_invalid" });
-      }
-      if (!pkg?.scripts?.test) {
-        throw Object.assign(new Error("npm_test_script_missing"), { code: "npm_test_script_missing" });
-      }
-      if (process.platform === "win32") {
-        command = process.env.ComSpec || "cmd.exe";
-        args = ["/d", "/s", "/c", "npm test"];
-      } else {
-        command = this._findCommand(["npm"]);
-        if (!command) {
-          throw Object.assign(new Error("npm_unavailable"), { code: "npm_unavailable" });
-        }
-        args = ["test"];
-      }
-      normalizedTarget = "package.json#scripts.test";
+      args = ["--test", targetInfo.rel];
+      normalizedTarget = targetInfo.rel;
     } else {
       throw Object.assign(new Error("test_runner_denied"), { code: "test_runner_denied" });
     }
@@ -512,11 +535,7 @@ export class VaultWorkspace {
       encoding: "utf8",
       timeout: safeTimeoutMs,
       shell: false,
-      env: {
-        ...process.env,
-        CI: "1",
-        PYTHONUNBUFFERED: "1",
-      },
+      env: testEnv,
       maxBuffer: 2 * 1024 * 1024,
     });
     const durationMs = Date.now() - started;
@@ -771,11 +790,11 @@ export const TOOL_DEFS = [
   },
   {
     name: "runtime.run_test",
-    description: "Run a bounded repository test only. Supports pytest, service-owned node E2E, configured project npm test, and static smoke checks; no arbitrary user shell.",
+    description: "Run a bounded repository test only. Supports pytest, service-owned node E2E, fixed node --test, and static smoke checks with sanitized test environments; no repository-controlled shell scripts.",
     inputSchema: {
       type: "object",
       properties: {
-        runner: { type: "string", enum: ["pytest", "node_e2e", "npm_test", "static_smoke"] },
+        runner: { type: "string", enum: ["pytest", "node_e2e", "node_test", "static_smoke"] },
         target: { type: "string" },
         projectDir: { type: "string" },
         timeoutSec: { type: "number" },
