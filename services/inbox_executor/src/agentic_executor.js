@@ -44,10 +44,30 @@ function git(cwd, args, timeout = 30000) {
   return run("git", args, { cwd, timeout });
 }
 
+function runTool(command, args, options = {}) {
+  if (process.platform !== "win32") return run(command, args, options);
+  const located = run("where.exe", [command], {
+    cwd: options.cwd || vaultRoot,
+    timeout: 2500,
+  });
+  const first = String(located.stdout || "")
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .find(Boolean) || "";
+  if (/\.(?:cmd|bat)$/i.test(first)) {
+    return run(
+      process.env.ComSpec || "cmd.exe",
+      ["/d", "/s", "/c", command, ...args],
+      options
+    );
+  }
+  return run(first || command, args, options);
+}
+
 function safeTaskName(taskId) {
   const base = String(taskId || "task")
     .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/[^a-z0-9_-]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 60);
   const suffix = crypto.createHash("sha256").update(String(taskId)).digest("hex").slice(0, 8);
@@ -199,8 +219,18 @@ const worktreeRoot = path.join(
   safeName
 );
 fs.mkdirSync(path.dirname(worktreeRoot), { recursive: true });
+git(sourceRepoRoot, ["worktree", "remove", "--force", worktreeRoot], 60000);
+git(sourceRepoRoot, ["worktree", "prune"], 30000);
 if (fs.existsSync(worktreeRoot)) {
   fs.rmSync(worktreeRoot, { recursive: true, force: true });
+}
+const branchNameCandidate = "runner/" + safeName;
+const refCheck = git(sourceRepoRoot, ["check-ref-format", "--branch", branchNameCandidate]);
+if (refCheck.status !== 0) {
+  throw Object.assign(new Error("runner_branch_invalid"), {
+    code: "runner_branch_invalid",
+    detail: String(refCheck.stderr || refCheck.stdout || "").slice(-1000),
+  });
 }
 const worktreeAdd = git(sourceRepoRoot, ["worktree", "add", "--detach", worktreeRoot, baseSha], 60000);
 if (worktreeAdd.status !== 0) {
@@ -234,7 +264,7 @@ const prompt = [
 
 let agentRun;
 if (selected === "codex") {
-  agentRun = run(
+  agentRun = runTool(
     "codex",
     ["exec", "--json", "--sandbox", "workspace-write", "--ask-for-approval", "never", "-"],
     {
@@ -245,7 +275,7 @@ if (selected === "codex") {
     }
   );
 } else if (selected === "cursor") {
-  agentRun = run(
+  agentRun = runTool(
     "agent",
     [
       "-p",
@@ -336,7 +366,7 @@ if (validationOk) {
       const commit = git(worktreeRoot, ["commit", "-m", `runner: ${taskId}`]);
       if (commit.status === 0) {
         commitSha = String(git(worktreeRoot, ["rev-parse", "HEAD"]).stdout || "").trim();
-        branchName = "runner/" + safeName;
+        branchName = branchNameCandidate;
         const pushed = git(
           worktreeRoot,
           ["push", "origin", `HEAD:refs/heads/${branchName}`],
