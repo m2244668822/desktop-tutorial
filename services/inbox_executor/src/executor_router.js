@@ -4,11 +4,7 @@ const EXECUTORS = new Set(["auto", "mechanical", "inbox-daemon", "codex", "curso
 const ROUTES = new Set(["mechanical", "agentic"]);
 
 export function contractField(text, name) {
-  const escaped = String(name).replace(/[.*+?^${}()|[\]\\]/g, "\\export function contractField(text, name) {
   const escaped = String(name).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = String(text || "").match(
-    new RegExp("^\\s*" + escaped + "\\s+(?:`([^`]+)`|([^\\s#]+))\\s*$", "mi")
-  );");
   const envelope = currentTaskEnvelope(text);
   const match = envelope.match(
     new RegExp("^\\s*" + escaped + "\\s+(?:`([^`]+)`|([^\\s#]+))\\s*$", "mi")
