@@ -79,6 +79,10 @@ assert.equal(
   routeInboxTask(agenticAuto.replace("project       desktop-tutorial\n", ""), readyCaps).code,
   "project_required"
 );
+assert.equal(
+  routeInboxTask(agenticAuto.replace("executor      auto", "executor      codxe"), readyCaps).code,
+  "invalid_executor"
+);
 
 const queued = `---\nstatus: queued\n---\n\ntask_id       ${taskId}\n\n## Result\n`;
 const mechanicalRouteText = `task_id       mechanical-route
