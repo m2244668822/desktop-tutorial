@@ -392,26 +392,47 @@ if (agentOk) {
   }
 }
 
-const diffCheck = git(worktreeRoot, ["diff", "--check"]);
-const testsOk = agentOk && tests.length === testProfile.tests.length && tests.every((item) => item.ok);
-const validationOk = testsOk && diffCheck.status === 0;
+const testsOk =
+  agentOk &&
+  tests.length === testProfile.tests.length &&
+  tests.every((item) => item.ok);
 
-const changedBeforeCommit = git(worktreeRoot, [
-  "-c",
-  "core.quotepath=false",
-  "status",
-  "--short",
-]);
-const filesChanged = String(changedBeforeCommit.stdout || "")
-  .split(/\r?\n/)
-  .map((line) => line.trim())
-  .filter(Boolean)
-  .slice(0, 100);
+const addArgs = projectRelInRepo
+  ? ["add", "--", projectRelInRepo]
+  : ["add", "--", "."];
+const add = git(worktreeRoot, addArgs);
+
+let diffCheck = { status: 1, stdout: "", stderr: "stage_failed" };
+let stagedState = { status: 2, stdout: "", stderr: "stage_failed" };
+let filesChanged = [];
+if (add.status === 0) {
+  diffCheck = git(worktreeRoot, ["diff", "--cached", "--check"]);
+  stagedState = git(worktreeRoot, ["diff", "--cached", "--quiet"]);
+  const changed = git(worktreeRoot, [
+    "-c",
+    "core.quotepath=false",
+    "diff",
+    "--cached",
+    "--name-only",
+  ]);
+  filesChanged = String(changed.stdout || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 100);
+}
+
+const validationOk =
+  testsOk &&
+  add.status === 0 &&
+  diffCheck.status === 0 &&
+  (stagedState.status === 0 || stagedState.status === 1);
 
 let branchName = "";
 let commitSha = "";
 let publishOk = false;
 let publishError = "";
+
 if (validationOk) {
   const beforePublish = currentClaimState(taskId, identity);
   if (!beforePublish.ok) {
@@ -420,40 +441,42 @@ if (validationOk) {
     );
     process.exit(6);
   }
-  git(worktreeRoot, ["config", "user.name", "white-studio-local-runner"]);
-  git(worktreeRoot, [
+
+  const configName = git(worktreeRoot, [
+    "config",
+    "user.name",
+    "white-studio-local-runner",
+  ]);
+  const configEmail = git(worktreeRoot, [
     "config",
     "user.email",
     "white-studio-local-runner@users.noreply.github.com",
   ]);
-  const addArgs = projectRelInRepo ? ["add", "--", projectRelInRepo] : ["add", "--", "."];
-  const add = git(worktreeRoot, addArgs);
-  if (add.status === 0) {
-    const staged = git(worktreeRoot, ["diff", "--cached", "--quiet"]);
-    if (staged.status === 1) {
-      const commit = git(worktreeRoot, ["commit", "-m", `runner: ${taskId}`]);
-      if (commit.status === 0) {
-        commitSha = String(git(worktreeRoot, ["rev-parse", "HEAD"]).stdout || "").trim();
-        branchName = branchNameCandidate;
-        const pushed = git(
-          worktreeRoot,
-          ["push", "origin", `HEAD:refs/heads/${branchName}`],
-          120000
-        );
-        publishOk = pushed.status === 0;
-        publishError = publishOk ? "" : String(pushed.stderr || pushed.stdout || "").slice(-1200);
-      } else {
-        publishError = String(commit.stderr || commit.stdout || "").slice(-1200);
-      }
-    } else if (staged.status === 0) {
-      publishOk = true;
-      branchName = "";
-      commitSha = baseSha;
+  if (configName.status !== 0 || configEmail.status !== 0) {
+    publishError = "git_identity_config_failed";
+  } else if (stagedState.status === 1) {
+    const commit = git(worktreeRoot, ["commit", "-m", `runner: ${taskId}`]);
+    if (commit.status === 0) {
+      commitSha = String(git(worktreeRoot, ["rev-parse", "HEAD"]).stdout || "").trim();
+      branchName = branchNameCandidate;
+      const pushed = git(
+        worktreeRoot,
+        ["push", "origin", `HEAD:refs/heads/${branchName}`],
+        120000
+      );
+      publishOk = pushed.status === 0;
+      publishError = publishOk
+        ? ""
+        : String(pushed.stderr || pushed.stdout || "").slice(-1200);
     } else {
-      publishError = String(staged.stderr || "").slice(-1200);
+      publishError = String(commit.stderr || commit.stdout || "").slice(-1200);
     }
+  } else if (stagedState.status === 0) {
+    publishOk = true;
+    branchName = "";
+    commitSha = baseSha;
   } else {
-    publishError = String(add.stderr || "").slice(-1200);
+    publishError = String(stagedState.stderr || "").slice(-1200);
   }
 }
 
