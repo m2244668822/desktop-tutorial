@@ -3,7 +3,7 @@
  * Path B inbox executor daemon.
  * Watches 智能體/chatgpt-inbox.md for status: queued.
  * Runs only ## Mechanical Actions JSON via vault_workspace_mcp.
- * Non-mechanical contracts → blocked (hand off to Cursor).
+ * Non-mechanical contracts are not executed here; the outer task router selects a headless coding executor.
  */
 
 import fs from "node:fs";
@@ -52,6 +52,8 @@ const ALLOWED = new Set([
   "workspace.move",
   "workspace.trash",
   "git.checkpoint",
+  "runtime.capabilities",
+  "runtime.run_test",
 ]);
 
 let busy = false;
@@ -150,7 +152,7 @@ async function runContract() {
     const reason =
       code === "parse_error"
         ? `blocked: parse_error。Mechanical Actions JSON 無法解析（${found.message || "invalid"}）。同一 task_id 不再自動重跑。`
-        : "blocked: 無 ## Mechanical Actions JSON。非機械契約請用 Cursor「跑 inbox」，或請 ChatGPT 補機械動作區塊。";
+        : "blocked: 無 ## Mechanical Actions JSON。此 daemon 只執行機械契約；agentic 任務必須由外層 Executor Router 選擇 Codex/Cursor/VS Code handoff。";
     const identityValidation = validateClaimResult(next, taskId, executorIdentity);
     const resultMarkdown = `- trace_id：\`${traceId}\`\n- task_id：\`${taskId}\`\n- 時間：${new Date().toISOString()}\n- 結果：blocked\n${executorIdentityMarkdown(executorIdentity, identityValidation)}\n- code：\`${code}\`\n- message：${reason}`;
     next = setStatus(next, "blocked");

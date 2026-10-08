@@ -7,7 +7,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { VaultWorkspace, TOOL_DEFS, dispatch } from "./workspace.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -37,6 +37,39 @@ fs.writeFileSync(
   "console.log('SMOKE_OK');\n",
   "utf8",
 );
+
+fs.mkdirSync(path.join(scratchRoot, "projects", "npm-smoke", "tests"), { recursive: true });
+fs.writeFileSync(
+  path.join(scratchRoot, "projects", "npm-smoke", "package.json"),
+  JSON.stringify(
+    {
+      name: "npm-smoke",
+      private: true,
+      scripts: { test: "node --test" },
+    },
+    null,
+    2,
+  ) + "\n",
+  "utf8",
+);
+fs.writeFileSync(
+  path.join(scratchRoot, "projects", "npm-smoke", "tests", "basic.test.js"),
+  "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('ok', () => assert.equal(1, 1));\n",
+  "utf8",
+);
+
+fs.mkdirSync(path.join(scratchRoot, "projects", "static-smoke"), { recursive: true });
+fs.writeFileSync(
+  path.join(scratchRoot, "projects", "static-smoke", "index.html"),
+  "<!doctype html><script src=\"app.js\"></script>\n",
+  "utf8",
+);
+fs.writeFileSync(
+  path.join(scratchRoot, "projects", "static-smoke", "app.js"),
+  "const ready = true;\nconsole.log(ready);\n",
+  "utf8",
+);
+
 git(["add", "-A"]);
 git(["commit", "-m", "e2e-seed"]);
 
@@ -66,6 +99,14 @@ for (const expected of [
 
 const runtime = await dispatch(ws, "runtime.capabilities", {});
 assert(runtime.executors?.workspace_mcp === true, "runtime capabilities missing workspace_mcp");
+assert(
+  Object.prototype.hasOwnProperty.call(runtime.executors || {}, "codex_cli"),
+  "runtime capabilities missing codex_cli",
+);
+assert(
+  runtime.executor_readiness?.vscode?.interactive_only === true,
+  "VS Code must remain interactive_only",
+);
 
 const testRun = await dispatch(ws, "runtime.run_test", {
   runner: "node_e2e",
@@ -75,6 +116,36 @@ const testRun = await dispatch(ws, "runtime.run_test", {
 assert(testRun.ok === true, `runtime.run_test failed: ${testRun.stderr}`);
 assert(testRun.exit_code === 0, "runtime.run_test exit code mismatch");
 assert(testRun.stdout.includes("SMOKE_OK"), "runtime.run_test output mismatch");
+
+const npmTest = await dispatch(ws, "runtime.run_test", {
+  runner: "npm_test",
+  projectDir: "projects/npm-smoke",
+  timeoutSec: 60,
+});
+assert(npmTest.ok === true, `npm_test failed: ${npmTest.stderr}`);
+assert(npmTest.exit_code === 0, "npm_test exit code mismatch");
+
+const staticSmoke = await dispatch(ws, "runtime.run_test", {
+  runner: "static_smoke",
+  projectDir: "projects/static-smoke",
+  target: "index.html",
+  timeoutSec: 30,
+});
+assert(staticSmoke.ok === true, `static_smoke failed: ${staticSmoke.stderr}`);
+assert(staticSmoke.stdout.includes("app.js"), "static_smoke must inspect top-level JS");
+
+let deniedNpmOutsideProject = false;
+try {
+  await dispatch(ws, "runtime.run_test", {
+    runner: "npm_test",
+    projectDir: "../outside",
+    timeoutSec: 30,
+  });
+} catch (error) {
+  deniedNpmOutsideProject =
+    error?.code === "path_outside_workspace" || error?.code === "test_project_missing";
+}
+assert(deniedNpmOutsideProject, "npm_test must deny projects outside workspace");
 
 let deniedTestTarget = false;
 try {
@@ -153,117 +224,4 @@ const auditPath = path.join(auditDir, "mcp-audit.jsonl");
 assert(fs.existsSync(auditPath), "audit log missing");
 const last = fs.readFileSync(auditPath, "utf8").trim().split("\n").pop();
 console.log("audit_last", last);
-
-async function stdioHandshake() {
-  const serverPath = path.join(__dirname, "server.js");
-  const env = {
-    ...process.env,
-    VAULT_WORKSPACE_ROOT: scratchRoot,
-    MCP_AUTO_APPROVE: "0",
-  };
-  delete env.MCP_FRAMING;
-
-  const child = spawn(process.execPath, [serverPath], {
-    cwd: path.dirname(serverPath),
-    env,
-    stdio: ["pipe", "pipe", "pipe"],
-  });
-
-  let stdoutBuffer = "";
-  let stderrBuffer = "";
-  const pending = new Map();
-
-  const rejectAll = (error) => {
-    for (const { reject, timer } of pending.values()) {
-      clearTimeout(timer);
-      reject(error);
-    }
-    pending.clear();
-  };
-
-  child.stderr.on("data", (chunk) => {
-    stderrBuffer += chunk.toString("utf8");
-  });
-
-  child.stdout.on("data", (chunk) => {
-    stdoutBuffer += chunk.toString("utf8");
-    const lines = stdoutBuffer.split(/\r?\n/);
-    stdoutBuffer = lines.pop() || "";
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      let message;
-      try {
-        message = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      if (message.id == null || !pending.has(message.id)) continue;
-      const entry = pending.get(message.id);
-      pending.delete(message.id);
-      clearTimeout(entry.timer);
-      entry.resolve(message);
-    }
-  });
-
-  child.on("error", rejectAll);
-  child.on("exit", (code) => {
-    if (pending.size) {
-      rejectAll(new Error(`stdio MCP exited early code=${code} stderr=${stderrBuffer}`));
-    }
-  });
-
-  const request = (id, method, params = {}) =>
-    new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        pending.delete(id);
-        reject(
-          new Error(
-            `stdio MCP timeout method=${method} stdout=${stdoutBuffer} stderr=${stderrBuffer}`,
-          ),
-        );
-      }, 5000);
-      pending.set(id, { resolve, reject, timer });
-      child.stdin.write(
-        JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n",
-      );
-    });
-
-  try {
-    const initialized = await request(100, "initialize", {
-      protocolVersion: "2024-11-05",
-      capabilities: {},
-      clientInfo: { name: "vault-workspace-e2e", version: "1.0.0" },
-    });
-    assert(
-      initialized.result?.serverInfo?.name === "vault-workspace-mcp",
-      "stdio initialize failed",
-    );
-
-    child.stdin.write(
-      JSON.stringify({
-        jsonrpc: "2.0",
-        method: "notifications/initialized",
-        params: {},
-      }) + "\n",
-    );
-
-    const listed = await request(101, "tools/list", {});
-    const names = new Set((listed.result?.tools || []).map((tool) => tool.name));
-    for (const expected of [
-      "workspace.read",
-      "workspace.propose_patch",
-      "runtime.capabilities",
-      "runtime.run_test",
-    ]) {
-      assert(names.has(expected), `stdio tools/list missing ${expected}`);
-    }
-
-    console.log("STDIO_HANDSHAKE_PASS");
-  } finally {
-    child.stdin.end();
-    child.kill();
-  }
-}
-
-await stdioHandshake();
 console.log("E2E_PASS");

@@ -227,11 +227,15 @@ export function topLevelSections(text) {
   });
 }
 
-export function upsertDaemonResult(text, resultMarkdown) {
+export function upsertNamedResult(text, marker, resultMarkdown) {
   let next = archiveStaleResult(text);
-  const marker = "## Result（inbox-daemon 回寫）";
-  const block = `${marker}\n\n${resultMarkdown.trim()}\n`;
-  const ranges = topLevelSections(next).filter((section) => section.heading === marker);
+  const safeMarker = String(marker || "").trim();
+  if (!/^## Result/.test(safeMarker)) {
+    throw Object.assign(new Error("result_marker_invalid"), { code: "result_marker_invalid" });
+  }
+  const block = `${safeMarker}\n\n${resultMarkdown.trim()}\n`;
+  const sections = topLevelSections(next);
+  const ranges = sections.filter((section) => section.heading === safeMarker);
   if (ranges.length > 0) {
     let cursor = 0;
     let reconciled = "";
@@ -242,10 +246,15 @@ export function upsertDaemonResult(text, resultMarkdown) {
     });
     return reconciled + next.slice(cursor);
   }
-  if (/\n## Links\n/.test(next)) {
-    return next.replace(/\n## Links\n/, `\n${block}\n## Links\n`);
+  const links = sections.find((section) => section.heading === "## Links");
+  if (links) {
+    return `${next.slice(0, links.start).trimEnd()}\n\n${block}\n${next.slice(links.start)}`;
   }
   return next.trimEnd() + "\n\n" + block + "\n";
+}
+
+export function upsertDaemonResult(text, resultMarkdown) {
+  return upsertNamedResult(text, "## Result（inbox-daemon 回寫）", resultMarkdown);
 }
 
 export function resolveInboxPath(vaultRoot) {

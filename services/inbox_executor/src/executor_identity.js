@@ -147,9 +147,12 @@ export function extractExecutorResultIdentity(text, taskId) {
         candidate.startsWith("## Result") &&
         candidate.match(/^- task_id：`([^`]+)`/m)?.[1] === taskId
     );
-  const block =
-    blocks.filter((candidate) => candidate.startsWith("## Result（inbox-daemon 回寫）")).at(-1) ??
-    blocks.at(-1);
+  const identityBearing = blocks.filter(
+    (candidate) =>
+      /- (?:executor_identity|identity)：\s*\n\`\`\`json/.test(candidate) ||
+      /^- identity_validation：\`[^\`]+\`/m.test(candidate)
+  );
+  const block = identityBearing.at(-1) ?? blocks.at(-1);
   if (!block) return { legacy: true, task_id: taskId, identity: null };
   const match = block.match(/- (?:executor_identity|identity)：\s*\n```json\s*\n([\s\S]*?)\n```/);
   if (!match) {
