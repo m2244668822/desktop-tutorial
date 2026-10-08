@@ -7,7 +7,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { VaultWorkspace, TOOL_DEFS, dispatch } from "./workspace.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -224,4 +224,117 @@ const auditPath = path.join(auditDir, "mcp-audit.jsonl");
 assert(fs.existsSync(auditPath), "audit log missing");
 const last = fs.readFileSync(auditPath, "utf8").trim().split("\n").pop();
 console.log("audit_last", last);
+
+async function stdioHandshake() {
+  const serverPath = path.join(__dirname, "server.js");
+  const env = {
+    ...process.env,
+    VAULT_WORKSPACE_ROOT: scratchRoot,
+    MCP_AUTO_APPROVE: "0",
+  };
+  delete env.MCP_FRAMING;
+
+  const child = spawn(process.execPath, [serverPath], {
+    cwd: path.dirname(serverPath),
+    env,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  let stdoutBuffer = "";
+  let stderrBuffer = "";
+  const pending = new Map();
+
+  const rejectAll = (error) => {
+    for (const { reject, timer } of pending.values()) {
+      clearTimeout(timer);
+      reject(error);
+    }
+    pending.clear();
+  };
+
+  child.stderr.on("data", (chunk) => {
+    stderrBuffer += chunk.toString("utf8");
+  });
+
+  child.stdout.on("data", (chunk) => {
+    stdoutBuffer += chunk.toString("utf8");
+    const lines = stdoutBuffer.split(/\r?\n/);
+    stdoutBuffer = lines.pop() || "";
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      let message;
+      try {
+        message = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (message.id == null || !pending.has(message.id)) continue;
+      const entry = pending.get(message.id);
+      pending.delete(message.id);
+      clearTimeout(entry.timer);
+      entry.resolve(message);
+    }
+  });
+
+  child.on("error", rejectAll);
+  child.on("exit", (code) => {
+    if (pending.size) {
+      rejectAll(new Error(`stdio MCP exited early code=${code} stderr=${stderrBuffer}`));
+    }
+  });
+
+  const request = (id, method, params = {}) =>
+    new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        pending.delete(id);
+        reject(
+          new Error(
+            `stdio MCP timeout method=${method} stdout=${stdoutBuffer} stderr=${stderrBuffer}`,
+          ),
+        );
+      }, 5000);
+      pending.set(id, { resolve, reject, timer });
+      child.stdin.write(
+        JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n",
+      );
+    });
+
+  try {
+    const initialized = await request(100, "initialize", {
+      protocolVersion: "2024-11-05",
+      capabilities: {},
+      clientInfo: { name: "vault-workspace-e2e", version: "1.0.0" },
+    });
+    assert(
+      initialized.result?.serverInfo?.name === "vault-workspace-mcp",
+      "stdio initialize failed",
+    );
+
+    child.stdin.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "notifications/initialized",
+        params: {},
+      }) + "\n",
+    );
+
+    const listed = await request(101, "tools/list", {});
+    const names = new Set((listed.result?.tools || []).map((tool) => tool.name));
+    for (const expected of [
+      "workspace.read",
+      "workspace.propose_patch",
+      "runtime.capabilities",
+      "runtime.run_test",
+    ]) {
+      assert(names.has(expected), `stdio tools/list missing ${expected}`);
+    }
+
+    console.log("STDIO_HANDSHAKE_PASS");
+  } finally {
+    child.stdin.end();
+    child.kill();
+  }
+}
+
+await stdioHandshake();
 console.log("E2E_PASS");
