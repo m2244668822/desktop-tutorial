@@ -30,7 +30,9 @@ vault-workspace-mcp
 ## 工作範圍
 
 - `VAULT_WORKSPACE_ROOT`：Vault 根目錄。
-- Tools：`workspace.list|search|read|create|patch|move|trash`、`workspace.propose_patch`、`git.checkpoint`、`runtime.capabilities`、`runtime.run_test`、`trevor.web_search`。
+- Internal tool IDs remain dotted for audit / Inbox compatibility: `workspace.read`, `runtime.capabilities`, etc.
+- MCP Host-facing tool names use VS Code-compatible identifiers: `workspace_read`, `workspace_propose_patch`, `git_checkpoint`, `runtime_capabilities`, `runtime_run_test`, `trevor_web_search`, etc.
+- The server translates host-safe underscore names back to the existing internal dotted IDs before dispatch.
 - 寫入：proposal/diff → permission → approval → apply → audit。
 - Audit：`runtime/.mcp-audit/mcp-audit.jsonl`。
 - Trash：搬到 `runtime/.mcp-trash/`，不做永久刪除。
@@ -101,10 +103,11 @@ E2E 涵蓋：
 
 1. 真實 `initialize` handshake。
 2. `notifications/initialized`。
-3. `tools/list`。
-4. `workspace.read`。
-5. bounded `runtime.run_test`。
-6. propose patch → approval → apply → verify → rollback。
+3. `tools/list`，且所有公開 tool names 符合 `[A-Za-z0-9_-]+`。
+4. Host-safe `runtime_capabilities` 可經真實 `tools/call` dispatch 成功。
+5. Internal `workspace.read`。
+6. bounded `runtime.run_test`。
+7. propose patch → approval → apply → verify → rollback。
 7. audit 產生。
 
 只有 server process 存在、Host 顯示 server 名稱或歷史 E2E 通過，都不能單獨視為「目前 MCP online」。
@@ -120,7 +123,8 @@ initialize
   ↓
 tools/list
   ↓
-workspace.read
+workspace_read (Host)
+→ workspace.read (internal dispatch)
   ↓
 write/approval/audit
 ```
