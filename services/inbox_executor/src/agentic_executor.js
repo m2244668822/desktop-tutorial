@@ -145,6 +145,66 @@ function writeTerminalResult({ text, marker, status, taskId, identity, validatio
   fs.writeFileSync(inboxPath, next, "utf8");
 }
 
+function currentClaimState(taskId, identity) {
+  if (!fs.existsSync(inboxPath)) {
+    return { ok: false, code: "inbox_missing", text: "" };
+  }
+  const text = fs.readFileSync(inboxPath, "utf8");
+  if (taskIdFromText(text) !== taskId) {
+    return { ok: false, code: "task_replaced", text };
+  }
+  const validation = validateClaimResult(text, taskId, identity);
+  if (!validation.ok) {
+    return { ok: false, code: validation.code, text, validation };
+  }
+  return { ok: true, code: validation.code, text, validation };
+}
+
+function installFailClosedHandlers(taskId, identity, selected) {
+  let handling = false;
+  const handler = (error) => {
+    if (handling) return;
+    handling = true;
+    const code = error?.code || "orchestration_exception";
+    const message = String(error?.stack || error?.message || error)
+      .replace(/\r?\n/g, " ")
+      .slice(0, 1600);
+    try {
+      const current = currentClaimState(taskId, identity);
+      if (current.ok) {
+        writeTerminalResult({
+          text: current.text,
+          marker: `## Result（${selected}-executor 回寫）`,
+          status: "blocked",
+          taskId,
+          identity,
+          validation: current.validation,
+          details: [
+            `- code：\`${code}\``,
+            "- route：`agentic`",
+            `- message：${message}`,
+            "- terminal_recovery：`fail_closed_exception_handler`",
+          ],
+        });
+      } else {
+        process.stderr.write(
+          `agentic-executor: exception result not written because current task ownership changed: ${current.code}\n`
+        );
+      }
+    } catch (persistError) {
+      process.stderr.write(
+        `agentic-executor: failed to persist terminal exception result: ${String(
+          persistError?.stack || persistError
+        )}\n`
+      );
+    }
+    process.stderr.write(`agentic-executor: ${code}: ${message}\n`);
+    process.exit(5);
+  };
+  process.on("uncaughtException", handler);
+  process.on("unhandledRejection", handler);
+}
+
 if (!fs.existsSync(inboxPath)) {
   process.stderr.write(`agentic-executor: missing inbox ${inboxPath}\n`);
   process.exit(2);
@@ -178,6 +238,7 @@ const identity = buildIdentity(selected, capabilities, new Date());
 let running = setStatus(initial.text, "running");
 running = upsertExecutorClaim(running, taskId, identity);
 fs.writeFileSync(inboxPath, running, "utf8");
+installFailClosedHandlers(taskId, identity, selected);
 
 const repoRootResult = git(project.abs, ["rev-parse", "--show-toplevel"]);
 if (repoRootResult.status !== 0) {
@@ -352,6 +413,13 @@ let commitSha = "";
 let publishOk = false;
 let publishError = "";
 if (validationOk) {
+  const beforePublish = currentClaimState(taskId, identity);
+  if (!beforePublish.ok) {
+    process.stderr.write(
+      `agentic-executor: publication cancelled because task ownership changed: ${beforePublish.code}\n`
+    );
+    process.exit(6);
+  }
   git(worktreeRoot, ["config", "user.name", "white-studio-local-runner"]);
   git(worktreeRoot, [
     "config",
@@ -389,8 +457,15 @@ if (validationOk) {
   }
 }
 
-const persisted = fs.readFileSync(inboxPath, "utf8");
-const identityValidation = validateClaimResult(persisted, taskId, identity);
+const currentBeforeResult = currentClaimState(taskId, identity);
+if (!currentBeforeResult.ok) {
+  process.stderr.write(
+    `agentic-executor: Result writeback cancelled because task ownership changed: ${currentBeforeResult.code}\n`
+  );
+  process.exit(6);
+}
+const persisted = currentBeforeResult.text;
+const identityValidation = currentBeforeResult.validation;
 const done = validationOk && publishOk && identityValidation.ok;
 const code = !agentOk
   ? "agent_execution_failed"
