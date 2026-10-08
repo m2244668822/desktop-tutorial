@@ -130,15 +130,117 @@ export function archiveStaleResult(text) {
   return next;
 }
 
+export function topLevelSections(text) {
+  const headings = [];
+  let fence = null;
+  let listContentIndent = null;
+  let htmlComment = false;
+  let htmlRawUntilBlank = false;
+  let htmlRawTag = null;
+
+  const rawHtmlBlockTag =
+    /^(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)$/i;
+
+  for (const match of text.matchAll(/^.*$/gm)) {
+    const line = match[0].replace(/\r$/, "");
+    const indentation = line.match(/^ */)[0].length;
+
+    if (htmlComment) {
+      if (line.includes("-->")) htmlComment = false;
+      continue;
+    }
+    if (/^ {0,3}<!--/.test(line)) {
+      if (!line.includes("-->")) htmlComment = true;
+      continue;
+    }
+
+    if (htmlRawTag) {
+      const close = new RegExp(`^ {0,3}<\\/${htmlRawTag}\\s*>`, "i");
+      if (close.test(line)) htmlRawTag = null;
+      continue;
+    }
+
+    if (htmlRawUntilBlank) {
+      if (!line.trim()) {
+        htmlRawUntilBlank = false;
+      } else {
+        continue;
+      }
+    }
+
+    const rawTagOpen = line.match(
+      /^ {0,3}<(script|pre|style|textarea)(?:\s|>|$)/i
+    );
+    if (rawTagOpen) {
+      const tag = rawTagOpen[1].toLowerCase();
+      const sameLineClose = new RegExp(`<\\/${tag}\\s*>`, "i").test(line);
+      if (!sameLineClose) htmlRawTag = tag;
+      continue;
+    }
+
+    const genericHtml = line.match(/^ {0,3}<\/?([A-Za-z][A-Za-z0-9-]*)(?:\s|\/?>|$)/);
+    if (genericHtml && rawHtmlBlockTag.test(genericHtml[1])) {
+      htmlRawUntilBlank = true;
+      continue;
+    }
+
+    if (listContentIndent !== null && line.trim() && indentation < listContentIndent) {
+      listContentIndent = null;
+    }
+
+    const backtickFence = line.match(/^ {0,3}(`{3,})([^`]*)$/);
+    const tildeFence = line.match(/^ {0,3}(~{3,})(.*)$/);
+    const fenceRun = backtickFence?.[1] ?? tildeFence?.[1] ?? null;
+    if (fence) {
+      if (
+        fenceRun &&
+        fenceRun[0] === fence.char &&
+        fenceRun.length >= fence.length &&
+        /^ {0,3}(`{3,}|~{3,})\s*$/.test(line)
+      ) {
+        fence = null;
+      }
+      continue;
+    }
+    if (fenceRun) {
+      fence = { char: fenceRun[0], length: fenceRun.length };
+      continue;
+    }
+
+    const isListNested = listContentIndent !== null && indentation >= listContentIndent;
+    const listItem = line.match(/^( {0,3})([-+*]|\d{1,9}[.)])( {1,4}|\t)/);
+    if (!isListNested && listItem) {
+      listContentIndent =
+        listItem[1].length + listItem[2].length + (listItem[3] === "\t" ? 4 : listItem[3].length);
+    }
+
+    const headingMatch = line.match(/^ {0,3}(## .*)$/);
+    if (!isListNested && headingMatch) {
+      headings.push({ heading: headingMatch[1], start: match.index });
+    }
+  }
+
+  return headings.map((item, index) => {
+    const end = headings[index + 1]?.start ?? text.length;
+    const sectionText = text.slice(item.start, end).replace(/^ {0,3}(?=## )/, "");
+    return { ...item, end, text: sectionText };
+  });
+}
+
 export function upsertDaemonResult(text, resultMarkdown) {
   let next = archiveStaleResult(text);
   const marker = "## Result（inbox-daemon 回寫）";
   const block = `${marker}\n\n${resultMarkdown.trim()}\n`;
-  if (next.includes(marker)) {
-    return next.replace(
-      /## Result（inbox-daemon 回寫）[\s\S]*?(?=\n## (?!Result)|$)/,
-      block + "\n"
-    );
+  const ranges = topLevelSections(next).filter((section) => section.heading === marker);
+  if (ranges.length > 0) {
+    let cursor = 0;
+    let reconciled = "";
+    ranges.forEach((range, index) => {
+      reconciled += next.slice(cursor, range.start);
+      if (index === 0) reconciled += block + "\n";
+      cursor = range.end;
+    });
+    return reconciled + next.slice(cursor);
   }
   if (/\n## Links\n/.test(next)) {
     return next.replace(/\n## Links\n/, `\n${block}\n## Links\n`);
