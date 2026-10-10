@@ -190,6 +190,9 @@ function writeTerminalResult({ text, marker, status, taskId, identity, validatio
   ].join("\n");
   let next = setStatus(text, status === "done" ? "done" : "blocked");
   next = upsertNamedResult(next, marker, resultMarkdown);
+  // Keep Result files compatible with git diff --check. A single trailing
+  // newline is canonical; extra blank lines at EOF break publication.
+  next = next.replace(/\r?\n+$/, "\n");
   fs.writeFileSync(inboxPath, next, "utf8");
 }
 
@@ -325,17 +328,6 @@ if (conflictingLines.length > 0) {
 }
 
 const safeName = safeTaskName(taskId);
-const worktreeRoot = path.join(
-  process.env.RUNNER_TEMP || os.tmpdir(),
-  "white-studio-worktrees",
-  safeName
-);
-fs.mkdirSync(path.dirname(worktreeRoot), { recursive: true });
-git(sourceRepoRoot, ["worktree", "remove", "--force", worktreeRoot], 60000);
-git(sourceRepoRoot, ["worktree", "prune"], 30000);
-if (fs.existsSync(worktreeRoot)) {
-  fs.rmSync(worktreeRoot, { recursive: true, force: true });
-}
 const branchNameCandidate = "runner/" + safeName;
 const refCheck = git(sourceRepoRoot, ["check-ref-format", "--branch", branchNameCandidate]);
 if (refCheck.status !== 0) {
@@ -344,12 +336,31 @@ if (refCheck.status !== 0) {
     detail: String(refCheck.stderr || refCheck.stdout || "").slice(-1000),
   });
 }
-const worktreeAdd = git(sourceRepoRoot, ["worktree", "add", "--detach", worktreeRoot, baseSha], 60000);
-if (worktreeAdd.status !== 0) {
-  throw Object.assign(new Error("worktree_create_failed"), {
-    code: "worktree_create_failed",
-    detail: String(worktreeAdd.stderr || "").slice(-1000),
-  });
+
+// Read-only analysis runs directly in the isolated GitHub Actions checkout.
+// Creating a second Windows worktree for a no-write task adds failure surface
+// (path length / checkout cost) without adding isolation. Implementation tasks
+// still use a detached worktree and independent validation.
+let worktreeRoot = sourceRepoRoot;
+if (!analysisOnly) {
+  worktreeRoot = path.join(
+    process.env.RUNNER_TEMP || os.tmpdir(),
+    "white-studio-worktrees",
+    safeName
+  );
+  fs.mkdirSync(path.dirname(worktreeRoot), { recursive: true });
+  git(sourceRepoRoot, ["worktree", "remove", "--force", worktreeRoot], 60000);
+  git(sourceRepoRoot, ["worktree", "prune"], 30000);
+  if (fs.existsSync(worktreeRoot)) {
+    fs.rmSync(worktreeRoot, { recursive: true, force: true });
+  }
+  const worktreeAdd = git(sourceRepoRoot, ["worktree", "add", "--detach", worktreeRoot, baseSha], 60000);
+  if (worktreeAdd.status !== 0) {
+    throw Object.assign(new Error("worktree_create_failed"), {
+      code: "worktree_create_failed",
+      detail: String(worktreeAdd.stderr || worktreeAdd.stdout || "").slice(-1600),
+    });
+  }
 }
 
 const agentProjectRoot = projectRelInRepo
@@ -381,7 +392,7 @@ let agentRun;
 if (selected === "codex") {
   agentRun = runTool(
     "codex",
-    ["exec", "--json", "--sandbox", "workspace-write", "--ask-for-approval", "never", "-"],
+    ["exec", "--json", "--sandbox", analysisOnly ? "read-only" : "workspace-write", "--ask-for-approval", "never", "-"],
     {
       cwd: agentProjectRoot,
       input: prompt,
@@ -399,7 +410,7 @@ if (selected === "codex") {
       "--output-format",
       "json",
       "--sandbox",
-      "enabled",
+      analysisOnly ? "read-only" : "enabled",
       prompt,
     ],
     { cwd: agentProjectRoot, timeout: maxAgentSeconds * 1000, env: process.env }
@@ -452,37 +463,64 @@ const testsOk =
   tests.length === testProfile.tests.length &&
   tests.every((item) => item.ok);
 
-const addArgs = projectRelInRepo
-  ? ["add", "--", projectRelInRepo]
-  : ["add", "--", "."];
-const add = git(worktreeRoot, addArgs);
-
-let diffCheck = { status: 1, stdout: "", stderr: "stage_failed" };
-let stagedState = { status: 2, stdout: "", stderr: "stage_failed" };
+let add = { status: 0, stdout: "", stderr: "" };
+let diffCheck = { status: 0, stdout: "", stderr: "" };
+let stagedState = { status: 0, stdout: "", stderr: "" };
 let filesChanged = [];
-if (add.status === 0) {
-  diffCheck = git(worktreeRoot, ["diff", "--cached", "--check"]);
-  stagedState = git(worktreeRoot, ["diff", "--cached", "--quiet"]);
-  const changed = git(worktreeRoot, [
+let readOnlyViolation = false;
+
+if (analysisOnly) {
+  // The only orchestrator-owned mutation is the task contract Claim/Result.
+  // The selected agent itself runs read-only. Any other working-tree change
+  // means the analysis lane violated its contract.
+  const afterAgentStatus = git(sourceRepoRoot, [
     "-c",
     "core.quotepath=false",
-    "diff",
-    "--cached",
-    "--name-only",
+    "status",
+    "--porcelain",
   ]);
-  filesChanged = String(changed.stdout || "")
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .slice(0, 100);
+  if (afterAgentStatus.status !== 0) {
+    diffCheck = { status: afterAgentStatus.status, stdout: "", stderr: "git_status_failed" };
+  } else {
+    const unexpected = String(afterAgentStatus.stdout || "")
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .filter((line) => {
+        const rawPath = line.slice(3).trim();
+        const candidate = rawPath.includes(" -> ") ? rawPath.split(" -> ").at(-1) : rawPath;
+        return path.resolve(sourceRepoRoot, candidate) !== inboxAbs;
+      });
+    filesChanged = unexpected.slice(0, 100);
+    readOnlyViolation = unexpected.length > 0;
+  }
+} else {
+  const addArgs = projectRelInRepo
+    ? ["add", "--", projectRelInRepo]
+    : ["add", "--", "."];
+  add = git(worktreeRoot, addArgs);
+  if (add.status === 0) {
+    diffCheck = git(worktreeRoot, ["diff", "--cached", "--check"]);
+    stagedState = git(worktreeRoot, ["diff", "--cached", "--quiet"]);
+    const changed = git(worktreeRoot, [
+      "-c",
+      "core.quotepath=false",
+      "diff",
+      "--cached",
+      "--name-only",
+    ]);
+    filesChanged = String(changed.stdout || "")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .slice(0, 100);
+  }
 }
 
-const readOnlyViolation = analysisOnly && stagedState.status === 1;
 const validationOk =
   testsOk &&
   add.status === 0 &&
   diffCheck.status === 0 &&
-  (stagedState.status === 0 || stagedState.status === 1) &&
+  (analysisOnly || stagedState.status === 0 || stagedState.status === 1) &&
   !readOnlyViolation;
 
 let branchName = "";
@@ -509,7 +547,13 @@ if (validationOk) {
     "user.email",
     "white-studio-local-runner@users.noreply.github.com",
   ]);
-  if (configName.status !== 0 || configEmail.status !== 0) {
+  if (analysisOnly) {
+    // No product branch is created for read-only analysis. Successful agent
+    // output is the artifact and will be persisted into the task Result.
+    publishOk = true;
+    branchName = "";
+    commitSha = baseSha;
+  } else if (configName.status !== 0 || configEmail.status !== 0) {
     publishError = "git_identity_config_failed";
   } else if (stagedState.status === 1) {
     const commit = git(worktreeRoot, ["commit", "-m", `runner: ${taskId}`]);
@@ -590,7 +634,7 @@ writeTerminalResult({
   ],
 });
 
-if (done) {
+if (done && !analysisOnly) {
   git(sourceRepoRoot, ["worktree", "remove", "--force", worktreeRoot], 60000);
 }
 
