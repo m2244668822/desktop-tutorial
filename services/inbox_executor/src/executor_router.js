@@ -28,6 +28,34 @@ function readiness(capabilities, executor) {
   };
 }
 
+function parsePercent(value, fallback) {
+  if (value === undefined || value === null || String(value).trim() === "") return fallback;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(0, Math.min(100, parsed));
+}
+
+function truthy(value) {
+  return ["1", "true", "yes", "on"].includes(String(value || "").trim().toLowerCase());
+}
+
+function executorLoadHint(env, name) {
+  const upper = name.toUpperCase();
+  return {
+    capacity: parsePercent(env[`WHITE_STUDIO_${upper}_CAPACITY`], 100),
+    load: parsePercent(env[`WHITE_STUDIO_${upper}_LOAD`], 0),
+    busy: truthy(env[`WHITE_STUDIO_${upper}_BUSY`]),
+  };
+}
+
+function hasCapacityHints(env) {
+  return ["CODEX", "CURSOR"].some((name) =>
+    ["CAPACITY", "LOAD", "BUSY"].some((field) =>
+      Object.prototype.hasOwnProperty.call(env, `WHITE_STUDIO_${name}_${field}`)
+    )
+  );
+}
+
 export function routeInboxTask(text, capabilities = {}, env = process.env) {
   const requestedState = normalizeRequested(contractField(text, "executor"));
   const requested = requestedState.requested;
@@ -150,7 +178,43 @@ export function routeInboxTask(text, capabilities = {}, env = process.env) {
     .map((item) => item.trim().toLowerCase())
     .filter((item) => item === "codex" || item === "cursor");
 
-  for (const candidate of [...new Set(order)]) {
+  const uniqueOrder = [...new Set(order)];
+
+  if (hasCapacityHints(env)) {
+    const ranked = uniqueOrder
+      .map((candidate, index) => {
+        const hint = executorLoadHint(env, candidate);
+        const ready = canUse(candidate);
+        const score = ready && !hint.busy && hint.capacity > 0
+          ? hint.capacity - hint.load
+          : -1;
+        return { candidate, index, ready, score, ...hint };
+      })
+      .filter((item) => item.ready && item.score >= 0)
+      .sort((a, b) => (b.score - a.score) || (a.index - b.index));
+
+    if (ranked.length > 0) {
+      const picked = ranked[0];
+      return {
+        ok: true,
+        route,
+        requested_executor: "auto",
+        selected_executor: picked.candidate,
+        reason: "capacity_selected_" + picked.candidate,
+        code: "ok",
+        headless: true,
+        requires_ui: false,
+        scheduler: {
+          policy: "capacity-aware-v1",
+          capacity: picked.capacity,
+          load: picked.load,
+          score: picked.score,
+        },
+      };
+    }
+  }
+
+  for (const candidate of uniqueOrder) {
     if (canUse(candidate)) {
       return {
         ok: true,

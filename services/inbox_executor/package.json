@@ -3,14 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Path B: poll chatgpt-inbox queued contracts and run mechanical MCP actions (not a second agent)",
+  "description": "Durable queued task routing and bounded mechanical/agentic execution for White Studio",
   "scripts": {
     "start": "node ./src/daemon.js",
     "once": "node ./src/daemon.js --once",
     "sync": "node ./src/sync.js",
     "e2e": "node ./src/e2e.js",
     "route": "node ./src/router_cli.js",
-    "agentic": "node ./src/agentic_executor.js"
+    "agentic": "node ./src/agentic_executor.js",
+    "queue": "node ./src/queue_cli.js",
+    "queue-e2e": "node ./src/queue_e2e.js"
   },
   "engines": {
     "node": ">=18"
