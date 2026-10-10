@@ -129,6 +129,43 @@ const nodeTest = await dispatch(ws, "runtime.run_test", {
 assert(nodeTest.ok === true, `node_test failed:\nstdout=${nodeTest.stdout}\nstderr=${nodeTest.stderr}`);
 assert(nodeTest.exit_code === 0, "node_test exit code mismatch");
 
+// Sanitized test env must forward PATHEXT (Windows cmd.exe/shell command resolution)
+// and must still drop non-whitelisted variables. Deterministic: sentinel values are set
+// here, not read from the host.
+{
+  const pathextSentinel = ".COM;.EXE;.BAT;.CMD;.E2E";
+  const previousPathext = process.env.PATHEXT;
+  const previousProbe = process.env.VAULT_E2E_ENV_PROBE;
+  process.env.PATHEXT = pathextSentinel;
+  process.env.VAULT_E2E_ENV_PROBE = "must-not-leak";
+  fs.writeFileSync(
+    path.join(scratchRoot, "projects", "npm-smoke", "tests", "env.test.js"),
+    [
+      "import test from 'node:test';",
+      "import assert from 'node:assert/strict';",
+      `test('PATHEXT forwarded', () => assert.equal(process.env.PATHEXT, ${JSON.stringify(pathextSentinel)}));`,
+      "test('non-whitelisted env dropped', () => assert.equal(process.env.VAULT_E2E_ENV_PROBE, undefined));",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  try {
+    const envTest = await dispatch(ws, "runtime.run_test", {
+      runner: "node_test",
+      projectDir: "projects/npm-smoke",
+      target: "tests/env.test.js",
+      timeoutSec: 60,
+    });
+    assert(envTest.ok === true, `node_test env check failed:\nstdout=${envTest.stdout}\nstderr=${envTest.stderr}`);
+    assert(envTest.exit_code === 0, "node_test env check exit code mismatch");
+  } finally {
+    if (previousPathext === undefined) delete process.env.PATHEXT;
+    else process.env.PATHEXT = previousPathext;
+    if (previousProbe === undefined) delete process.env.VAULT_E2E_ENV_PROBE;
+    else process.env.VAULT_E2E_ENV_PROBE = previousProbe;
+  }
+}
+
 const staticSmoke = await dispatch(ws, "runtime.run_test", {
   runner: "static_smoke",
   projectDir: "projects/static-smoke",
