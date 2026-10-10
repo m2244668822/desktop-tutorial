@@ -51,7 +51,6 @@ const ALLOWED = new Set([
   "workspace.patch",
   "workspace.move",
   "workspace.trash",
-  "git.checkpoint",
   "runtime.capabilities",
   "runtime.run_test",
 ]);
