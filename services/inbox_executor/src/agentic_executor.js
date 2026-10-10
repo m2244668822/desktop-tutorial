@@ -83,7 +83,12 @@ function resolveAssignedProject(project) {
   if (!raw) {
     throw Object.assign(new Error("project_required"), { code: "project_required" });
   }
-  const rel = raw === "desktop-tutorial" ? "runtime/desktop-tutorial" : raw;
+  const workspaceName = path.basename(vaultRoot);
+  const rel = raw === "desktop-tutorial"
+    ? "runtime/desktop-tutorial"
+    : raw === "." || raw === workspaceName
+      ? "."
+      : raw;
   const abs = path.resolve(vaultRoot, rel);
   const relative = path.relative(vaultRoot, abs);
   if (relative.startsWith("..") || path.isAbsolute(relative)) {
@@ -95,7 +100,7 @@ function resolveAssignedProject(project) {
   return { name: raw, vaultRelative: rel.replace(/\\/g, "/"), abs };
 }
 
-function loadTestProfile(projectName) {
+function loadTestProfile(projectName, { allowEmpty = false } = {}) {
   const profilePath = path.join(vaultRoot, "runtime", "test-profiles.json");
   if (!fs.existsSync(profilePath)) {
     throw Object.assign(new Error("test_profiles_missing"), { code: "test_profiles_missing" });
@@ -108,9 +113,52 @@ function loadTestProfile(projectName) {
   }
   const profile = data?.projects?.[projectName];
   if (!profile || !Array.isArray(profile.tests) || profile.tests.length === 0) {
+    if (allowEmpty) return { tests: [] };
     throw Object.assign(new Error("no_test_profile"), { code: "no_test_profile" });
   }
   return profile;
+}
+
+function extractAgentOutput(stdout) {
+  const raw = String(stdout || "");
+  const collected = [];
+  const seen = new Set();
+
+  const add = (value) => {
+    const text = String(value || "").trim();
+    if (!text || seen.has(text)) return;
+    seen.add(text);
+    collected.push(text);
+  };
+
+  const visit = (value, key = "") => {
+    if (typeof value === "string") {
+      if (["text", "output_text", "message", "content", "result", "final_output"].includes(key)) {
+        add(value);
+      }
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item, key);
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+    for (const [childKey, childValue] of Object.entries(value)) visit(childValue, childKey);
+  };
+
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("{")) continue;
+    try {
+      visit(JSON.parse(trimmed));
+    } catch {
+      // Raw stdout fallback below.
+    }
+  }
+
+  const combined = collected.join("\n\n").trim();
+  const useful = combined || raw.trim();
+  return useful ? useful.slice(-24000) : "";
 }
 
 function buildIdentity(selected, capabilities, now) {
@@ -217,8 +265,8 @@ if (initial.status !== "queued") {
 }
 
 const taskId = taskIdFromText(initial.text);
-const project = resolveAssignedProject(contractField(initial.text, "project"));
-const testProfile = loadTestProfile(project.name);
+const outputKind = String(contractField(initial.text, "Output") || "").trim().toLowerCase();
+const analysisOnly = new Set(["analysis", "summary", "checklist", "proposal", "reading-layer"]).has(outputKind);
 
 const controlWs = new VaultWorkspace({
   workspaceRoot: vaultRoot,
@@ -239,6 +287,9 @@ let running = setStatus(initial.text, "running");
 running = upsertExecutorClaim(running, taskId, identity);
 fs.writeFileSync(inboxPath, running, "utf8");
 installFailClosedHandlers(taskId, identity, selected);
+
+const project = resolveAssignedProject(contractField(initial.text, "project"));
+const testProfile = loadTestProfile(project.name, { allowEmpty: analysisOnly });
 
 const repoRootResult = git(project.abs, ["rev-parse", "--show-toplevel"]);
 if (repoRootResult.status !== 0) {
@@ -305,19 +356,22 @@ const agentProjectRoot = projectRelInRepo
   ? path.join(worktreeRoot, projectRelInRepo)
   : worktreeRoot;
 const prompt = [
-  "You are the selected White Studio headless coding executor.",
+  "You are the selected White Studio headless executor.",
   `Executor: ${selected}`,
   `Task ID: ${taskId}`,
   `Assigned project root: ${agentProjectRoot}`,
+  `Output kind: ${outputKind || "implementation"}`,
   "",
   "Rules:",
   "- Read AGENTS.md at the repository root if present.",
   "- Work only inside the assigned repository/worktree.",
   "- Do not commit, push, merge, deploy, reset --hard, clean, force push, or modify secrets.",
-  "- Make the smallest change needed for the task.",
-  "- You may run targeted tests, but the orchestrator will independently validate afterward.",
-  "- Do not modify chatgpt-inbox.md.",
-  "- Stop after implementation; do not wait for user input.",
+  analysisOnly
+    ? "- This is a read-only analysis task. Do not modify repository files. Return the complete requested deliverable in your final response."
+    : "- Make the smallest change needed for the task.",
+  "- You may run targeted tests, but the orchestrator will independently validate afterward when a test profile applies.",
+  "- Do not modify the task contract file.",
+  "- Stop after the requested deliverable; do not wait for user input.",
   "",
   "Task contract:",
   currentContract(initial.text),
@@ -359,6 +413,7 @@ const agentOutputHash = crypto
   .createHash("sha256")
   .update(String(agentRun.stdout || "") + "\n" + String(agentRun.stderr || ""))
   .digest("hex");
+const agentOutput = extractAgentOutput(agentRun.stdout);
 
 const worktreeStateRoot = path.join(
   process.env.RUNNER_TEMP || os.tmpdir(),
@@ -422,11 +477,13 @@ if (add.status === 0) {
     .slice(0, 100);
 }
 
+const readOnlyViolation = analysisOnly && stagedState.status === 1;
 const validationOk =
   testsOk &&
   add.status === 0 &&
   diffCheck.status === 0 &&
-  (stagedState.status === 0 || stagedState.status === 1);
+  (stagedState.status === 0 || stagedState.status === 1) &&
+  !readOnlyViolation;
 
 let branchName = "";
 let commitSha = "";
@@ -494,13 +551,15 @@ const code = !agentOk
   ? "agent_execution_failed"
   : !testsOk
     ? "validation_failed"
-    : diffCheck.status !== 0
-      ? "diff_check_failed"
-      : !publishOk
-        ? "publish_failed"
-        : !identityValidation.ok
-          ? identityValidation.code
-          : "done";
+    : readOnlyViolation
+      ? "read_only_violation"
+      : diffCheck.status !== 0
+        ? "diff_check_failed"
+        : !publishOk
+          ? "publish_failed"
+          : !identityValidation.ok
+            ? identityValidation.code
+            : "done";
 
 writeTerminalResult({
   text: persisted,
@@ -520,6 +579,9 @@ writeTerminalResult({
     `- code：\`${code}\``,
     `- agent_exit_code：${Number.isInteger(agentRun.status) ? agentRun.status : "null"}`,
     `- agent_output_sha256：\`${agentOutputHash}\``,
+    agentOutput
+      ? `- agent_output：\n\n${agentOutput.split(/\\r?\\n/).map((line) => "    " + line).join("\\n")}`
+      : "- agent_output：(empty)",
     `- files_changed：\`${filesChanged.join(" | ") || "(none)"}\``,
     `- tests：\`${tests.map((item) => `${item.runner}:${item.ok ? "PASS" : "FAIL"}`).join(" | ") || "(not-run)"}\``,
     `- git_diff_check：\`${diffCheck.status === 0 ? "PASS" : "FAIL"}\``,
