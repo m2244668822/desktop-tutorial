@@ -382,6 +382,7 @@ export class VaultWorkspace {
     for (const key of [
       "PATH",
       "Path",
+      "PATHEXT",
       "SystemRoot",
       "WINDIR",
       "ComSpec",
