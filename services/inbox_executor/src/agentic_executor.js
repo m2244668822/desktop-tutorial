@@ -410,7 +410,7 @@ if (selected === "codex") {
       "--output-format",
       "json",
       "--sandbox",
-      analysisOnly ? "read-only" : "enabled",
+      "enabled",
       prompt,
     ],
     { cwd: agentProjectRoot, timeout: maxAgentSeconds * 1000, env: process.env }
