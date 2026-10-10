@@ -67,6 +67,17 @@ assert.equal(
   }).selected_executor,
   "cursor"
 );
+const capacityDecision = routeInboxTask(agenticAuto, readyCaps, {
+  WHITE_STUDIO_EXECUTOR_ORDER: "codex,cursor",
+  WHITE_STUDIO_CODEX_CAPACITY: "100",
+  WHITE_STUDIO_CODEX_LOAD: "90",
+  WHITE_STUDIO_CURSOR_CAPACITY: "100",
+  WHITE_STUDIO_CURSOR_LOAD: "15",
+});
+assert.equal(capacityDecision.selected_executor, "cursor");
+assert.equal(capacityDecision.reason, "capacity_selected_cursor");
+assert.equal(capacityDecision.scheduler.policy, "capacity-aware-v1");
+assert.equal(capacityDecision.scheduler.score, 85);
 assert.equal(
   routeInboxTask(agenticAuto.replace("executor      auto", "executor      vscode"), readyCaps).code,
   "interactive_executor_required"
