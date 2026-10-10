@@ -22,7 +22,6 @@ const HOST_TOOL_NAME_BY_INTERNAL = Object.freeze({
   "workspace.patch": "workspace_patch",
   "workspace.move": "workspace_move",
   "workspace.trash": "workspace_trash",
-  "git.checkpoint": "git_checkpoint",
 });
 
 const INTERNAL_TOOL_NAME_BY_HOST = Object.freeze(
