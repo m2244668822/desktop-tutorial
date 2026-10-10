@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * L1 E2E: read → propose patch → checkpoint → patch → verify → rollback
+ * L1/L2 E2E: read → propose patch → approved patch → verify → safe scratch restore
  * Isolated git repo under runtime/.mcp-e2e-scratch (does not commit the vault).
  */
 
@@ -98,6 +98,7 @@ for (const expected of [
 ]) {
   assert(toolNames.has(expected), `missing internal MCP tool: ${expected}`);
 }
+assert(!toolNames.has("git.checkpoint"), "git.checkpoint must not be exposed as an MCP tool");
 
 const runtime = await dispatch(ws, "runtime.capabilities", {});
 assert(runtime.executors?.workspace_mcp === true, "runtime capabilities missing workspace_mcp");
@@ -228,10 +229,6 @@ const proposed = await ws.proposePatch({
 assert(proposed.diff_hash, "missing diff_hash");
 console.log("diff_hash", proposed.diff_hash);
 
-const checkpoint = ws.gitCheckpoint({ message: "mcp-e2e-checkpoint-before-patch" });
-assert(checkpoint.rollback_id, "missing rollback_id");
-console.log("rollback_id", checkpoint.rollback_id);
-
 const patched = await ws.patch({
   path: relFile,
   content: "# e2e after\n",
@@ -247,11 +244,9 @@ assert(patched.hash === proposed.after_hash, "hash mismatch after patch");
 const read2 = await ws.read({ path: relFile });
 assert(read2.content.includes("e2e after"), "patch not applied");
 
-const rolled = await ws.rollbackTo({ rollback_id: checkpoint.rollback_id });
-assert(rolled.rollback_id === checkpoint.rollback_id, "rollback id mismatch");
-
+fs.writeFileSync(path.join(scratchRoot, relFile), read1.content, "utf8");
 const read3 = await ws.read({ path: relFile });
-assert(read3.content.includes("e2e before"), "rollback did not restore content");
+assert(read3.content.includes("e2e before"), "safe scratch restore did not restore content");
 
 const auditPath = path.join(auditDir, "mcp-audit.jsonl");
 assert(fs.existsSync(auditPath), "audit log missing");

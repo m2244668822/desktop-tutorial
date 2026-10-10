@@ -716,53 +716,6 @@ export class VaultWorkspace {
     return { from: this.rel(src), trash_path: dest, action_id, audit: row };
   }
 
-  gitCheckpoint({ message = "mcp-checkpoint" } = {}) {
-    const level = riskForTool("git.checkpoint");
-    const status = spawnSync("git", ["status", "--porcelain"], {
-      cwd: this.root,
-      encoding: "utf8",
-    });
-    if (status.error) {
-      throw Object.assign(status.error, { code: "git_unavailable" });
-    }
-    const add = spawnSync("git", ["add", "-A"], { cwd: this.root, encoding: "utf8" });
-    if (add.status !== 0) {
-      throw Object.assign(new Error(add.stderr || "git_add_failed"), { code: "git_add_failed" });
-    }
-    const commit = spawnSync(
-      "git",
-      ["commit", "-m", message, "--allow-empty"],
-      { cwd: this.root, encoding: "utf8" }
-    );
-    // allow non-zero if nothing to commit after add — still record HEAD
-    const rev = spawnSync("git", ["rev-parse", "HEAD"], {
-      cwd: this.root,
-      encoding: "utf8",
-    });
-    const rollback_id = (rev.stdout || "").trim();
-    const row = this.audit({
-      tool: "git.checkpoint",
-      risk: level,
-      message,
-      rollback_id,
-      commit_ok: commit.status === 0,
-      commit_stderr: (commit.stderr || "").slice(0, 200),
-    });
-    return { rollback_id, audit: row };
-  }
-
-  async rollbackTo({ rollback_id }) {
-    if (!rollback_id) throw Object.assign(new Error("rollback_id_required"), { code: "rollback_id_required" });
-    const r = spawnSync("git", ["reset", "--hard", rollback_id], {
-      cwd: this.root,
-      encoding: "utf8",
-    });
-    if (r.status !== 0) {
-      throw Object.assign(new Error(r.stderr || "rollback_failed"), { code: "rollback_failed" });
-    }
-    const row = this.audit({ tool: "git.rollback", risk: "L3", rollback_id });
-    return { rollback_id, audit: row };
-  }
 }
 
 export const TOOL_DEFS = [
@@ -895,14 +848,6 @@ export const TOOL_DEFS = [
       required: ["path"],
     },
   },
-  {
-    name: "git.checkpoint",
-    description: "Create a git checkpoint commit; returns rollback_id.",
-    inputSchema: {
-      type: "object",
-      properties: { message: { type: "string" } },
-    },
-  },
 ];
 
 export async function dispatch(ws, name, args = {}) {
@@ -929,8 +874,6 @@ export async function dispatch(ws, name, args = {}) {
       return ws.move(args);
     case "workspace.trash":
       return ws.trash(args);
-    case "git.checkpoint":
-      return ws.gitCheckpoint(args);
     default:
       throw Object.assign(new Error("unknown_tool"), { code: "unknown_tool", name });
   }

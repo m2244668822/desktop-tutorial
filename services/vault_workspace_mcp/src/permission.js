@@ -23,8 +23,6 @@ export function riskForTool(toolName) {
       return "L2";
     case "workspace.trash":
       return "L3";
-    case "git.checkpoint":
-      return "L1";
     default:
       return "L4";
   }

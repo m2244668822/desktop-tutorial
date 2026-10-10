@@ -31,7 +31,7 @@ vault-workspace-mcp
 
 - `VAULT_WORKSPACE_ROOT`：Vault 根目錄。
 - Internal tool IDs remain dotted for audit / Inbox compatibility: `workspace.read`, `runtime.capabilities`, etc.
-- MCP Host-facing tool names use VS Code-compatible identifiers: `workspace_read`, `workspace_propose_patch`, `git_checkpoint`, `runtime_capabilities`, `runtime_run_test`, `trevor_web_search`, etc.
+- MCP Host-facing tool names use VS Code-compatible identifiers: `workspace_read`, `workspace_propose_patch`, `runtime_capabilities`, `runtime_run_test`, `trevor_web_search`, etc.
 - The server translates host-safe underscore names back to the existing internal dotted IDs before dispatch.
 - 寫入：proposal/diff → permission → approval → apply → audit。
 - Audit：`runtime/.mcp-audit/mcp-audit.jsonl`。
@@ -107,8 +107,8 @@ E2E 涵蓋：
 4. Host-safe `runtime_capabilities` 可經真實 `tools/call` dispatch 成功。
 5. Internal `workspace.read`。
 6. bounded `runtime.run_test`。
-7. propose patch → approval → apply → verify → rollback。
-7. audit 產生。
+7. propose patch → approval → apply → verify；E2E 僅在隔離 scratch 直接還原測試檔，不提供 Host rollback。
+8. audit 產生。
 
 只有 server process 存在、Host 顯示 server 名稱或歷史 E2E 通過，都不能單獨視為「目前 MCP online」。
 
@@ -149,6 +149,8 @@ git -C runtime/desktop-tutorial rev-parse HEAD
 兩個 SHA 必須一致。
 
 ## 安全邊界
+
+- 不提供 `git_checkpoint` 或 Host 可呼叫的 hard-reset rollback；MCP 不得執行 `git add -A` / `git reset --hard`。
 
 - 不提供 unrestricted shell。
 - 寫入需經 permission/approval。
