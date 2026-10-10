@@ -6,10 +6,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 INBOX_E2E = ROOT / "services" / "inbox_executor" / "src" / "e2e.js"
+QUEUE_E2E = ROOT / "services" / "inbox_executor" / "src" / "queue_e2e.js"
 NODE_FILES = (
     ROOT / "services" / "inbox_executor" / "src" / "executor_router.js",
     ROOT / "services" / "inbox_executor" / "src" / "router_cli.js",
     ROOT / "services" / "inbox_executor" / "src" / "agentic_executor.js",
+    ROOT / "services" / "inbox_executor" / "src" / "queue_cli.js",
+    ROOT / "services" / "inbox_executor" / "src" / "queue_e2e.js",
 )
 
 
@@ -48,6 +51,21 @@ class InboxExecutorE2ETests(unittest.TestCase):
         merged = "\n".join(part for part in (proc.stdout, proc.stderr) if part)
         self.assertEqual(0, proc.returncode, merged)
         self.assertIn("EXECUTOR_IDENTITY_E2E_PASS", merged)
+
+    def test_durable_queue_selector_e2e(self):
+        proc = subprocess.run(
+            [self.node, str(QUEUE_E2E)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=60,
+            check=False,
+        )
+        merged = "\n".join(part for part in (proc.stdout, proc.stderr) if part)
+        self.assertEqual(0, proc.returncode, merged)
+        self.assertIn("QUEUE_E2E_PASS", merged)
 
 
 if __name__ == "__main__":
