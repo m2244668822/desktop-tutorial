@@ -64,6 +64,38 @@ function runTool(command, args, options = {}) {
   return run(first || command, args, options);
 }
 
+function codexExecArgs(analysisOnly) {
+  const help = runTool("codex", ["exec", "--help"], {
+    cwd: vaultRoot,
+    timeout: 10000,
+    env: process.env,
+  });
+  const helpText = String(help.stdout || "") + "\n" + String(help.stderr || "");
+  const args = ["exec", "--json"];
+
+  if (helpText.includes("--ask-for-approval")) {
+    args.push(
+      "--sandbox",
+      analysisOnly ? "read-only" : "workspace-write",
+      "--ask-for-approval",
+      "never"
+    );
+  } else if (helpText.includes("--approve-for-me")) {
+    // Newer local Codex builds route approvals through automatic review and
+    // reject --approve-for-me together with an explicit --sandbox flag.
+    if (analysisOnly) args.push("--sandbox", "read-only");
+    else args.push("--approve-for-me");
+  } else {
+    throw Object.assign(new Error("codex_approval_flag_unsupported"), {
+      code: "codex_approval_flag_unsupported",
+    });
+  }
+
+  if (helpText.includes("--ephemeral")) args.push("--ephemeral");
+  args.push("-");
+  return args;
+}
+
 function safeTaskName(taskId) {
   const base = String(taskId || "task")
     .toLowerCase()
@@ -405,7 +437,7 @@ let agentRun;
 if (selected === "codex") {
   agentRun = runTool(
     "codex",
-    ["exec", "--json", "--sandbox", analysisOnly ? "read-only" : "workspace-write", "--ask-for-approval", "never", "-"],
+    codexExecArgs(analysisOnly),
     {
       cwd: agentProjectRoot,
       input: prompt,
@@ -652,3 +684,4 @@ if (done && !analysisOnly) {
 }
 
 process.exit(done ? 0 : 5);
+
