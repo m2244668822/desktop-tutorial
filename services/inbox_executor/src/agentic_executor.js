@@ -684,4 +684,3 @@ if (done && !analysisOnly) {
 }
 
 process.exit(done ? 0 : 5);
-
