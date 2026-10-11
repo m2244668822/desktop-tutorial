@@ -129,6 +129,26 @@ const nodeTest = await dispatch(ws, "runtime.run_test", {
 assert(nodeTest.ok === true, `node_test failed:\nstdout=${nodeTest.stdout}\nstderr=${nodeTest.stderr}`);
 assert(nodeTest.exit_code === 0, "node_test exit code mismatch");
 
+const pythonSmokeRoot = path.join(scratchRoot, "projects", "python-smoke", "tests");
+fs.mkdirSync(pythonSmokeRoot, { recursive: true });
+fs.writeFileSync(
+  path.join(pythonSmokeRoot, "test_smoke.py"),
+  "import sys\nassert sys.version_info >= (3, 8)\nprint('PYTHON_SCRIPT_OK')\n",
+  "utf8",
+);
+const pythonScript = await dispatch(ws, "runtime.run_test", {
+  runner: "python_script",
+  projectDir: "projects/python-smoke",
+  target: "tests/test_smoke.py",
+  timeoutSec: 30,
+});
+assert(
+  pythonScript.ok === true,
+  `python_script failed:\nstdout=${pythonScript.stdout}\nstderr=${pythonScript.stderr}`,
+);
+assert(pythonScript.exit_code === 0, "python_script exit code mismatch");
+assert(pythonScript.stdout.includes("PYTHON_SCRIPT_OK"), "python_script output mismatch");
+
 // Sanitized test env must forward PATHEXT (Windows cmd.exe/shell command resolution)
 // and must still drop non-whitelisted variables. Deterministic: sentinel values are set
 // here, not read from the host.
