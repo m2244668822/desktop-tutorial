@@ -347,6 +347,33 @@ export class VaultWorkspace {
     return "";
   }
 
+  _findWorkingPython() {
+    const locator = process.platform === "win32" ? "where.exe" : "which";
+    for (const candidate of ["python", "py", "python3"]) {
+      const located = spawnSync(locator, [candidate], {
+        cwd: this.root,
+        encoding: "utf8",
+        timeout: 2500,
+      });
+      if (located.status !== 0) continue;
+      const paths = String(located.stdout || "")
+        .split(/\r?\n/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+      for (const command of paths.length ? paths : [candidate]) {
+        const probe = spawnSync(command, ["--version"], {
+          cwd: this.root,
+          encoding: "utf8",
+          timeout: 5000,
+          shell: false,
+          maxBuffer: 256 * 1024,
+        });
+        if (!probe.error && probe.status === 0) return command;
+      }
+    }
+    return "";
+  }
+
   runTest({ runner = "pytest", target = "tests", projectDir = "", timeoutSec = 60 } = {}) {
     const safeRunner = String(runner || "pytest").trim().toLowerCase();
     const safeTimeoutMs = Math.max(
@@ -494,6 +521,29 @@ export class VaultWorkspace {
         throw Object.assign(new Error("python_unavailable"), { code: "python_unavailable" });
       }
       args = ["-m", "pytest", "-q", "--maxfail=1", targetInfo.rel];
+      normalizedTarget = targetInfo.rel;
+    } else if (safeRunner === "python_script") {
+      normalizedTarget = normalizedTarget || "tests";
+      const targetPath = path.resolve(projectRoot, normalizedTarget);
+      if (!fs.existsSync(targetPath) || !fs.statSync(targetPath).isFile()) {
+        throw Object.assign(new Error("test_target_missing"), { code: "test_target_missing" });
+      }
+      const targetInfo = assertRealInProject(targetPath, "test_target_outside_tests");
+      if (!(targetInfo.rel === "tests" || targetInfo.rel.startsWith("tests/"))) {
+        throw Object.assign(new Error("test_target_outside_tests"), {
+          code: "test_target_outside_tests",
+        });
+      }
+      if (!targetInfo.rel.toLowerCase().endsWith(".py")) {
+        throw Object.assign(new Error("python_script_target_denied"), {
+          code: "python_script_target_denied",
+        });
+      }
+      command = this._findWorkingPython();
+      if (!command) {
+        throw Object.assign(new Error("python_unavailable"), { code: "python_unavailable" });
+      }
+      args = [targetInfo.rel];
       normalizedTarget = targetInfo.rel;
     } else if (safeRunner === "node_e2e") {
       if (!/^services\/[A-Za-z0-9_.-]+\/src\/e2e\.js$/.test(normalizedTarget)) {
@@ -775,11 +825,11 @@ export const TOOL_DEFS = [
   },
   {
     name: "runtime.run_test",
-    description: "Run a bounded repository test only. Supports pytest, service-owned node E2E, fixed node --test, and static smoke checks with sanitized test environments; no repository-controlled shell scripts.",
+    description: "Run a bounded repository test only. Supports pytest, standard-library Python test scripts, service-owned node E2E, fixed node --test, and static smoke checks with sanitized test environments; no repository-controlled shell scripts.",
     inputSchema: {
       type: "object",
       properties: {
-        runner: { type: "string", enum: ["pytest", "node_e2e", "node_test", "static_smoke"] },
+        runner: { type: "string", enum: ["pytest", "python_script", "node_e2e", "node_test", "static_smoke"] },
         target: { type: "string" },
         projectDir: { type: "string" },
         timeoutSec: { type: "number" },
