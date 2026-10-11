@@ -74,6 +74,14 @@ function safeTaskName(taskId) {
   return (base || "task") + "-" + suffix;
 }
 
+function shortWorktreeName(taskId) {
+  // The Vault contains long paths. Keep the human-readable task name for the
+  // branch, but use a bounded key for the Windows worktree directory so the
+  // checkout does not cross the legacy MAX_PATH boundary.
+  const suffix = crypto.createHash("sha256").update(String(taskId)).digest("hex").slice(0, 16);
+  return `w-${suffix}`;
+}
+
 function currentContract(text) {
   return currentTaskEnvelope(text).slice(0, 24000);
 }
@@ -328,6 +336,7 @@ if (conflictingLines.length > 0) {
 }
 
 const safeName = safeTaskName(taskId);
+const worktreeName = shortWorktreeName(taskId);
 const branchNameCandidate = "runner/" + safeName;
 const refCheck = git(sourceRepoRoot, ["check-ref-format", "--branch", branchNameCandidate]);
 if (refCheck.status !== 0) {
@@ -346,7 +355,7 @@ if (!analysisOnly) {
   worktreeRoot = path.join(
     process.env.RUNNER_TEMP || os.tmpdir(),
     "white-studio-worktrees",
-    safeName
+    worktreeName
   );
   fs.mkdirSync(path.dirname(worktreeRoot), { recursive: true });
   git(sourceRepoRoot, ["worktree", "remove", "--force", worktreeRoot], 60000);
@@ -354,7 +363,11 @@ if (!analysisOnly) {
   if (fs.existsSync(worktreeRoot)) {
     fs.rmSync(worktreeRoot, { recursive: true, force: true });
   }
-  const worktreeAdd = git(sourceRepoRoot, ["worktree", "add", "--detach", worktreeRoot, baseSha], 60000);
+  const worktreeAdd = git(
+    sourceRepoRoot,
+    ["worktree", "add", "--detach", worktreeRoot, baseSha],
+    180000
+  );
   if (worktreeAdd.status !== 0) {
     throw Object.assign(new Error("worktree_create_failed"), {
       code: "worktree_create_failed",
@@ -429,7 +442,7 @@ const agentOutput = extractAgentOutput(agentRun.stdout);
 const worktreeStateRoot = path.join(
   process.env.RUNNER_TEMP || os.tmpdir(),
   "white-studio-worktree-state",
-  safeName
+  worktreeName
 );
 const worktreeWs = new VaultWorkspace({
   workspaceRoot: worktreeRoot,
