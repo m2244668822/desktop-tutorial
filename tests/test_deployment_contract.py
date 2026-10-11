@@ -85,8 +85,14 @@ class DeploymentContractTests(unittest.TestCase):
         self.assertIn('export PATH="/usr/local/bin:$PATH"', content)
         self.assertIn('PYTHON_ROOT="/opt/trevor/python"', content)
         self.assertIn('UV_PYTHON_INSTALL_DIR="$PYTHON_ROOT"', content)
-        self.assertIn('ca-certificates curl gcc gcc-c++ git make rsync', content)
-        self.assertIn('build-essential ca-certificates curl git rsync', content)
+        self.assertIn(
+            'ca-certificates curl gcc gcc-c++ git make python3 rsync',
+            content,
+        )
+        self.assertIn(
+            'build-essential ca-certificates curl git python3 rsync',
+            content,
+        )
         self.assertIn('uv python install 3.12', content)
         self.assertEqual(2, content.count('uv venv --python 3.12 --clear'))
         self.assertIn('uv pip install --python', content)
@@ -127,18 +133,45 @@ class DeploymentContractTests(unittest.TestCase):
         self.assertIn('BUILD_ROOT=', content)
         self.assertIn('PREVIOUS_APP_ROOT=', content)
         self.assertIn('rollback_cutover()', content)
+        self.assertIn('NEW_APP_ACTIVATED=0', content)
+        self.assertIn(
+            'if [ "$NEW_APP_ACTIVATED" -eq 1 ] && [ -e "$APP_ROOT" ]; then',
+            content,
+        )
         self.assertIn('cleanup_staging_artifacts()', content)
         self.assertIn('rm -rf -- "$BUILD_ROOT" "$UNIT_BACKUP_ROOT"', content)
         self.assertIn('mv "$BUILD_ROOT" "$APP_ROOT"', content)
+        activation_index = content.index('mv "$BUILD_ROOT" "$APP_ROOT"')
+        self.assertIn('NEW_APP_ACTIVATED=1', content[activation_index:])
         self.assertIn('mv "$PREVIOUS_APP_ROOT" "$APP_ROOT"', content)
         self.assertIn('systemctl is-active --quiet "$service"', content)
         self.assertIn('wait_for_service_readiness', content)
+        self.assertIn('json_health_ready()', content)
+        self.assertIn('required_ready', content)
+        self.assertIn('payload.get("ok") is True', content)
+        self.assertIn(
+            'runuser -u trevor -- "$APP_ROOT/.venv/bin/python" -c',
+            content,
+        )
+        self.assertNotIn(
+            '| "$APP_ROOT/.venv/bin/python" -c',
+            content,
+        )
         self.assertIn('http://127.0.0.1:5001/health/ready', content)
         self.assertIn('http://127.0.0.1:8091/health', content)
         self.assertIn('READINESS_STABLE_PROBES', content)
+        self.assertIn('migrate_legacy_service_data()', content)
+        self.assertIn('/usr/bin/python3 - "$DATA_ROOT" trevor', content)
+        self.assertIn('os.O_NOFOLLOW', content)
+        self.assertIn('os.fchown', content)
+        self.assertIn('metadata.st_nlink != 1', content)
         self.assertLess(
             content.index('uv sync --project'),
             content.index('CUTOVER_STARTED=1\nsystemctl stop'),
+        )
+        self.assertLess(
+            content.index('migrate_legacy_service_data\n'),
+            content.index('audit_deployment started'),
         )
         self.assertGreater(
             content.index('audit_deployment started'),

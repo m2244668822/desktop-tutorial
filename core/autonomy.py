@@ -308,20 +308,56 @@ class AutonomyQueue:
             _atomic_json(self.path, payload)
             return dict(pending)
 
-    def finish(
-        self,
-        task_id: str,
-        *,
-        success: bool,
-        result: dict[str, Any] | None = None,
-        error: str = '',
-    ) -> bool:
+    def renew_claim(self, task_id: str, worker_id: str) -> bool:
         target = str(task_id or '').strip()
+        worker = str(worker_id or '').strip()
+        if not target:
+            raise ValueError('task_id_required')
+        if not worker:
+            raise ValueError('worker_id_required')
         with self._mutation_lock():
             payload = self._load()
             for task in payload.get('tasks', []):
                 if not isinstance(task, dict) or task.get('id') != target:
                     continue
+                if (
+                    task.get('status') != 'running'
+                    or task.get('worker_id') != worker
+                ):
+                    return False
+                now = self.now().astimezone(timezone.utc)
+                task['updated_at'] = now.isoformat()
+                task['lease_expires_at'] = (
+                    now + timedelta(seconds=self.claim_ttl_seconds)
+                ).isoformat()
+                payload['updated_at'] = task['updated_at']
+                _atomic_json(self.path, payload)
+                return True
+        return False
+
+    def finish(
+        self,
+        task_id: str,
+        *,
+        worker_id: str,
+        success: bool,
+        result: dict[str, Any] | None = None,
+        error: str = '',
+    ) -> bool:
+        target = str(task_id or '').strip()
+        worker = str(worker_id or '').strip()
+        if not worker:
+            raise ValueError('worker_id_required')
+        with self._mutation_lock():
+            payload = self._load()
+            for task in payload.get('tasks', []):
+                if not isinstance(task, dict) or task.get('id') != target:
+                    continue
+                if (
+                    task.get('status') != 'running'
+                    or task.get('worker_id') != worker
+                ):
+                    return False
                 task['status'] = 'completed' if success else 'failed'
                 task['result'] = dict(result or {})
                 task['error'] = str(error or '')[:1000]
@@ -333,13 +369,21 @@ class AutonomyQueue:
                 return True
         return False
 
-    def defer(self, task_id: str, *, reason: str) -> bool:
+    def defer(self, task_id: str, *, worker_id: str, reason: str) -> bool:
         target = str(task_id or '').strip()
+        worker = str(worker_id or '').strip()
+        if not worker:
+            raise ValueError('worker_id_required')
         with self._mutation_lock():
             payload = self._load()
             for task in payload.get('tasks', []):
                 if not isinstance(task, dict) or task.get('id') != target:
                     continue
+                if (
+                    task.get('status') != 'running'
+                    or task.get('worker_id') != worker
+                ):
+                    return False
                 task['status'] = 'pending'
                 task.pop('worker_id', None)
                 task.pop('lease_expires_at', None)
