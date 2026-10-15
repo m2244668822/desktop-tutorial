@@ -267,7 +267,16 @@ export function upsertNamedResult(text, marker, resultMarkdown) {
   if (!/^## Result/.test(safeMarker)) {
     throw Object.assign(new Error("result_marker_invalid"), { code: "result_marker_invalid" });
   }
-  const block = `${safeMarker}\n\n${resultMarkdown.trim()}\n`;
+  // Result content is generated from tool output. Normalize only this new
+  // block so publication checks cannot fail on CRLF or trailing spaces while
+  // preserving the user's existing Inbox bytes outside the result section.
+  const normalizedResult = String(resultMarkdown ?? "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+$/g, ""))
+    .join("\n")
+    .trim();
+  const block = `${safeMarker}\n\n${normalizedResult}\n`;
   const sections = topLevelSections(next);
   const ranges = sections.filter((section) => section.heading === safeMarker);
   if (ranges.length > 0) {
@@ -275,16 +284,16 @@ export function upsertNamedResult(text, marker, resultMarkdown) {
     let reconciled = "";
     ranges.forEach((range, index) => {
       reconciled += next.slice(cursor, range.start);
-      if (index === 0) reconciled += block + "\n";
+      if (index === 0) reconciled += block;
       cursor = range.end;
     });
     return reconciled + next.slice(cursor);
   }
   const links = sections.find((section) => section.heading === "## Links");
   if (links) {
-    return `${next.slice(0, links.start).trimEnd()}\n\n${block}\n${next.slice(links.start)}`;
+    return `${next.slice(0, links.start).trimEnd()}\n\n${block}${next.slice(links.start)}`;
   }
-  return next.trimEnd() + "\n\n" + block + "\n";
+  return next.trimEnd() + "\n\n" + block;
 }
 
 export function upsertDaemonResult(text, resultMarkdown) {
