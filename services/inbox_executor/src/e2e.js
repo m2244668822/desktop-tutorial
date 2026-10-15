@@ -45,6 +45,15 @@ project       desktop-tutorial
 Goal          fix the failing test
 `;
 assert.equal(contractField(agenticAuto, "executor"), "auto");
+const spacedProject = agenticAuto.replace(
+  "project       desktop-tutorial",
+  "project       路得剪輯坊 / obsidian-vault-refactor-2026-09-08"
+);
+assert.equal(
+  contractField(spacedProject, "project"),
+  "路得剪輯坊 / obsidian-vault-refactor-2026-09-08"
+);
+assert.equal(routeInboxTask(spacedProject, readyCaps).ok, true);
 assert.deepEqual(
   routeInboxTask(agenticAuto, readyCaps, { WHITE_STUDIO_EXECUTOR_ORDER: "codex,cursor" }),
   {
