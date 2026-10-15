@@ -16,6 +16,7 @@ import {
 } from "./executor_identity.js";
 import { classifyMechanicalActions, contractHash, currentTaskEnvelope, taskIdFromText, upsertDaemonResult } from "./inbox.js";
 import { contractField, routeInboxTask } from "./executor_router.js";
+import { normalizeProjectReference } from "./project_reference.js";
 
 const claimedAt = "2026-09-30T00:00:00.000Z";
 const codex = normalizeExecutorIdentity({
@@ -54,6 +55,13 @@ assert.equal(
   "路得剪輯坊 / obsidian-vault-refactor-2026-09-08"
 );
 assert.equal(routeInboxTask(spacedProject, readyCaps).ok, true);
+assert.deepEqual(
+  normalizeProjectReference(
+    "路得剪輯坊 / obsidian-vault-refactor-2026-09-08",
+    "obsidian-vault-refactor-2026-09-08"
+  ),
+  { name: "obsidian-vault-refactor-2026-09-08", vaultRelative: "." }
+);
 assert.deepEqual(
   routeInboxTask(agenticAuto, readyCaps, { WHITE_STUDIO_EXECUTOR_ORDER: "codex,cursor" }),
   {
