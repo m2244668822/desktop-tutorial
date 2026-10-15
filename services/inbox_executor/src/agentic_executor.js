@@ -20,6 +20,7 @@ import {
   validateClaimResult,
 } from "./executor_identity.js";
 import { contractField, routeInboxTask } from "./executor_router.js";
+import { normalizeProjectReference } from "./project_reference.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const vaultRoot = path.resolve(
@@ -124,11 +125,8 @@ function resolveAssignedProject(project) {
     throw Object.assign(new Error("project_required"), { code: "project_required" });
   }
   const workspaceName = path.basename(vaultRoot);
-  const rel = raw === "desktop-tutorial"
-    ? "runtime/desktop-tutorial"
-    : raw === "." || raw === workspaceName
-      ? "."
-      : raw;
+  const reference = normalizeProjectReference(raw, workspaceName);
+  const rel = reference.vaultRelative;
   const abs = path.resolve(vaultRoot, rel);
   const relative = path.relative(vaultRoot, abs);
   if (relative.startsWith("..") || path.isAbsolute(relative)) {
@@ -137,7 +135,7 @@ function resolveAssignedProject(project) {
   if (!fs.existsSync(abs) || !fs.statSync(abs).isDirectory()) {
     throw Object.assign(new Error("project_missing"), { code: "project_missing" });
   }
-  return { name: raw, vaultRelative: rel.replace(/\\/g, "/"), abs };
+  return { name: reference.name, vaultRelative: rel.replace(/\\/g, "/"), abs };
 }
 
 function loadTestProfile(projectName, { allowEmpty = false } = {}) {
