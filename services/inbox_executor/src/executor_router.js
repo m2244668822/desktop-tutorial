@@ -6,8 +6,12 @@ const ROUTES = new Set(["mechanical", "agentic"]);
 export function contractField(text, name) {
   const escaped = String(name).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const envelope = currentTaskEnvelope(text);
+  // Project identifiers may be human-readable workspace labels or paths and
+  // can therefore contain spaces. Other routing fields remain single-token
+  // values so malformed contracts are still rejected early.
+  const valuePattern = String(name).toLowerCase() === "project" ? "(.+?)" : "([^\\s#]+)";
   const match = envelope.match(
-    new RegExp("^\\s*" + escaped + "\\s+(?:`([^`]+)`|([^\\s#]+))\\s*$", "mi")
+    new RegExp("^\\s*" + escaped + "\\s+(?:`([^`]+)`|" + valuePattern + ")\\s*$", "mi")
   );
   return String(match?.[1] || match?.[2] || "").trim();
 }
