@@ -46,14 +46,29 @@ runtime\跑 inbox-executor-once.cmd
 
 ## Transport (GitHub sync)
 
-`at
+The canonical unattended path is the GitHub Actions workflow
+`.github/workflows/inbox-local-executor.yml`. It polls `origin/main` every five
+minutes, checks out an isolated Runner workspace, selects the highest-priority
+queued task, and writes back only that task's Result.
+
+This local transport remains available for a deliberately isolated checkout:
+
+```bat
 set INBOX_SYNC_PULL=1
 set INBOX_SYNC_PUSH=0
 node src/sync.js
-`
+```
 
 Or: `runtime\跑 inbox-sync-once.cmd` / `runtime\啟動 inbox-sync-loop.cmd`.
-Pushback requires `INBOX_SYNC_PUSH=1`.
+
+Rules:
+
+- `origin/main` is the canonical queue state.
+- A local dirty `chatgpt-inbox.md` is never a reason to claim a task.
+- `INBOX_SYNC_PUSH=1` is an explicit writeback mode. Do not use it in the
+  primary dirty Vault.
+- A remote `done` or `blocked` task is not re-run because a stale local copy
+  still says `queued`.
 
 ## Executor Identity Contract
 

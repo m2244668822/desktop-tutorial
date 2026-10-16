@@ -30,6 +30,11 @@ import {
   upsertExecutorClaim,
   validateClaimResult,
 } from "./executor_identity.js";
+import {
+  createOrchestratorStore,
+  defaultOrchestratorStateRoot,
+  newOperationContext,
+} from "./orchestrator_store.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const vaultRoot = path.resolve(
@@ -42,6 +47,7 @@ const autoApproveEnv = process.env.INBOX_AUTO_APPROVE === "1";
 
 const auditDir = path.join(vaultRoot, "runtime", ".mcp-audit");
 const trashDir = path.join(vaultRoot, "runtime", ".mcp-trash");
+const orchestratorStore = createOrchestratorStore(defaultOrchestratorStateRoot(vaultRoot));
 
 const ALLOWED = new Set([
   "workspace.list",
@@ -143,6 +149,28 @@ async function runContract() {
 
   const found = classifyMechanicalActions(next);
   const mechanical = found.ok ? found.parsed : null;
+
+  const orchestration = newOperationContext(taskId, "inbox-daemon", hash);
+  const writeTools = new Set([
+    "workspace.create",
+    "workspace.patch",
+    "workspace.move",
+    "workspace.trash",
+  ]);
+  const capability = mechanical?.actions?.some((step) => writeTools.has(step.tool))
+    ? "disposable_write"
+    : "read";
+  orchestratorStore.create({
+    ...orchestration,
+    capability,
+    mcp_server: "vault-workspace",
+    tool_name: "mechanical-actions",
+    contract_hash: hash,
+  });
+  orchestratorStore.transition(taskId, "running", {
+    executor_id: executorIdentity.executor_id,
+  });
+
   const traceId = crypto.randomUUID();
   log(`trace_id=${traceId} task_id=${taskId} parse=${found.code}`);
 
@@ -153,6 +181,10 @@ async function runContract() {
         ? `blocked: parse_error。Mechanical Actions JSON 無法解析（${found.message || "invalid"}）。同一 task_id 不再自動重跑。`
         : "blocked: 無 ## Mechanical Actions JSON。此 daemon 只執行機械契約；agentic 任務必須由外層 Executor Router 選擇 Codex/Cursor/VS Code handoff。";
     const identityValidation = validateClaimResult(next, taskId, executorIdentity);
+    orchestratorStore.transition(taskId, "blocked", {
+      validation_status: "failed",
+      failure_code: code,
+    });
     const resultMarkdown = `- trace_id：\`${traceId}\`\n- task_id：\`${taskId}\`\n- 時間：${new Date().toISOString()}\n- 結果：blocked\n${executorIdentityMarkdown(executorIdentity, identityValidation)}\n- code：\`${code}\`\n- message：${reason}`;
     next = setStatus(next, "blocked");
     next = upsertDaemonResult(next, resultMarkdown);
@@ -231,6 +263,11 @@ async function runContract() {
       results.push({ tool, ok: true, out: slim });
     }
 
+    orchestratorStore.transition(taskId, "validating", {
+      validation_status: "pending",
+      tool_count: results.length,
+    });
+
     const identityValidation = validateClaimResult(
       fs.readFileSync(inboxPath, "utf8"),
       taskId,
@@ -258,6 +295,10 @@ async function runContract() {
       executor_identity: executorIdentity,
       identity_validation: identityValidation,
     });
+    orchestratorStore.transition(taskId, "done", {
+      validation_status: "passed",
+      result_code: "done",
+    });
     log(`done trace_id=${traceId}`);
   } catch (err) {
     const code = err.code || "error";
@@ -267,6 +308,13 @@ async function runContract() {
         ? `\n- proposed：\n\`\`\`json\n${JSON.stringify(err.proposed, null, 2)}\n\`\`\``
         : "";
     const policy = failureClass(code, err.message, results.length);
+    const currentTask = orchestratorStore.get(taskId);
+    if (currentTask && !["done", "blocked", "failed"].includes(currentTask.status)) {
+      orchestratorStore.transition(taskId, "blocked", {
+        validation_status: "failed",
+        failure_code: code,
+      });
+    }
     const identityValidation =
       err.identityValidation ||
       validateClaimResult(fs.readFileSync(inboxPath, "utf8"), taskId, executorIdentity);

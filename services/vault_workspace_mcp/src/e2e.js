@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * L1/L2 E2E: read → propose patch → approved patch → verify → safe scratch restore
- * Isolated git repo under runtime/.mcp-e2e-scratch (does not commit the vault).
+ * Isolated git repo under runtime/.mcp-e2e-scratch-* (does not commit the vault).
  */
 
 import fs from "node:fs";
@@ -13,7 +13,9 @@ import { VaultWorkspace, TOOL_DEFS, dispatch } from "./workspace.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const vaultRoot = path.resolve(__dirname, "..", "..", "..", "..");
-const scratchRoot = path.join(vaultRoot, "runtime", ".mcp-e2e-scratch");
+const scratchRoot =
+  process.env.MCP_E2E_SCRATCH_ROOT ||
+  path.join(vaultRoot, "runtime", `.mcp-e2e-scratch-${process.pid}`);
 const auditDir = path.join(scratchRoot, ".mcp-audit");
 const trashDir = path.join(scratchRoot, ".mcp-trash");
 
@@ -368,7 +370,26 @@ async function stdioHandshake() {
     }
   });
 
-  const request = (id, method, params = {}) =>
+  const stopChild = () =>
+    new Promise((resolve) => {
+      if (child.exitCode !== null || child.signalCode !== null) {
+        resolve();
+        return;
+      }
+      const timer = setTimeout(resolve, 3000);
+      child.once("exit", () => {
+        clearTimeout(timer);
+        resolve();
+      });
+      try {
+        child.stdin.end();
+      } catch {
+        // The process may already have closed stdin after a failed request.
+      }
+      child.kill();
+    });
+
+  const request = (id, method, params = {}, timeoutMs = 5000) =>
     new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         pending.delete(id);
@@ -377,7 +398,7 @@ async function stdioHandshake() {
             `stdio MCP timeout method=${method} stdout=${stdoutBuffer} stderr=${stderrBuffer}`,
           ),
         );
-      }, 5000);
+      }, timeoutMs);
       pending.set(id, { resolve, reject, timer });
       child.stdin.write(
         JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n",
@@ -421,10 +442,18 @@ async function stdioHandshake() {
       );
     }
 
-    const capabilities = await request(102, "tools/call", {
-      name: "runtime_capabilities",
-      arguments: {},
-    });
+    // Capability probing may inspect multiple local executors and perform
+    // bounded authentication checks. Keep the normal MCP handshake timeout
+    // short, but give this diagnostic tool its explicit 30-second contract.
+    const capabilities = await request(
+      102,
+      "tools/call",
+      {
+        name: "runtime_capabilities",
+        arguments: {},
+      },
+      30_000,
+    );
     const capabilityText = capabilities.result?.content?.[0]?.text || "";
     assert(
       capabilityText.includes('"workspace_mcp": true'),
@@ -435,8 +464,7 @@ async function stdioHandshake() {
     console.log("STDIO_TOOL_CALL_PASS");
     console.log("STDIO_HANDSHAKE_PASS");
   } finally {
-    child.stdin.end();
-    child.kill();
+    await stopChild();
   }
 }
 

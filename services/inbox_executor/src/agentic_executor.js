@@ -21,12 +21,18 @@ import {
 } from "./executor_identity.js";
 import { contractField, routeInboxTask } from "./executor_router.js";
 import { normalizeProjectReference } from "./project_reference.js";
+import {
+  createOrchestratorStore,
+  defaultOrchestratorStateRoot,
+  newOperationContext,
+} from "./orchestrator_store.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const vaultRoot = path.resolve(
   process.env.VAULT_WORKSPACE_ROOT || path.join(__dirname, "..", "..", "..", "..")
 );
 const inboxPath = process.env.INBOX_PATH || resolveInboxPath(vaultRoot);
+const orchestratorStore = createOrchestratorStore(defaultOrchestratorStateRoot(vaultRoot));
 const maxAgentSeconds = Math.max(
   60,
   Math.min(Number(process.env.WHITE_STUDIO_AGENT_TIMEOUT_SEC || 1200), 1800)
@@ -232,6 +238,13 @@ function writeTerminalResult({ text, marker, status, taskId, identity, validatio
   // newline is canonical; extra blank lines at EOF break publication.
   next = next.replace(/\r?\n+$/, "\n");
   fs.writeFileSync(inboxPath, next, "utf8");
+  const current = orchestratorStore.get(taskId);
+  if (current && !["done", "blocked", "failed"].includes(current.status)) {
+    orchestratorStore.transition(taskId, status === "done" ? "done" : "blocked", {
+      validation_status: status === "done" ? "passed" : "failed",
+      result_code: status,
+    });
+  }
 }
 
 function currentClaimState(taskId, identity) {
@@ -327,6 +340,17 @@ const identity = buildIdentity(selected, capabilities, new Date());
 let running = setStatus(initial.text, "running");
 running = upsertExecutorClaim(running, taskId, identity);
 fs.writeFileSync(inboxPath, running, "utf8");
+const contractDigest = crypto.createHash("sha256").update(currentContract(initial.text)).digest("hex");
+const orchestration = newOperationContext(taskId, "agentic-executor", contractDigest);
+orchestratorStore.create({
+  ...orchestration,
+  capability: analysisOnly ? "read" : "disposable_write",
+  mcp_server: "vault-workspace",
+  tool_name: "agentic-executor",
+  contract_hash: contractDigest,
+  model_id: selected,
+});
+orchestratorStore.transition(taskId, "running", { executor_id: selected });
 installFailClosedHandlers(taskId, identity, selected);
 
 const project = resolveAssignedProject(contractField(initial.text, "project"));
@@ -647,6 +671,13 @@ const code = !agentOk
           : !identityValidation.ok
             ? identityValidation.code
             : "done";
+
+orchestratorStore.transition(taskId, "validating", {
+  validation_status: "pending",
+  tests_ok: testsOk,
+  diff_check_pass: diffCheck.status === 0,
+  publish_ok: publishOk,
+});
 
 writeTerminalResult({
   text: persisted,
