@@ -33,6 +33,12 @@ const vaultRoot = path.resolve(
 );
 const inboxPath = process.env.INBOX_PATH || resolveInboxPath(vaultRoot);
 const orchestratorStore = createOrchestratorStore(defaultOrchestratorStateRoot(vaultRoot));
+const recoveredStaleTasks = orchestratorStore.recoverStaleTasks({
+  maxAgeSeconds: Number(process.env.WHITE_STUDIO_ORCHESTRATOR_STALE_SECONDS || 1800),
+});
+if (recoveredStaleTasks.length > 0) {
+  process.stderr.write(`agentic-executor: stale recovery blocked=${recoveredStaleTasks.length}\n`);
+}
 const maxAgentSeconds = Math.max(
   60,
   Math.min(Number(process.env.WHITE_STUDIO_AGENT_TIMEOUT_SEC || 1200), 1800)
@@ -331,6 +337,25 @@ const controlWs = new VaultWorkspace({
 const capabilities = controlWs.runtimeCapabilities();
 const decision = routeInboxTask(initial.text, capabilities, process.env);
 if (!decision.ok || decision.route !== "agentic") {
+  const code = decision.code || "route_rejected";
+  const traceId = crypto.randomUUID();
+  const resultMarkdown = [
+    `- task_id：\`${taskId}\``,
+    "- 結果：blocked",
+    "- executor_identity：未 claim",
+    `- route：\`${decision.route || "agentic"}\``,
+    `- code：\`${code}\``,
+    `- reason：${decision.reason || "route_rejected"}`,
+    `- trace_id：\`${traceId}\``,
+    "- execution_started：false",
+    "- auto_retry：false",
+  ].join("\n");
+  const blocked = upsertNamedResult(
+    setStatus(initial.text, "blocked"),
+    "## Result（agentic-router 回寫）",
+    resultMarkdown
+  );
+  fs.writeFileSync(inboxPath, blocked, "utf8");
   process.stderr.write(`agentic-executor: route rejected ${JSON.stringify(decision)}\n`);
   process.exit(4);
 }

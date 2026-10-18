@@ -9,6 +9,28 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const queueCli = path.join(__dirname, "queue_cli.js");
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "white-studio-queue-e2e-"));
 
+function removeTestRoot() {
+  try {
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    return;
+  } catch (error) {
+    if (process.platform !== "win32" || error?.code !== "EPERM") throw error;
+  }
+
+  // Windows may retain a read-only attribute on a child file after a short
+  // lived child process exits. Clear attributes only inside this test-owned
+  // temporary directory, then retry the same bounded removal.
+  const clearReadOnly = (current) => {
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const child = path.join(current, entry.name);
+      if (entry.isDirectory()) clearReadOnly(child);
+      else fs.chmodSync(child, 0o600);
+    }
+  };
+  clearReadOnly(root);
+  fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+}
+
 function task(taskId, priority, sample) {
   return `---
 status: queued
@@ -86,7 +108,55 @@ try {
 
   const second = runQueue();
   assert.equal(second.outputs.task_id, "queue-low");
+
+  fs.writeFileSync(
+    path.join(tasks, "blocked.md"),
+    `---
+status: queued
+created: 2026-10-11T00:00:00+08:00
+---
+
+## 現在這一份契約
+
+\`\`\`text
+task_id       queue-blocked
+route         agentic
+executor      vscode
+priority      urgent
+project       disposable-demo
+Goal          inspect only
+Output        analysis
+Done          report evidence
+\`\`\`
+`,
+    "utf8"
+  );
+  fs.writeFileSync(
+    path.join(tasks, "low.md"),
+    fs.readFileSync(path.join(tasks, "low.md"), "utf8").replace("status: queued", "status: done"),
+    "utf8"
+  );
+  const blocked = runQueue();
+  assert.equal(blocked.outputs.ok, "false");
+  assert.equal(blocked.outputs.code, "queued_tasks_not_routable");
+  assert.equal(blocked.outputs.task_id, "queue-blocked");
+
+  const blockRun = spawnSync(process.execPath, [path.join(__dirname, "persist_queue_block.js")], {
+    cwd: root,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      INBOX_PATH: path.join(tasks, "blocked.md"),
+      BLOCKED_TASK_ID: "queue-blocked",
+      BLOCKED_CODE: blocked.outputs.blocked_code,
+      BLOCKED_REASON_B64: blocked.outputs.blocked_reason_b64,
+    },
+  });
+  assert.equal(blockRun.status, 0, blockRun.stderr);
+  const blockedText = fs.readFileSync(path.join(tasks, "blocked.md"), "utf8");
+  assert.match(blockedText, /^status: blocked$/m);
+  assert.match(blockedText, /## Result（router 回寫）/);
   console.log("QUEUE_E2E_PASS");
 } finally {
-  fs.rmSync(root, { recursive: true, force: true });
+  removeTestRoot();
 }

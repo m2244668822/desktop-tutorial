@@ -135,6 +135,35 @@ export function createOrchestratorStore(root) {
     return clone(next);
   }
 
+  function recoverStaleTasks({ maxAgeSeconds = 900, now = Date.now() } = {}) {
+    const active = new Set(["claimed", "running", "validating"]);
+    const threshold = Math.max(0, Number(maxAgeSeconds) || 0);
+    const currentTime = now instanceof Date ? now.getTime() : Number(now);
+    const recovered = [];
+    if (!Number.isFinite(currentTime) || !fs.existsSync(tasksDir)) return recovered;
+    for (const name of fs.readdirSync(tasksDir)) {
+      if (!name.endsWith(".json")) continue;
+      const record = readJson(path.join(tasksDir, name));
+      if (!record || !active.has(record.status)) continue;
+      const updated = Date.parse(String(record.updated_at || ""));
+      if (!Number.isFinite(updated)) continue;
+      const ageSeconds = Math.max(0, (currentTime - updated) / 1000);
+      if (ageSeconds <= threshold) continue;
+      recovered.push(transition(record.task_id, "blocked", {
+        validation_status: "failed",
+        metadata: {
+          ...(record.metadata || {}),
+          blocked_reason: "stale_task_recovery",
+          failure_phase: "recovery",
+          requires_reconciliation: true,
+          auto_retry: false,
+          stale_for_seconds: Math.round(ageSeconds * 1000) / 1000,
+        },
+      }));
+    }
+    return recovered;
+  }
+
   function rebuildProjection() {
     if (!fs.existsSync(eventsPath)) return [];
     const latest = new Map();
@@ -161,6 +190,7 @@ export function createOrchestratorStore(root) {
     get,
     lookupIdempotency,
     transition,
+    recoverStaleTasks,
     rebuildProjection,
   };
 }

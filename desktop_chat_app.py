@@ -50,6 +50,18 @@ from core.audit_chain import HashChainAuditLog
 from core.provider_client import ProviderHttpClient
 from core.provider_credentials import ProviderCredentialResolver
 from core.provider_registry import ProviderRegistry
+from core.chat_gateway import (
+    ChatModelGateway,
+    ChatRequest,
+    ChatResponse,
+    CompositeChatTransport,
+    OllamaChatTransport,
+    RegistryChatTransport,
+)
+from core.durable_task_store import DurableTaskStore
+from core.mcp_orchestrator import Orchestrator
+from core.model_router import ModelRouter, RetryPolicy
+from core.orchestrator_types import OperationContext
 from core.openclaw_adapter import OpenClawAdapter
 from core.runtime_capabilities import (
     build_runtime_capability_manifest,
@@ -268,6 +280,7 @@ class DesktopBridge:
         self.reply_history: list[tuple[str, float]] = []
         self.message_history: list[tuple[str, float]] = []
         self.conversation_context: list[dict] = []
+        self._orchestrated_last_turn: dict[str, dict[str, Any]] = {}
         self.context_summary = ""
         self.reply_counter = 0
         self.last_diversified_reply = ""
@@ -2353,12 +2366,18 @@ class DesktopBridge:
                 tags_url = chat_url.split("/api/", 1)[0].rstrip("/") + "/api/tags"
             else:
                 tags_url = chat_url.rstrip("/") + "/api/tags"
-        model = str(
-            env.get("OPEN_SOURCE_CHAT_MODEL", "")
-            or env.get("OLLAMA_MODEL", "")
-            or DEFAULT_CHAT_MODEL_BY_PROVIDER.get("open_source", "qwen2.5:7b")
+        configured_model = str(
+            env.get("OPEN_SOURCE_CHAT_MODEL", "") or env.get("OLLAMA_MODEL", "")
         ).strip()
-        return {"chat_url": chat_url, "tags_url": tags_url, "model": model}
+        model = configured_model or DEFAULT_CHAT_MODEL_BY_PROVIDER.get(
+            "open_source", "qwen2.5:7b"
+        )
+        return {
+            "chat_url": chat_url,
+            "tags_url": tags_url,
+            "model": str(model).strip(),
+            "model_explicit": bool(configured_model),
+        }
 
     @staticmethod
     def _ollama_model_available(requested: str, available: list[str]) -> bool:
@@ -2370,6 +2389,11 @@ class DesktopBridge:
             return True
         target_without_latest = target.removesuffix(":latest")
         return any(name.removesuffix(":latest") == target_without_latest for name in names)
+
+    @staticmethod
+    def _is_embedding_model(model: str) -> bool:
+        normalized = str(model or "").strip().lower()
+        return "embed" in normalized or normalized.startswith(("bge", "e5-"))
 
     def _refresh_local_llm_health(self, force: bool = False) -> dict[str, Any]:
         now = time.time()
@@ -2408,7 +2432,17 @@ class DesktopBridge:
                         available.append(name)
             state["service_alive"] = True
             state["available_models"] = available
-            state["model_available"] = self._ollama_model_available(config["model"], available)
+            selected_model = config["model"]
+            model_available = self._ollama_model_available(selected_model, available)
+            if not model_available and not config.get("model_explicit"):
+                compatible = sorted(
+                    name for name in available if not self._is_embedding_model(name)
+                )
+                if compatible:
+                    selected_model = compatible[0]
+                    model_available = True
+            state["model"] = selected_model
+            state["model_available"] = model_available
             state["healthy"] = bool(state["model_available"])
             state["failure_reason"] = "" if state["healthy"] else "model_missing"
         except urllib_error.HTTPError as exc:
@@ -2450,9 +2484,11 @@ class DesktopBridge:
     ) -> tuple[str, dict[str, Any]]:
         env = self._load_merged_env_data()
         endpoint = str(env.get("OLLAMA_CHAT_URL", "http://127.0.0.1:11434/api/chat") or "").strip()
-        model = str(
-            env.get("OPEN_SOURCE_CHAT_MODEL", "")
-            or env.get("OLLAMA_MODEL", "")
+        configured_model = str(
+            env.get("OPEN_SOURCE_CHAT_MODEL", "") or env.get("OLLAMA_MODEL", "")
+        ).strip()
+        model = configured_model or str(
+            self.local_llm_state.get("model", "")
             or DEFAULT_CHAT_MODEL_BY_PROVIDER.get("open_source", "qwen2.5:7b")
         ).strip()
         req_payload: dict[str, Any] = {
@@ -2816,6 +2852,183 @@ class DesktopBridge:
             "請確認目標與限制後，我再繼續執行。"
         )
 
+    @staticmethod
+    def _is_orchestrated_chat_model(model_key: str) -> bool:
+        return str(model_key or "").strip().lower() in {
+            "gateway",
+            "orchestrated",
+            "mcp-chat",
+            "orchestrated-local",
+            "orchestrated-cloud",
+        }
+
+    def _run_orchestrated_chat(
+        self,
+        *,
+        message: str,
+        role: str,
+        model_key: str,
+        retrieval_brief: str,
+        capability_mode: str,
+        analysis: dict,
+        session_id: str,
+    ) -> dict[str, Any]:
+        """Opt-in DesktopBridge path for the durable Model Gateway."""
+        local_state = self._refresh_local_llm_health(force=False)
+        local_model = str(local_state.get("model", "") or "").strip()
+        if not local_model:
+            local_model = self._local_llm_config()["model"]
+        router = ModelRouter.from_runtime_registry(
+            self.provider_registry,
+            local_model=local_model,
+        )
+        if local_model in router.providers:
+            router.health(
+                local_model,
+                "online" if local_state.get("healthy") else "unavailable",
+            )
+        local_config = self._local_llm_config()
+        transport = CompositeChatTransport(
+            local=OllamaChatTransport(
+                endpoint=local_config["chat_url"],
+                timeout=self.live_llm_timeout_sec,
+            ),
+            registry=RegistryChatTransport(
+                self.provider_registry,
+                self.provider_client,
+            ),
+        )
+        gateway = ChatModelGateway(
+            router,
+            transport,
+            retry=RetryPolicy(max_attempts=1),
+        )
+        normalized_key = str(model_key or "").strip().lower()
+        privacy_class = "cloud" if normalized_key == "orchestrated-cloud" else "local"
+        env = self._load_merged_env_data()
+        preferred_model = (
+            str(env.get("OPENROUTER_FREE_MODEL", "") or "").strip()
+            if privacy_class == "cloud"
+            else None
+        )
+        if privacy_class == "cloud" and not preferred_model:
+            preferred_model = self.provider_registry.model_for("openrouter")
+        extra_body: dict[str, Any] = {}
+        reasoning_enabled = str(
+            env.get("OPENROUTER_REASONING_ENABLED", "false") or "false"
+        ).strip().lower() in {"1", "true", "yes", "on"}
+        if reasoning_enabled and privacy_class == "cloud":
+            extra_body["reasoning"] = {"enabled": True}
+        safe_session = re.sub(r"[^A-Za-z0-9._-]+", "-", str(session_id or "default"))
+        context = OperationContext.create(
+            f"desktop-chat-{safe_session}-{self.reply_counter}",
+            requested_by="desktop-bridge",
+        )
+        messages = self._build_live_llm_messages(
+            role=role,
+            user_message=message,
+            retrieval_brief=retrieval_brief,
+        )
+        previous_turn = self._orchestrated_last_turn.get(str(session_id or "default"))
+        previous_response = None
+        continuation_user_content = None
+        if (
+            privacy_class == "cloud"
+            and previous_turn
+            and previous_turn.get("reasoning_details") is not None
+            and previous_turn.get("model_id") == preferred_model
+        ):
+            current_user = messages[-1] if messages else None
+            continuation_user_content = str(
+                current_user.get("content", "") if isinstance(current_user, dict) else ""
+            )
+            messages = messages[:-1]
+            previous_response = ChatResponse(
+                status="complete",
+                content=str(previous_turn.get("content", "")),
+                provider=str(previous_turn.get("provider", "openrouter")),
+                model_id=str(previous_turn.get("model_id", preferred_model)),
+                task_id=str(previous_turn.get("task_id", "previous-turn")),
+                run_id=str(previous_turn.get("run_id", "previous-run")),
+                attempted_models=tuple(previous_turn.get("attempted_models", ())),
+                fallback_used=False,
+                reasoning_details=previous_turn["reasoning_details"],
+            )
+        request = ChatRequest(
+            task_id=context.task_id,
+            run_id=context.run_id,
+            messages=messages,
+            privacy_class=privacy_class,
+            preferred_model=preferred_model,
+            max_tokens=self.live_llm_max_tokens,
+            temperature=self.live_llm_temperature,
+            extra_body=extra_body,
+        )
+        result = Orchestrator(
+            DurableTaskStore(self.paths.data / "orchestrator")
+        ).run_chat(
+            context=context,
+            gateway=gateway,
+            request=request,
+            previous_response=previous_response,
+            continuation_user_content=continuation_user_content,
+        )
+        response = result.get("response")
+        if response is None:
+            self.last_live_llm_meta = {
+                "ok": False,
+                "attempted": True,
+                "fallback_used": False,
+                "provider": "orchestrated",
+                "fallback_reason": result.get("error", "chat_blocked"),
+            }
+            return {
+                "ok": False,
+                "status": result.get("record", {}).get("status", "blocked"),
+                "error": result.get("error", "chat_blocked"),
+                "response": "",
+                "reply": "",
+                "model": preferred_model or local_model,
+                "llm_live": dict(self.last_live_llm_meta),
+            }
+        reply = response.content.strip()
+        self.last_live_llm_meta = {
+            "ok": True,
+            "attempted": True,
+            "fallback_used": response.fallback_used,
+            "provider": response.provider,
+            "model": response.model_id,
+            "attempted_models": list(response.attempted_models),
+            "transport": "model_gateway",
+        }
+        self._remember_dialog_turn(
+            user_message=message,
+            assistant_message=reply,
+            analysis=analysis,
+            workflow_ran=False,
+        )
+        if response.reasoning_details is not None:
+            self._orchestrated_last_turn[str(session_id or "default")] = {
+                "content": reply,
+                "reasoning_details": response.reasoning_details,
+                "model_id": response.model_id,
+                "provider": response.provider,
+                "task_id": response.task_id,
+                "run_id": response.run_id,
+                "attempted_models": list(response.attempted_models),
+            }
+        return {
+            "ok": True,
+            "status": "completed",
+            "response": reply,
+            "reply": reply,
+            "model": response.model_id,
+            "provider": response.provider,
+            "llm_live": dict(self.last_live_llm_meta),
+            "task_id": response.task_id,
+            "run_id": response.run_id,
+        }
+
     def send_message(
         self,
         message: str,
@@ -2854,6 +3067,16 @@ class DesktopBridge:
         turn_keywords = self._derive_turn_keywords(message, analysis)
         retrieval_payload = self._run_keyword_retrieval(turn_keywords, per_keyword=2)
         retrieval_brief = self._build_retrieval_brief(retrieval_payload)
+        if self._is_orchestrated_chat_model(model_key):
+            return self._run_orchestrated_chat(
+                message=message,
+                role=role,
+                model_key=model_key,
+                retrieval_brief=retrieval_brief,
+                capability_mode=capability_mode,
+                analysis=analysis,
+                session_id=session_id,
+            )
         prophet_engineer_handoff = self._maybe_build_prophet_engineer_handoff(
             message=message,
             role=role,

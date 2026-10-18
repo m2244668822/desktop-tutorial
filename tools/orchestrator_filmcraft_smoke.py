@@ -4,7 +4,14 @@
 from __future__ import annotations
 
 import json
+import sys
 import tempfile
+from pathlib import Path
+
+
+RUNTIME_ROOT = Path(__file__).resolve().parents[1]
+if str(RUNTIME_ROOT) not in sys.path:
+    sys.path.insert(0, str(RUNTIME_ROOT))
 
 from core.durable_task_store import DurableTaskStore
 from core.filmcraft_adapter import FilmCraftMcpAdapter, JsonlMcpProcess, demo_executable

@@ -1,6 +1,7 @@
 import json
 import os
 import unittest
+import urllib.error
 
 from core.embedding_client import EmbeddingConfig, EmbeddingError, NemotronEmbeddingClient
 
@@ -45,6 +46,30 @@ class EmbeddingClientTests(unittest.TestCase):
         client = NemotronEmbeddingClient(api_key="nvapi-test", request_fn=fake_request)
         with self.assertRaisesRegex(EmbeddingError, "embedding_dimension_mismatch"):
             client.embed_one("text", input_type="query")
+
+    def test_http_401_and_429_keep_actionable_error_codes(self):
+        def http_error(status):
+            return urllib.error.HTTPError(
+                url="https://example.test/v1/embeddings",
+                code=status,
+                msg="test",
+                hdrs=None,
+                fp=None,
+            )
+
+        for status, expected in (
+            (401, "embedding_auth_failed"),
+            (429, "embedding_rate_limited"),
+        ):
+            with self.subTest(status=status):
+                client = NemotronEmbeddingClient(
+                    api_key="nvapi-test",
+                    request_fn=lambda *args, status=status, **kwargs: (_ for _ in ()).throw(
+                        http_error(status)
+                    ),
+                )
+                with self.assertRaisesRegex(EmbeddingError, expected):
+                    client.embed_one("text", input_type="passage")
 
 
 if __name__ == "__main__":

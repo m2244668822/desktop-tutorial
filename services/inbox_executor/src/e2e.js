@@ -501,4 +501,44 @@ if (process.env.INBOX_IDENTITY_VERIFY_PATH) {
   });
 }
 
+const routeBlockedRoot = fs.mkdtempSync(path.join(os.tmpdir(), "agentic-route-block-e2e-"));
+try {
+  const routeBlockedInbox = path.join(routeBlockedRoot, "智能體");
+  fs.mkdirSync(routeBlockedInbox, { recursive: true });
+  const routeBlockedTask = `---
+status: queued
+---
+
+## 現在這一份契約
+
+\`\`\`text
+task_id       route-blocked-e2e
+route         agentic
+executor      vscode
+project       disposable-demo
+Goal          inspect only
+Output        analysis
+Done          return evidence
+\`\`\`
+`;
+  const routeBlockedPath = path.join(routeBlockedInbox, "chatgpt-inbox.md");
+  fs.writeFileSync(routeBlockedPath, routeBlockedTask, "utf8");
+  const routeBlocked = spawnSync(process.execPath, [path.join(__dirname, "agentic_executor.js")], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      VAULT_WORKSPACE_ROOT: routeBlockedRoot,
+      INBOX_PATH: routeBlockedPath,
+    },
+  });
+  assert.equal(routeBlocked.status, 4, routeBlocked.stderr);
+  const blockedText = fs.readFileSync(routeBlockedPath, "utf8");
+  assert.match(blockedText, /^status: blocked$/m);
+  assert.match(blockedText, /## Result（agentic-router 回寫）/);
+  assert.match(blockedText, /- execution_started：false/);
+  assert.doesNotMatch(blockedText, /## Executor Claim/);
+} finally {
+  fs.rmSync(routeBlockedRoot, { recursive: true, force: true });
+}
+
 console.log("EXECUTOR_IDENTITY_E2E_PASS");

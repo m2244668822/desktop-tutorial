@@ -196,6 +196,28 @@ class ProviderRegistryTests(unittest.TestCase):
         self.assertEqual({'prompt': 0, 'completion': 0}, request['provider']['max_price'])
         self.assertNotIn('tools', request)
 
+    def test_openrouter_nemotron_free_candidate_is_chat_routable(self):
+        from core.model_router import ModelRouter
+        from core.provider_registry import ProviderRegistry
+
+        registry = ProviderRegistry(
+            env={
+                'OPENROUTER_API_KEY': 'or-test-value',
+                'OPENROUTER_FREE_MODEL': 'nvidia/nemotron-3-ultra-550b-a55b:free',
+            },
+            free_tier_confirmed={'openrouter'},
+        )
+
+        self.assertTrue(registry.is_available('openrouter'))
+        self.assertEqual(
+            'nvidia/nemotron-3-ultra-550b-a55b:free',
+            registry.model_for('openrouter'),
+        )
+        router = ModelRouter.from_runtime_registry(registry)
+        provider = router.select(role='chat', privacy_class='cloud', preferred_model='nvidia/nemotron-3-ultra-550b-a55b:free')
+        self.assertEqual('nvidia/nemotron-3-ultra-550b-a55b:free', provider.model_id)
+        self.assertIn('chat', provider.capabilities)
+
 
 if __name__ == '__main__':
     unittest.main()

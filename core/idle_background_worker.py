@@ -9,7 +9,7 @@ import subprocess
 import time
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
@@ -93,6 +93,8 @@ class IdleWorkerConfig:
     cpu_pause_percent: float = 80.0
     memory_pause_percent: float = 85.0
     lease_ttl_seconds: int = 1800
+    transient_defer_seconds: int = 60
+    transient_defer_limit: int = 3
 
 
 class EmbeddingRefreshJob:
@@ -143,12 +145,36 @@ class EmbeddingRefreshJob:
             return {"cursor": 0, "status": "pending"}
         return payload if isinstance(payload, dict) else {"cursor": 0, "status": "pending"}
 
-    def _write_checkpoint(self, *, cursor: int, total: int, status: str, reason: str = "") -> dict[str, Any]:
+    def _write_checkpoint(
+        self,
+        *,
+        cursor: int,
+        total: int,
+        status: str,
+        reason: str = "",
+        source_manifest_sha256: str | None = None,
+        source_commit: str | None = None,
+        observed_source_manifest_sha256: str | None = None,
+        defer_count: int | None = None,
+        defer_until: str | None = None,
+    ) -> dict[str, Any]:
         previous = self._load_checkpoint()
         payload = {
             **{
                 key: previous[key]
                 for key in ("task_id", "run_id", "operation_id", "idempotency_key")
+                if key in previous
+            },
+            **{
+                key: previous[key]
+                for key in (
+                    "source_manifest_sha256",
+                    "source_commit",
+                    "observed_source_manifest_sha256",
+                    "defer_count",
+                    "defer_until",
+                    "preemption_observed",
+                )
                 if key in previous
             },
             "schema_version": 1,
@@ -160,8 +186,31 @@ class EmbeddingRefreshJob:
             "updated_at": self.now(),
             "model_id": self.client.config.model,
         }
+        if source_manifest_sha256 is not None:
+            payload["source_manifest_sha256"] = source_manifest_sha256
+        if source_commit is not None:
+            payload["source_commit"] = source_commit
+        if observed_source_manifest_sha256 is not None:
+            payload["observed_source_manifest_sha256"] = observed_source_manifest_sha256
+        if status != "deferred":
+            payload.pop("defer_count", None)
+            payload.pop("defer_until", None)
+        else:
+            payload["defer_count"] = max(1, int(defer_count or payload.get("defer_count", 1)))
+            if defer_until:
+                payload["defer_until"] = defer_until
         _atomic_json(self.checkpoint_path, payload)
         return payload
+
+    def _defer_is_active(self, checkpoint: dict[str, Any]) -> bool:
+        if checkpoint.get("status") != "deferred":
+            return False
+        try:
+            until = datetime.fromisoformat(str(checkpoint.get("defer_until", "")).replace("Z", "+00:00"))
+            now = datetime.fromisoformat(self.now().replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            return False
+        return until > now
 
     def _append_records(self, records: Iterable[dict[str, Any]]) -> None:
         self.state_root.mkdir(parents=True, exist_ok=True)
@@ -244,11 +293,49 @@ class EmbeddingRefreshJob:
     def run_batch(self, *, should_preempt: Callable[[], bool] | None = None) -> dict[str, Any]:
         files = self._files()
         checkpoint = self._load_checkpoint()
+        if self._defer_is_active(checkpoint):
+            return {"status": "deferred", **checkpoint, "indexed": len(self._load_records())}
         cursor = max(0, min(int(checkpoint.get("cursor", 0) or 0), len(files)))
         records = self._load_records()
         source_commit = _source_commit(self.vault_root)
+        _manifest, manifest_sha256 = self._source_manifest(files)
+
+        checkpoint_manifest = str(checkpoint.get("source_manifest_sha256") or "")
+        if cursor > 0 and not checkpoint_manifest:
+            blocked = self._write_checkpoint(
+                cursor=cursor,
+                total=len(files),
+                status="blocked",
+                reason="source_manifest_missing",
+                source_commit=source_commit,
+            )
+            return {"status": "blocked", **blocked, "indexed": len(records)}
+        if checkpoint_manifest and checkpoint_manifest != manifest_sha256:
+            blocked = self._write_checkpoint(
+                cursor=cursor,
+                total=len(files),
+                status="blocked",
+                reason="source_manifest_changed",
+                observed_source_manifest_sha256=manifest_sha256,
+            )
+            return {"status": "blocked", **blocked, "indexed": len(records)}
+
+        self._write_checkpoint(
+            cursor=cursor,
+            total=len(files),
+            status=str(checkpoint.get("status") or "pending"),
+            reason="",
+            source_manifest_sha256=manifest_sha256,
+            source_commit=source_commit,
+        )
         if cursor >= len(files):
-            self._write_checkpoint(cursor=len(files), total=len(files), status="completed")
+            self._write_checkpoint(
+                cursor=len(files),
+                total=len(files),
+                status="completed",
+                source_manifest_sha256=manifest_sha256,
+                source_commit=source_commit,
+            )
             self._write_proposal(files=files, indexed=len(records), source_commit=source_commit, complete=True)
             return {"status": "completed", "cursor": cursor, "total": len(files), "indexed": len(records)}
 
@@ -257,8 +344,15 @@ class EmbeddingRefreshJob:
             while cursor < len(files) and processed < self.config.batch_size:
                 if should_preempt and should_preempt():
                     checkpoint = self._write_checkpoint(
-                        cursor=cursor, total=len(files), status="paused", reason="foreground_task_or_user_activity"
+                        cursor=cursor,
+                        total=len(files),
+                        status="paused",
+                        reason="foreground_task_or_user_activity",
+                        source_manifest_sha256=manifest_sha256,
+                        source_commit=source_commit,
                     )
+                    checkpoint["preemption_observed"] = True
+                    _atomic_json(self.checkpoint_path, checkpoint)
                     return {"status": "paused", **checkpoint, "indexed": len(records)}
                 batch_paths = files[cursor : cursor + self.config.batch_size - processed]
                 texts = [path.read_text(encoding="utf-8", errors="replace") for path in batch_paths]
@@ -289,18 +383,74 @@ class EmbeddingRefreshJob:
                 self._append_records(created)
                 cursor += len(batch_paths)
                 processed += len(batch_paths)
-                self._write_checkpoint(cursor=cursor, total=len(files), status="running")
+                self._write_checkpoint(
+                    cursor=cursor,
+                    total=len(files),
+                    status="running",
+                    source_manifest_sha256=manifest_sha256,
+                    source_commit=source_commit,
+                )
         except EmbeddingError as exc:
+            reason = str(exc)
+            previous_deferrals = int(checkpoint.get("defer_count", 0) or 0)
+            transient = reason in {"embedding_rate_limited", "embedding_timeout"}
+            if transient and previous_deferrals < self.config.transient_defer_limit:
+                defer_count = previous_deferrals + 1
+                delay = min(
+                    900,
+                    max(1, int(self.config.transient_defer_seconds)) * (2 ** (defer_count - 1)),
+                )
+                defer_until = datetime.fromisoformat(self.now().replace("Z", "+00:00"))
+                defer_until = defer_until + timedelta(seconds=delay)
+                deferred = self._write_checkpoint(
+                    cursor=cursor,
+                    total=len(files),
+                    status="deferred",
+                    reason=reason,
+                    source_manifest_sha256=manifest_sha256,
+                    source_commit=source_commit,
+                    defer_count=defer_count,
+                    defer_until=defer_until.isoformat(),
+                )
+                return {"status": "deferred", **deferred, "indexed": len(records)}
             checkpoint = self._write_checkpoint(
-                cursor=cursor, total=len(files), status="blocked", reason=str(exc)
+                cursor=cursor,
+                total=len(files),
+                status="blocked",
+                reason=reason,
+                source_manifest_sha256=manifest_sha256,
+                source_commit=source_commit,
             )
             return {"status": "blocked", **checkpoint, "indexed": len(records)}
+
+        _current_manifest, current_manifest_sha256 = self._source_manifest(self._files())
+        if current_manifest_sha256 != manifest_sha256:
+            blocked = self._write_checkpoint(
+                cursor=cursor,
+                total=len(files),
+                status="blocked",
+                reason="source_manifest_changed",
+                source_manifest_sha256=manifest_sha256,
+                source_commit=source_commit,
+                observed_source_manifest_sha256=current_manifest_sha256,
+            )
+            return {"status": "blocked", **blocked, "indexed": len(records)}
 
         status = "completed" if cursor >= len(files) else "paused"
         reason = ""
         if status == "paused" and should_preempt and should_preempt():
             reason = "foreground_task_or_user_activity"
-        checkpoint = self._write_checkpoint(cursor=cursor, total=len(files), status=status, reason=reason)
+        checkpoint = self._write_checkpoint(
+            cursor=cursor,
+            total=len(files),
+            status=status,
+            reason=reason,
+            source_manifest_sha256=manifest_sha256,
+            source_commit=source_commit,
+        )
+        if reason == "foreground_task_or_user_activity":
+            checkpoint["preemption_observed"] = True
+            _atomic_json(self.checkpoint_path, checkpoint)
         self._write_proposal(
             files=files,
             indexed=len(records),
@@ -319,6 +469,7 @@ class IdleBackgroundWorker:
         job: EmbeddingRefreshJob,
         config: IdleWorkerConfig | None = None,
         lease: AutonomyLease | None = None,
+        autonomy_root: str | Path | None = None,
         policy: AutonomyPolicy | None = None,
         worker_id: str = "embedding-idle-worker",
         clock: Callable[[], float] = time.time,
@@ -327,8 +478,16 @@ class IdleBackgroundWorker:
         self.state_root = Path(state_root).resolve()
         self.config = config or IdleWorkerConfig()
         self.job = job
+        self.autonomy_root = (
+            Path(autonomy_root).resolve()
+            if autonomy_root
+            else (self.state_root.parent / "autonomy").resolve()
+        )
         self.lease = lease or AutonomyLease(
-            self.state_root / "idle-worker.lease", ttl_seconds=self.config.lease_ttl_seconds
+            # Share the foreground runner's lease. A separate embedding
+            # lease would allow background work to race with Inbox/MCP work.
+            self.autonomy_root / "task.lease",
+            ttl_seconds=self.config.lease_ttl_seconds,
         )
         self.policy = policy or AutonomyPolicy(
             AutonomyConfig(
@@ -342,6 +501,9 @@ class IdleBackgroundWorker:
         self.worker_id = worker_id
         self.clock = clock
         self.task_store = DurableTaskStore(self.state_root / "orchestrator")
+        self.recovered_stale_tasks = self.task_store.recover_stale_tasks(
+            max_age_seconds=max(1800.0, float(self.config.lease_ttl_seconds))
+        )
 
     def _task_context(self) -> OperationContext:
         checkpoint = self.job._load_checkpoint()
@@ -386,6 +548,50 @@ class IdleBackgroundWorker:
             )
         return context
 
+    def _pause_before_batch(self, context: OperationContext, reason: str) -> dict[str, Any]:
+        """Persist a preemption that happens after the durable task exists.
+
+        A foreground task can appear between lease acquisition and the first
+        embedding call. That path must not leave a queued task without a
+        checkpoint; otherwise recovery cannot distinguish an untouched task
+        from a worker that was safely preempted.
+        """
+        files = self.job._files()
+        _manifest, manifest_sha256 = self.job._source_manifest(files)
+        checkpoint = self.job._write_checkpoint(
+            cursor=int(self.job._load_checkpoint().get("cursor", 0) or 0),
+            total=len(files),
+            status="paused",
+            reason=reason,
+            source_manifest_sha256=manifest_sha256,
+            source_commit=_source_commit(self.vault_root),
+        )
+        checkpoint["preemption_observed"] = True
+        _atomic_json(self.job.checkpoint_path, checkpoint)
+        durable = self.task_store.transition(
+            context.task_id,
+            "paused",
+            validation_status="pending",
+            metadata={
+                "source_path": "vault://eligible-markdown",
+                "input_type": "passage",
+                "batch_cursor": checkpoint.get("cursor", 0),
+                "checkpoint_status": "paused",
+                "pause_reason": reason,
+            },
+        )
+        return {
+            "status": "paused",
+            "task_id": context.task_id,
+            "run_id": context.run_id,
+            "operation_id": context.operation_id,
+            "idempotency_key": context.idempotency_key,
+            "job_type": "embedding_refresh",
+            "reason": reason,
+            "result": checkpoint,
+            "record": durable,
+        }
+
     def run_once(
         self,
         *,
@@ -393,6 +599,11 @@ class IdleBackgroundWorker:
         foreground_pending: bool,
         foreground_probe: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
+        # Enforce the external-transfer boundary in the core worker as well as
+        # the CLI launcher. Direct callers must opt in explicitly; a cloud
+        # credential alone is never sufficient authorization.
+        if not bool(signals.get("external_embedding_allowed", False)):
+            return {"status": "paused", "reason": "external_embedding_not_authorized"}
         if foreground_pending:
             return {"status": "paused", "reason": "foreground_task_pending"}
         decision = self.policy.evaluate(
@@ -410,13 +621,25 @@ class IdleBackgroundWorker:
         try:
             context = self._ensure_task()
             if foreground_pending or (foreground_probe and foreground_probe()):
-                return {"status": "paused", "reason": "foreground_task_pending"}
+                return self._pause_before_batch(context, "foreground_task_pending")
             self.task_store.transition(context.task_id, "running", validation_status="pending")
             result = self.job.run_batch(
                 should_preempt=lambda: bool(foreground_pending or (foreground_probe and foreground_probe()))
             )
             result_status = result.get("status", "blocked")
-            durable_status = "completed" if result_status == "completed" else "blocked"
+            if result_status == "completed":
+                durable_status = "completed"
+            elif result_status == "paused":
+                # Preemption is expected control flow, not a failed embedding
+                # operation. Keep the durable record resumable and distinguish
+                # it from API or source-integrity failures.
+                durable_status = "paused"
+            elif result_status == "deferred":
+                # Transient API pressure is resumable. The checkpoint owns
+                # the bounded backoff; the task stays paused, not completed.
+                durable_status = "paused"
+            else:
+                durable_status = "blocked"
             self.task_store.transition(
                 context.task_id,
                 durable_status,

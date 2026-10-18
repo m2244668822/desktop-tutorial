@@ -82,6 +82,7 @@ const ws = new VaultWorkspace({
   auditDir,
   trashDir,
   autoApprove: true,
+  hostId: "direct-e2e",
 });
 
 function assert(cond, msg) {
@@ -309,8 +310,20 @@ assert(read3.content.includes("e2e before"), "safe scratch restore did not resto
 
 const auditPath = path.join(auditDir, "mcp-audit.jsonl");
 assert(fs.existsSync(auditPath), "audit log missing");
-const last = fs.readFileSync(auditPath, "utf8").trim().split("\n").pop();
+const auditRows = fs
+  .readFileSync(auditPath, "utf8")
+  .trim()
+  .split("\n")
+  .filter(Boolean)
+  .map((line) => JSON.parse(line));
+assert(auditRows.length > 0, "audit log empty");
+assert(
+  auditRows.every((row) => row.host_id === "direct-e2e"),
+  "host identity missing from audit",
+);
+const last = JSON.stringify(auditRows[auditRows.length - 1]);
 console.log("audit_last", last);
+console.log("HOST_ID_AUDIT_PASS");
 
 async function stdioHandshake() {
   const serverPath = path.join(__dirname, "server.js");

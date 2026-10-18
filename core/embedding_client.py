@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import os
+import socket
+import urllib.error
 from dataclasses import dataclass
 from typing import Callable, Iterable
 from urllib import request as urllib_request
@@ -86,6 +88,16 @@ class NemotronEmbeddingClient:
                 self.config.timeout_seconds,
             )
             response = json.loads(raw.decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            if exc.code == 401:
+                raise EmbeddingError("embedding_auth_failed") from exc
+            if exc.code == 429:
+                raise EmbeddingError("embedding_rate_limited") from exc
+            raise EmbeddingError(f"embedding_http_{exc.code}") from exc
+        except (socket.timeout, TimeoutError) as exc:
+            raise EmbeddingError("embedding_timeout") from exc
+        except urllib.error.URLError as exc:
+            raise EmbeddingError("embedding_request_failed") from exc
         except Exception as exc:
             raise EmbeddingError("embedding_request_failed") from exc
 

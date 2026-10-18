@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -81,6 +82,61 @@ class DurableTaskStore:
             return json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise TaskStoreError("task_record_invalid") from exc
+
+    def recover_stale_tasks(
+        self,
+        *,
+        max_age_seconds: float = 900.0,
+        now: datetime | None = None,
+    ) -> list[dict[str, Any]]:
+        """Fail-closed stale active tasks after an interrupted process.
+
+        Recovery never retries an MCP mutation. It marks only active execution
+        states as blocked and requires reconciliation against the external
+        project before a new operation identity can be created. Queued tasks
+        are intentionally left alone because they may be waiting for a host.
+        """
+        active = {"claimed", "running", "validating"}
+        current_time = now or datetime.now(timezone.utc)
+        if current_time.tzinfo is None:
+            current_time = current_time.replace(tzinfo=timezone.utc)
+        threshold = max(0.0, float(max_age_seconds))
+        recovered: list[dict[str, Any]] = []
+        for path in sorted(self.tasks_dir.glob("*.json")):
+            try:
+                record = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise TaskStoreError("task_record_invalid") from exc
+            if record.get("status") not in active:
+                continue
+            try:
+                updated = datetime.fromisoformat(str(record.get("updated_at", "")).replace("Z", "+00:00"))
+                if updated.tzinfo is None:
+                    updated = updated.replace(tzinfo=timezone.utc)
+            except ValueError:
+                continue
+            age = max(0.0, (current_time - updated).total_seconds())
+            if age <= threshold:
+                continue
+            metadata = dict(record.get("metadata") or {})
+            metadata.update(
+                {
+                    "blocked_reason": "stale_task_recovery",
+                    "failure_phase": "recovery",
+                    "requires_reconciliation": True,
+                    "auto_retry": False,
+                    "stale_for_seconds": round(age, 3),
+                }
+            )
+            recovered.append(
+                self.transition(
+                    str(record.get("task_id") or path.stem),
+                    "blocked",
+                    validation_status="failed",
+                    metadata=metadata,
+                )
+            )
+        return recovered
 
     def transition(self, task_id: str, status: str, **changes: Any) -> dict[str, Any]:
         current = self.get(task_id)

@@ -12,7 +12,8 @@
     "route": "node ./src/router_cli.js",
     "agentic": "node ./src/agentic_executor.js",
     "queue": "node ./src/queue_cli.js",
-    "queue-e2e": "node ./src/queue_e2e.js"
+    "queue-e2e": "node ./src/queue_e2e.js",
+    "lease-e2e": "node ./src/autonomy_lease_e2e.js"
   },
   "engines": {
     "node": ">=18"

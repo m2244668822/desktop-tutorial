@@ -35,6 +35,7 @@ import {
   defaultOrchestratorStateRoot,
   newOperationContext,
 } from "./orchestrator_store.js";
+import { createAutonomyLease, defaultAutonomyRoot } from "./autonomy_lease.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const vaultRoot = path.resolve(
@@ -48,6 +49,11 @@ const autoApproveEnv = process.env.INBOX_AUTO_APPROVE === "1";
 const auditDir = path.join(vaultRoot, "runtime", ".mcp-audit");
 const trashDir = path.join(vaultRoot, "runtime", ".mcp-trash");
 const orchestratorStore = createOrchestratorStore(defaultOrchestratorStateRoot(vaultRoot));
+const autonomyLease = createAutonomyLease({
+  root: defaultAutonomyRoot(vaultRoot),
+  owner: `inbox-daemon-${process.pid}`,
+  ttlSeconds: Number(process.env.WHITE_STUDIO_AUTONOMY_LEASE_TTL || 1800),
+});
 
 const ALLOWED = new Set([
   "workspace.list",
@@ -62,9 +68,25 @@ const ALLOWED = new Set([
 ]);
 
 let busy = false;
+let leaseHeld = false;
+
+function releaseLease() {
+  busy = false;
+  if (leaseHeld) {
+    autonomyLease.release();
+    leaseHeld = false;
+  }
+}
 
 function log(msg) {
   process.stderr.write(`[inbox-executor] ${new Date().toISOString()} ${msg}\n`);
+}
+
+const recoveredStaleTasks = orchestratorStore.recoverStaleTasks({
+  maxAgeSeconds: Number(process.env.WHITE_STUDIO_ORCHESTRATOR_STALE_SECONDS || 1800),
+});
+if (recoveredStaleTasks.length > 0) {
+  log(`stale recovery blocked=${recoveredStaleTasks.length}`);
 }
 
 function failureClass(code, message, toolsFinished) {
@@ -116,6 +138,11 @@ async function runContract() {
     return;
   }
 
+  if (!autonomyLease.acquire()) {
+    log(`shared lease unavailable path=${autonomyLease.path}`);
+    return;
+  }
+  leaseHeld = true;
   busy = true;
   let executorIdentity;
   try {
@@ -139,7 +166,7 @@ async function runContract() {
       result_markdown: resultMarkdown,
     });
     log(`blocked: ${code} class=needs-review auto_retry=false trace_id=${traceId}`);
-    busy = false;
+    releaseLease();
     return;
   }
   log(`detected queued → running executor_id=${executorIdentity.executor_id}`);
@@ -201,7 +228,7 @@ async function runContract() {
       identity_validation: identityValidation,
     });
     log(reason);
-    busy = false;
+    releaseLease();
     return;
   }
 
@@ -337,7 +364,7 @@ async function runContract() {
       `blocked: ${code} class=${policy.klass} auto_retry=${policy.auto_retry} trace_id=${traceId}`
     );
   } finally {
-    busy = false;
+    releaseLease();
   }
 }
 
@@ -346,7 +373,7 @@ async function tick() {
     await runContract();
   } catch (err) {
     log(`tick_error: ${err.message}`);
-    busy = false;
+    releaseLease();
   }
 }
 

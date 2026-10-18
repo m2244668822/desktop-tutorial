@@ -1,4 +1,5 @@
 import json
+import json
 import unittest
 from unittest.mock import patch
 
@@ -68,6 +69,65 @@ class ProviderHttpClientTests(unittest.TestCase):
         self.assertNotIn('trevor_context', wire)
         self.assertNotIn('request_type', wire)
         self.assertEqual({'message': 'safe'}, json.loads(wire['messages'][0]['content']))
+
+    def test_wire_payload_preserves_reasoning_details_and_tool_fields(self):
+        from core.provider_client import ProviderHttpClient
+
+        reasoning_details = [{"type": "reasoning.summary", "data": "opaque"}]
+        request = {
+            'model': 'nvidia/nemotron-3-ultra-550b-a55b:free',
+            'messages': [
+                {
+                    'role': 'assistant',
+                    'content': 'first answer',
+                    'reasoning_details': reasoning_details,
+                    'tool_calls': [{'id': 'call-1', 'type': 'function'}],
+                },
+            ],
+            'reasoning': {'enabled': True},
+        }
+
+        wire = ProviderHttpClient.wire_payload(request)
+
+        self.assertEqual(reasoning_details, wire['messages'][0]['reasoning_details'])
+        self.assertEqual(
+            [{'id': 'call-1', 'type': 'function'}],
+            wire['messages'][0]['tool_calls'],
+        )
+        self.assertEqual({'enabled': True}, wire['reasoning'])
+
+    def test_call_with_metadata_preserves_openrouter_reasoning_details(self):
+        from core.provider_client import ProviderHttpClient
+        from core.provider_registry import ProviderRegistry
+
+        registry = ProviderRegistry(
+            env={'OPENROUTER_API_KEY': 'or-test'},
+            free_tier_confirmed={'openrouter'},
+        )
+        client = ProviderHttpClient(registry)
+        response = _JsonResponse({
+            'choices': [{
+                'message': {
+                    'content': 'first answer',
+                    'reasoning_details': [
+                        {'type': 'reasoning.summary', 'data': 'opaque'},
+                    ],
+                    'tool_calls': [{'id': 'call-1'}],
+                },
+            }],
+        })
+        with patch('core.provider_client.requests.post', return_value=response):
+            result = client.call_with_metadata(
+                registry.get('openrouter'),
+                {'model': 'nvidia/nemotron-3-ultra-550b-a55b:free', 'messages': []},
+            )
+
+        self.assertEqual('first answer', result['content'])
+        self.assertEqual(
+            [{'type': 'reasoning.summary', 'data': 'opaque'}],
+            result['reasoning_details'],
+        )
+        self.assertEqual([{'id': 'call-1'}], result['tool_calls'])
 
     def test_cloudflare_endpoint_uses_account_and_model(self):
         from core.provider_client import ProviderHttpClient

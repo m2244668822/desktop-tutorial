@@ -101,6 +101,12 @@ const runnable = candidates
   );
 
 if (runnable.length === 0) {
+  const blocked = [...candidates].sort((a, b) =>
+    (b.priority - a.priority) ||
+    (a.created - b.created) ||
+    a.taskId.localeCompare(b.taskId)
+  );
+  const selectedBlocked = blocked[0];
   const summary = {
     ok: false,
     code: candidates.length > 0 ? "queued_tasks_not_routable" : "queue_empty",
@@ -114,6 +120,22 @@ if (runnable.length === 0) {
   writeOutput("ok", "false");
   writeOutput("code", summary.code);
   writeOutput("queued_count", candidates.length);
+  if (selectedBlocked) {
+    writeOutput("task_id", selectedBlocked.taskId);
+    writeOutput(
+      "task_path_b64",
+      Buffer.from(
+        path.relative(vaultRoot, selectedBlocked.abs).replace(/\\/g, "/"),
+        "utf8"
+      ).toString("base64")
+    );
+    writeOutput("route", "blocked");
+    writeOutput("blocked_code", selectedBlocked.decision.code || "route_blocked");
+    writeOutput(
+      "blocked_reason_b64",
+      Buffer.from(String(selectedBlocked.decision.reason || "not_routable"), "utf8").toString("base64")
+    );
+  }
   process.stdout.write(JSON.stringify(summary, null, 2) + "\n");
   process.exit(0);
 }

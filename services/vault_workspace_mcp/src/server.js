@@ -66,13 +66,30 @@ const trashDir =
   process.env.MCP_TRASH_DIR ||
   path.join(workspaceRoot, "runtime", ".mcp-trash");
 const autoApprove = process.env.MCP_AUTO_APPROVE === "1";
+const hostId = process.env.MCP_HOST_ID || "unknown";
 
 const ws = new VaultWorkspace({
   workspaceRoot,
   auditDir,
   trashDir,
   autoApprove,
+  hostId,
 });
+
+function requestId(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const text = String(value ?? "").slice(0, 80);
+  return text || null;
+}
+
+function protocolAudit(method, id, fields = {}) {
+  ws.audit({
+    kind: "mcp_protocol",
+    protocol_method: method,
+    request_id: requestId(id),
+    ...fields,
+  });
+}
 
 function send(msg) {
   const body = JSON.stringify(msg);
@@ -93,6 +110,10 @@ function send(msg) {
 async function handle(msg) {
   const { id, method, params } = msg;
   if (method === "initialize") {
+    protocolAudit("initialize", id, {
+      protocol_version: params?.protocolVersion || null,
+      client_name: String(params?.clientInfo?.name || "").slice(0, 80) || null,
+    });
     return {
       jsonrpc: "2.0",
       id,
@@ -107,6 +128,7 @@ async function handle(msg) {
     return null;
   }
   if (method === "tools/list") {
+    protocolAudit("tools/list", id, { tool_count: TOOL_DEFS.length });
     return {
       jsonrpc: "2.0",
       id,
@@ -117,8 +139,16 @@ async function handle(msg) {
     const requestedName = params?.name;
     const name = internalToolName(requestedName);
     const args = params?.arguments || {};
+    protocolAudit("tools/call", id, {
+      tool: String(name || "").slice(0, 120),
+      outcome: "started",
+    });
     try {
       const result = await dispatch(ws, name, args);
+      protocolAudit("tools/call", id, {
+        tool: String(name || "").slice(0, 120),
+        outcome: "success",
+      });
       return {
         jsonrpc: "2.0",
         id,
@@ -127,6 +157,11 @@ async function handle(msg) {
         },
       };
     } catch (err) {
+      protocolAudit("tools/call", id, {
+        tool: String(name || "").slice(0, 120),
+        outcome: "error",
+        error_code: String(err.code || "error").slice(0, 80),
+      });
       return {
         jsonrpc: "2.0",
         id,
@@ -213,5 +248,5 @@ process.stdin.on("data", (chunk) => {
 process.stdin.on("end", () => process.exit(0));
 
 process.stderr.write(
-  `[vault-workspace-mcp] root=${workspaceRoot} autoApprove=${autoApprove}\n`
+  `[vault-workspace-mcp] root=${workspaceRoot} host=${hostId} autoApprove=${autoApprove}\n`
 );

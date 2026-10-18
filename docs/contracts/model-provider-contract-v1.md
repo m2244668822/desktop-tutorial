@@ -22,9 +22,19 @@ does not decide whether a project write is authorized.
   "cost_class": "local",
   "max_concurrency": 1,
   "priority": 1,
-  "availability": "unknown"
+  "availability": "unknown",
+  "capabilities": ["chat"]
 }
 ```
+
+`max_output_tokens` is an enforced provider cap. The request value may lower
+this cap but may not raise it. This bounds response size and traffic before a
+provider call is made.
+
+`token_budget_per_minute`, when configured, is a reservation budget for the
+requested output tokens. A request that exceeds the remaining window fails
+with `provider_token_budget_exhausted` before transport; retries cannot bypass
+the budget.
 
 `stream`, `structured_output`, and `tool_proposal` are optional capabilities.
 The router must reject a request when the selected provider lacks a required
@@ -35,6 +45,10 @@ registered for retrieval and indexing only. It is not a chat, planner,
 executor, or tool-calling model. Document chunks use `input_type=passage`.
 Search requests use `input_type=query`. The expected native vector dimension
 is 2048.
+
+The `capabilities` field is authoritative for model routing. A provider with
+`capabilities=["embedding"]` is not eligible for `ChatModelGateway`, even if it
+has a valid API credential or appears in provider discovery.
 
 ## Roles
 
@@ -61,7 +75,9 @@ capability flags are true.
 
 ## Reliability
 
-Provider retries use a bounded count, timeout, exponential backoff, and jitter.
+Provider calls use an enforced per-model concurrency limit and a bounded retry
+count, timeout, exponential backoff, and jitter. A saturated provider returns
+`provider_concurrency_limit` instead of starting another call or retry loop.
 Model retries are independent from MCP mutation retries. The router must retain
 `task_id` and `run_id` across every attempt and report provider health as
 `online`, `degraded`, `rate_limited`, `overloaded`, or `unavailable`.

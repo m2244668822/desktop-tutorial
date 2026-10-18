@@ -13,6 +13,13 @@ function sha256(text) {
   return crypto.createHash("sha256").update(text, "utf8").digest("hex");
 }
 
+function normalizeHostId(value) {
+  const raw = String(value || "unknown").trim().toLowerCase();
+  if (!raw || raw === "unknown") return "unknown";
+  if (!/^[a-z0-9_.-]{1,64}$/.test(raw)) return "invalid";
+  return raw;
+}
+
 function unifiedDiff(filePath, before, after) {
   const a = before.split(/\r?\n/);
   const b = after.split(/\r?\n/);
@@ -38,11 +45,13 @@ export class VaultWorkspace {
     auditDir,
     trashDir,
     autoApprove = false,
+    hostId = process.env.MCP_HOST_ID,
   }) {
     this.root = path.resolve(workspaceRoot);
     this.auditDir = path.resolve(auditDir);
     this.trashDir = path.resolve(trashDir);
     this.autoApprove = autoApprove;
+    this.hostId = normalizeHostId(hostId);
     this.sessionId = crypto.randomUUID();
     fs.mkdirSync(this.auditDir, { recursive: true });
     fs.mkdirSync(this.trashDir, { recursive: true });
@@ -64,6 +73,7 @@ export class VaultWorkspace {
     const row = {
       ts: new Date().toISOString(),
       session_id: this.sessionId,
+      host_id: this.hostId,
       ...event,
     };
     const line = JSON.stringify(row) + "\n";

@@ -37,3 +37,29 @@ test("invalid transition is rejected", () => {
   store.create({ ...newOperationContext("task-1") });
   assert.throws(() => store.transition("task-1", "done"), /invalid_task_transition/);
 });
+
+test("stale active task is blocked without automatic replay", () => {
+  const store = makeStore();
+  const context = newOperationContext("stale-task", "test", "contract-a");
+  store.create({ ...context });
+  store.transition("stale-task", "running");
+  const taskFile = fs.readdirSync(path.join(store.root, "tasks"))[0];
+  const taskPath = path.join(store.root, "tasks", taskFile);
+  const record = JSON.parse(fs.readFileSync(taskPath, "utf8"));
+  record.updated_at = "2026-10-17T00:00:00.000Z";
+  fs.writeFileSync(taskPath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+
+  const recovered = store.recoverStaleTasks({
+    maxAgeSeconds: 900,
+    now: Date.parse("2026-10-17T01:00:00.000Z"),
+  });
+  assert.equal(recovered.length, 1);
+  assert.equal(recovered[0].status, "blocked");
+  assert.equal(recovered[0].metadata.blocked_reason, "stale_task_recovery");
+  assert.equal(recovered[0].metadata.requires_reconciliation, true);
+  assert.equal(recovered[0].metadata.auto_retry, false);
+  assert.deepEqual(
+    store.recoverStaleTasks({ maxAgeSeconds: 900, now: Date.parse("2026-10-17T01:00:00.000Z") }),
+    []
+  );
+});
