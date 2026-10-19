@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-CHAT_HTML = ROOT / 'templates' / 'chat.html'
+CHAT_HTML = ROOT / 'templates' / 'chat_shell.html'
 
 
 class ChatFrontendApiCleanupTests(unittest.TestCase):
@@ -28,7 +28,6 @@ class ChatFrontendApiCleanupTests(unittest.TestCase):
         self.assertIn('function bootstrapPolling()', self.html)
         self.assertIn('bootstrapPolling();', self.html)
         for token in [
-            'fetchKALStatus(true);',
             'fetchHistory(true);',
             'fetchTasksSummary(true);',
             'fetchProviderStatus(true);',
@@ -53,7 +52,6 @@ class ChatFrontendApiCleanupTests(unittest.TestCase):
 
     def test_inline_actions_use_named_helpers(self):
         for token in [
-            "onclick=\"showHubPanel('kalPanel')\"",
             "onclick=\"showHubPanel('tasksPanel')\"",
             "onclick=\"triggerFilePicker()\"",
         ]:
@@ -65,6 +63,26 @@ class ChatFrontendApiCleanupTests(unittest.TestCase):
     def test_topbar_logo_no_longer_depends_on_missing_static_asset(self):
         self.assertIn('<svg class="tb-logo"', self.html)
         self.assertNotIn('/static/branding/topbar-logo.png', self.html)
+
+    def test_chat_shell_removes_legacy_kal_ui_and_polling(self):
+        for token in [
+            '🔬 KAL 學習',
+            'KAL 自主學習迴圈',
+            '學習系統狀態',
+            'fetchKALStatus',
+            'renderKAL',
+            'mon-kal',
+            'mon-distill',
+            'mon-valid',
+        ]:
+            self.assertNotIn(token, self.html)
+
+    def test_chat_shell_catalog_shows_current_openrouter_chat_model(self):
+        self.assertIn("id=\"mc-openrouter\"", self.html)
+        self.assertIn("startChat('openrouter','OpenRouter')", self.html)
+        self.assertIn("nvidia/nemotron-3-ultra-550b-a55b:free", self.html)
+        for token in ["id=\"mc-nvidia\"", "id=\"mc-openai\"", "id=\"mc-gemini\"", "id=\"mc-groq\""]:
+            self.assertNotIn(token, self.html)
 
 
 if __name__ == '__main__':

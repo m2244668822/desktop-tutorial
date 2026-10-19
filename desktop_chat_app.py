@@ -256,6 +256,7 @@ DEFAULT_CHAT_MODEL_BY_PROVIDER = {
     "openai": "gpt-4o-mini",
     "groq": "llama-3.1-8b-instant",
     "gemini": "gemini-2.0-flash",
+    "openrouter": "openrouter/free",
     "open_source": "qwen2.5:7b",
 }
 
@@ -2186,7 +2187,7 @@ class DesktopBridge:
 
     def _provider_runtime_config(self, backend: str) -> dict[str, Any]:
         provider = str(backend or "nvidia").strip().lower()
-        if provider not in {"nvidia", "openai", "groq", "gemini"}:
+        if provider not in {"nvidia", "openai", "groq", "gemini", "openrouter"}:
             provider = "nvidia"
 
         env = self._load_merged_env_data()
@@ -2202,24 +2203,28 @@ class DesktopBridge:
             "openai": ("OPENAI_API_KEY",),
             "groq": ("GROQ_API_KEY",),
             "gemini": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+            "openrouter": ("OPENROUTER_API_KEY",),
         }
         base_names = {
             "nvidia": ("NVIDIA_BASE_URL",),
             "openai": ("OPENAI_PROVIDER_BASE_URL", "OPENAI_BASE_URL"),
             "groq": ("GROQ_BASE_URL", "OPENAI_BASE_URL"),
             "gemini": ("GEMINI_BASE_URL", "OPENAI_BASE_URL"),
+            "openrouter": ("OPENROUTER_BASE_URL",),
         }
         model_names = {
             "nvidia": ("NVIDIA_MODEL", "NVIDIA_CONTROL_MODEL"),
             "openai": ("OPENAI_PROVIDER_MODEL", "OPENAI_MODEL"),
             "groq": ("GROQ_MODEL", "OPENAI_MODEL"),
             "gemini": ("GEMINI_MODEL", "OPENAI_MODEL"),
+            "openrouter": ("OPENROUTER_FREE_MODEL", "OPENROUTER_MODEL"),
         }
         default_base = {
             "nvidia": "https://integrate.api.nvidia.com/v1",
             "openai": "https://api.openai.com/v1",
             "groq": "https://api.groq.com/openai/v1",
             "gemini": "https://generativelanguage.googleapis.com/v1beta/openai",
+            "openrouter": "https://openrouter.ai/api/v1",
         }
 
         key = ""
@@ -2473,7 +2478,7 @@ class DesktopBridge:
         }
         if key in local_aliases:
             return "open_source"
-        if key in {"nvidia", "openai", "groq", "gemini"}:
+        if key in {"nvidia", "openai", "groq", "gemini", "openrouter"}:
             return key
         if key in {"", "auto"}:
             return self._requested_backend_for_purpose(purpose)
@@ -2697,9 +2702,9 @@ class DesktopBridge:
 
         env = self._load_merged_env_data()
         pref = str(env.get("CHAT_PREFERRED_PROVIDER", "") or "").strip().lower()
-        cloud_order = [pref, "nvidia", "groq", "gemini", "openai"]
+        cloud_order = [pref, "nvidia", "groq", "gemini", "openrouter", "openai"]
         for backend in cloud_order:
-            if backend in {"nvidia", "openai", "groq", "gemini"} and self._is_cloud_available(backend):
+            if backend in {"nvidia", "openai", "groq", "gemini", "openrouter"} and self._is_cloud_available(backend):
                 return backend
         return "open_source"
 
@@ -2717,7 +2722,7 @@ class DesktopBridge:
         """
         requested = str(model_key or "auto").strip().lower()
         if requested not in {"", "auto"}:
-            return requested in {"nvidia", "openai", "groq", "gemini"}
+            return requested in {"nvidia", "openai", "groq", "gemini", "openrouter"}
 
         purpose_norm = str(purpose or "discussion").strip().lower()
         mode_norm = str(interaction_mode or "auto").strip().lower()
@@ -2749,6 +2754,7 @@ class DesktopBridge:
             "openai": "OPENAI_API_KEY",
             "groq": "GROQ_API_KEY",
             "gemini": "GEMINI_API_KEY",
+            "openrouter": "OPENROUTER_API_KEY",
         }
         key_name = key_map.get(backend)
         if not key_name: return False

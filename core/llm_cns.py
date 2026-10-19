@@ -75,6 +75,14 @@ RUNTIME_PROVIDER_PROFILES: dict[str, dict[str, Any]] = {
         "default_base": "https://generativelanguage.googleapis.com/v1beta/openai",
         "default_model": "",
     },
+    "openrouter": {
+        "label": "OpenRouter",
+        "key_names": ("OPENROUTER_API_KEY",),
+        "base_names": ("OPENROUTER_BASE_URL",),
+        "model_names": ("OPENROUTER_FREE_MODEL", "OPENROUTER_MODEL"),
+        "default_base": "https://openrouter.ai/api/v1",
+        "default_model": "openrouter/free",
+    },
 }
 
 EXECUTION_KEYWORDS = (
@@ -259,11 +267,18 @@ def _frontend_provider_enabled(env: dict[str, str], provider_key: str) -> bool:
 
 def frontend_provider_status(workspace: Path) -> dict[str, Any]:
     env, _ = load_combined_env(workspace)
+    for profile in RUNTIME_PROVIDER_PROFILES.values():
+        for key_name in profile["key_names"]:
+            process_value = str(os.environ.get(key_name, "") or "").strip()
+            file_value = str(env.get(key_name, "") or "").strip()
+            if process_value and (not file_value or is_placeholder_value(file_value)):
+                env[key_name] = process_value
     providers = [
         ("nvidia", "NVIDIA"),
         ("openai", "OpenAI"),
         ("gemini", "Gemini"),
         ("groq", "Groq"),
+        ("openrouter", "OpenRouter"),
     ]
     rows = [(key, label, _frontend_provider_enabled(env, key)) for key, label in providers]
     connected = [key for key, _, ok in rows if ok]
@@ -283,6 +298,7 @@ def frontend_provider_status(workspace: Path) -> dict[str, Any]:
                 "key": key,
                 "label": label,
                 "visible": True,
+                "enabled": ok,
                 "classification": {"tier": tier},
             }
         )

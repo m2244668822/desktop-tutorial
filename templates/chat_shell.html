@@ -76,36 +76,13 @@
     .mc.mc-offline{opacity:.45;cursor:not-allowed}
     .mc.mc-primary{border-color:rgba(34,197,94,.35);box-shadow:0 0 0 1px rgba(34,197,94,.15)}
 
-    /* ── KAL Loop 狀態面板 ── */
-    .kal-panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:14px;display:flex;flex-direction:column;gap:10px;backdrop-filter:blur(calc(var(--glass-blur) * .8)) saturate(var(--glass-saturate));-webkit-backdrop-filter:blur(calc(var(--glass-blur) * .8)) saturate(var(--glass-saturate));box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
-    .kal-header{display:flex;align-items:center;justify-content:space-between}
-    .kal-title{font-size:13px;font-weight:600;display:flex;align-items:center;gap:7px}
-    .pulse{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 2s ease-in-out infinite}
-    @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.85)}}
-    .kal-refresh{padding:2px 8px;border-radius:5px;background:rgba(255,255,255,.04);border:1px solid var(--line);color:var(--muted);font-size:12px;cursor:pointer;font-family:inherit;transition:all .1s}
-    .kal-refresh:hover{color:var(--text);background:rgba(255,255,255,.08)}
-    .kal-bar-wrap{display:flex;flex-direction:column;gap:4px}
-    .kal-bar-meta{display:flex;justify-content:space-between;font-size:11px;color:var(--muted)}
-    .kal-track{height:5px;background:rgba(255,255,255,.07);border-radius:3px;overflow:hidden}
-    .kal-fill{height:100%;border-radius:3px;background:linear-gradient(90deg,#3b82f6,#22c55e);transition:width .6s ease}
-    .kal-chips{display:flex;flex-wrap:wrap;gap:5px}
-    .kal-chip{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid;display:inline-flex;align-items:center;gap:4px}
-    .kal-chip.on{border-color:rgba(34,197,94,.35);color:#86efac;background:rgba(34,197,94,.08)}
-    .kal-chip.off{border-color:rgba(148,163,184,.3);color:rgba(148,163,184,.6);background:transparent}
-    .kal-cols{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:2px}
-    .kal-col-title{font-size:11px;color:rgba(255,255,255,.25);text-transform:uppercase;letter-spacing:.07em;margin-bottom:5px}
-    .kal-item{padding:6px 8px;border-radius:6px;background:rgba(255,255,255,.03);border:1px solid var(--line);margin-bottom:4px;cursor:pointer;transition:all .1s}
-    .kal-item:hover{background:rgba(59,130,246,.08);border-color:rgba(59,130,246,.2)}
-    .kal-item-name{font-size:12px;color:rgba(255,255,255,.7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .kal-item-meta{font-size:11px;color:rgba(255,255,255,.25);margin-top:2px}
-    .kal-badge{display:inline-block;font-size:11px;padding:1px 6px;border-radius:999px;border:1px solid rgba(245,158,11,.35);color:#fcd34d;background:rgba(245,158,11,.08);margin-right:3px}
-    .kal-badge.done{border-color:rgba(34,197,94,.35);color:#86efac;background:rgba(34,197,94,.08)}
-    .kal-empty{font-size:12px;color:rgba(255,255,255,.2);padding:4px 0}
-
     /* ── Tasks Panel ── */
     .tasks-panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:14px;backdrop-filter:blur(calc(var(--glass-blur) * .8)) saturate(var(--glass-saturate));-webkit-backdrop-filter:blur(calc(var(--glass-blur) * .8)) saturate(var(--glass-saturate));box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
     .tasks-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px}
     .tasks-title{font-size:13px;font-weight:600}
+    .action-refresh{padding:2px 8px;border-radius:5px;background:rgba(255,255,255,.04);border:1px solid var(--line);color:var(--muted);font-size:12px;cursor:pointer;font-family:inherit;transition:all .1s}
+    .action-refresh:hover{color:var(--text);background:rgba(255,255,255,.08)}
+    .empty-state{font-size:12px;color:rgba(255,255,255,.2);padding:4px 0}
     .tasks-status-bar{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:9px}
     .tasks-stat{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid;cursor:pointer;transition:all .1s;user-select:none}
     .tasks-stat.pending{border-color:rgba(245,158,11,.35);color:#fcd34d;background:rgba(245,158,11,.08)}
@@ -268,7 +245,6 @@
     <span class="tb-badge" id="apiBaseBadge" title="前端目前 API 基底">API: —</span>
     <span class="tb-badge" id="bridgeState">連線中...</span>
     <div class="tb-icon" id="reconnectBtn" title="重新聯網確認" onclick="reconnectAll()" style="cursor:pointer">🔄</div>
-    <div class="tb-icon" title="重整監控" onclick="fetchKALStatus()">↻</div>
     <div class="tb-icon" title="設定">⚙️</div>
   </div>
 </div>
@@ -285,7 +261,6 @@
     <div class="sb-sec">
       <div class="sb-lbl">導航</div>
       <div class="nav-item active" id="nav-hub" onclick="showHub()">🏠 總覽</div>
-      <div class="nav-item" onclick="showHubPanel('kalPanel')">🔬 KAL 學習</div>
       <div class="nav-item" onclick="showHubPanel('tasksPanel')">📋 任務看板</div>
     </div>
 
@@ -296,7 +271,7 @@
 
     <div class="sb-sec">
       <div class="sb-lbl" style="display:flex;justify-content:space-between;align-items:center;">歷史對話<span style="font-size:11px;cursor:pointer;color:rgba(255,255,255,.25);" onclick="fetchHistory()" title="重整">↻</span></div>
-      <div class="hist-list" id="histList"><div class="kal-empty" style="padding:3px 0">載入中...</div></div>
+      <div class="hist-list" id="histList"><div class="empty-state" style="padding:3px 0">載入中...</div></div>
     </div>
   </aside>
 
@@ -305,7 +280,7 @@
 
     <!-- Hub view -->
     <div class="hub" id="hubView">
-      <p class="hub-sub">選擇智能體或模型開始對話，或查看下方 KAL 學習狀態。</p>
+      <p class="hub-sub">選擇智能體或模型開始對話。</p>
 
       <div class="sec-lbl">本地模型</div>
       <div class="model-grid">
@@ -326,49 +301,10 @@
         <span id="cloudProviderStatus" style="font-size:11px;color:var(--muted);font-weight:400">載入中…</span>
       </div>
       <div class="model-grid" id="cloudModelGrid">
-        <div class="mc" id="mc-nvidia" onclick="startChat('nvidia','NVIDIA')">
-          <div class="mc-top"><div class="mc-icon" style="background:rgba(34,197,94,.2)">🟢</div><div><div class="mc-name">NVIDIA</div><div class="mc-sub" id="msub-nvidia">Llama 3.1 405B</div></div></div>
-          <div class="mc-desc">NVIDIA 超大語言模型</div>
-          <span class="badge b-active" id="mbadge-nvidia">主力模型</span>
-        </div>
-        <div class="mc" id="mc-openai" onclick="startChat('openai','OpenAI')">
-          <div class="mc-top"><div class="mc-icon" style="background:rgba(5,46,22,.35)">🤖</div><div><div class="mc-name">OpenAI GPT</div><div class="mc-sub" id="msub-openai">gpt-4o</div></div></div>
-          <div class="mc-desc">GPT-4o 頂尖模型</div>
-          <span class="badge b-key" id="mbadge-openai">需 API 金鑰</span>
-        </div>
-        <div class="mc" id="mc-gemini" onclick="startChat('gemini','Gemini')">
-          <div class="mc-top"><div class="mc-icon" style="background:rgba(30,64,175,.35)">✨</div><div><div class="mc-name">Gemini</div><div class="mc-sub" id="msub-gemini">gemini-2.5-flash</div></div></div>
-          <div class="mc-desc">Google 雲端模型</div>
-          <span class="badge b-key" id="mbadge-gemini">需 API 金鑰</span>
-        </div>
-        <div class="mc" id="mc-groq" onclick="startChat('groq','Groq')">
-          <div class="mc-top"><div class="mc-icon" style="background:rgba(124,45,18,.35)">⚡</div><div><div class="mc-name">Groq</div><div class="mc-sub" id="msub-groq">gpt-oss-20b</div></div></div>
-          <div class="mc-desc">低延遲快速回覆</div>
-          <span class="badge b-key" id="mbadge-groq">需 API 金鑰</span>
-        </div>
-      </div>
-
-      <!-- KAL Loop 面板 -->
-      <div class="sec-lbl" id="kalPanel">KAL 自主學習迴圈</div>
-      <div class="kal-panel">
-        <div class="kal-header">
-          <div class="kal-title"><span class="pulse"></span> 學習系統狀態</div>
-          <button class="kal-refresh" onclick="fetchKALStatus()">↻ 重整</button>
-        </div>
-        <div class="kal-bar-wrap">
-          <div class="kal-bar-meta"><span id="kalLabel">載入中...</span><span id="kalPct">—</span></div>
-          <div class="kal-track"><div class="kal-fill" id="kalFill" style="width:0%"></div></div>
-        </div>
-        <div class="kal-chips" id="kalChips"></div>
-        <div class="kal-cols">
-          <div>
-            <div class="kal-col-title">待學習目標</div>
-            <div id="kalPending"><div class="kal-empty">載入中...</div></div>
-          </div>
-          <div>
-            <div class="kal-col-title">近期蒸餾記錄</div>
-            <div id="kalLogs"><div class="kal-empty">載入中...</div></div>
-          </div>
+        <div class="mc" id="mc-openrouter" onclick="startChat('openrouter','OpenRouter')">
+          <div class="mc-top"><div class="mc-icon" style="background:rgba(59,130,246,.2)">🌐</div><div><div class="mc-name">OpenRouter</div><div class="mc-sub" id="msub-openrouter">nvidia/nemotron-3-ultra-550b-a55b:free</div></div></div>
+          <div class="mc-desc">目前可用的 Nemotron 免費聊天模型</div>
+          <span class="badge b-active" id="mbadge-openrouter">主力模型</span>
         </div>
       </div>
 
@@ -378,12 +314,12 @@
         <div class="tasks-header">
           <div class="tasks-title">📋 所有任務</div>
           <div style="display:flex;gap:6px">
-            <button class="kal-refresh" onclick="fetchTasksSummary()" title="重新載入任務清單">↻ 重載任務</button>
-            <button class="kal-refresh" onclick="reconnectAll()" title="重新確認後端連線">🔄 重新聯網</button>
+            <button class="action-refresh" onclick="fetchTasksSummary()" title="重新載入任務清單">↻ 重載任務</button>
+            <button class="action-refresh" onclick="reconnectAll()" title="重新確認後端連線">🔄 重新聯網</button>
           </div>
         </div>
         <div class="tasks-status-bar" id="tasksStatusBar"></div>
-        <div class="tasks-list" id="tasksList"><div class="kal-empty">載入中...</div></div>
+        <div class="tasks-list" id="tasksList"><div class="empty-state">載入中...</div></div>
       </div>
     </div>
 
@@ -428,9 +364,6 @@
     <div>
       <div class="rp-title">系統監控</div>
       <div class="mon-grid" id="monGrid">
-        <div class="mon-row"><span class="mon-label">KAL 迴圈</span><span class="mon-val" id="mon-kal">—</span></div>
-        <div class="mon-row"><span class="mon-label">蒸餾器</span><span class="mon-val" id="mon-distill">—</span></div>
-        <div class="mon-row"><span class="mon-label">驗證器</span><span class="mon-val" id="mon-valid">—</span></div>
         <div class="mon-row"><span class="mon-label">Brave 搜尋</span><span class="mon-val" id="mon-brave">—</span></div>
         <div class="mon-row"><span class="mon-label">執行輪次</span><span class="mon-val" id="mon-cycles">—</span></div>
         <div class="mon-row"><span class="mon-label">待整合目標</span><span class="mon-val" id="mon-pending">—</span></div>
@@ -593,8 +526,8 @@ const AGENT_META = {
   },
   researcher: {
     label: "研究學習中樞", icon: "🔬",
-    desc: "整合研究員與學習器，負責資料研究、分類索引、知識蒸餾、方法論整理與 KAL 學習目標管理。",
-    caps: ["🔍 深度研究", "🧠 知識蒸餾", "🏷️ 分類索引", "🧭 方法論整理", "🔄 KAL 管理", "📊 知識缺口分析"],
+    desc: "整合研究員與學習器，負責資料研究、分類索引、知識蒸餾與方法論整理。",
+    caps: ["🔍 深度研究", "🧠 知識蒸餾", "🏷️ 分類索引", "🧭 方法論整理", "📊 知識缺口分析"],
     prompts: ["整理創業、福利、標案相關資料", "把這批資料分類並蒸餾重點", "找出目前知識庫的缺口與下一輪學習目標"]
   },
   engineer: {
@@ -623,8 +556,8 @@ const AGENT_META = {
   },
   learner: {
     label: "研究學習中樞", icon: "🔬",
-    desc: "學習器已併入研究員；此入口會轉到研究學習中樞處理知識蒸餾、分類與 KAL 任務。",
-    caps: ["🧠 知識蒸餾", "🏷️ 分類索引", "🔄 KAL 管理", "📈 學習追蹤"],
+    desc: "學習器已併入研究員；此入口會轉到研究學習中樞處理知識蒸餾與分類。",
+    caps: ["🧠 知識蒸餾", "🏷️ 分類索引", "📈 學習追蹤"],
     prompts: ["目前的學習進度如何？", "開始學習：Python 非同步程式設計", "顯示最近蒸餾的知識摘要"]
   },
   general: {
@@ -1383,26 +1316,19 @@ document.addEventListener("paste", async function(e) {
 function openLightbox(src) { document.getElementById("lightboxImg").src = src; document.getElementById("lightbox").classList.add("open"); }
 function closeLightbox() { document.getElementById("lightbox").classList.remove("open"); }
 
-/* ════════════════════════════════════════
-   KAL Loop 狀態
-════════════════════════════════════════ */
-const TYPE_MAP = { topic_expansion:"主題", seed:"種子", failure_recovery:"修復", programming_session:"程式" };
 const POLL_INTERVAL_MS = {
   snapshot: 60000,
-  kal: 90000,
   tasks: 90000,
   history: 120000,
   provider: 180000,
 };
 const MIN_FETCH_GAP_MS = {
-  kal: 18000,
   tasks: 18000,
   history: 45000,
   provider: 45000,
 };
 const _fetchState = {
   snapshot: { busy: false, lastAt: 0 },
-  kal: { busy: false, lastAt: 0 },
   tasks: { busy: false, lastAt: 0 },
   history: { busy: false, lastAt: 0 },
   provider: { busy: false, lastAt: 0 },
@@ -1442,13 +1368,7 @@ async function fetchFrontendSnapshot(force = false) {
     const archive = snap.archive || {};
     renderArchiveList(archive);
 
-    const orch = (snap.workflow && snap.workflow.last_state) || {};
-    const learn = snap.learning || {};
     const harmony = snap.harmony || {};
-    if (Object.keys(orch).length || Object.keys(learn).length) {
-      renderKAL(orch, learn);
-      updateMonitor(orch);
-    }
     updateHarmonyMonitor(harmony);
     return snap;
   } catch (_) {
@@ -1456,99 +1376,6 @@ async function fetchFrontendSnapshot(force = false) {
   } finally {
     fs.busy = false;
   }
-}
-
-async function fetchKALStatus(force = false) {
-  const now = Date.now();
-  const fs = _fetchState.kal;
-  if (!force) {
-    if (fs.busy) return;
-    if (now - fs.lastAt < MIN_FETCH_GAP_MS.kal) return;
-  }
-  fs.busy = true;
-  fs.lastAt = now;
-  try {
-    const ah = window.__API_TOKEN__ ? { "X-API-Token": window.__API_TOKEN__ } : {};
-    const [orchR, learnR] = await Promise.all([
-      fetch("/api/orchestrator/status", { headers: ah }),
-      fetch("/trace/learning-status", { headers: ah }),
-    ]);
-    const orch  = orchR.ok  ? await orchR.json()  : {};
-    const learn = learnR.ok ? await learnR.json() : {};
-    renderKAL(orch, learn);
-    updateMonitor(orch);
-  } catch (e) {
-    document.getElementById("kalLabel").textContent = "無法連線後端";
-  } finally {
-    fs.busy = false;
-  }
-}
-
-function renderKAL(orch, learn) {
-  const pending = orch.pending_goals || 0;
-  const cycles  = orch.cycle_count  || 0;
-  const kal     = orch.kal_loop     || {};
-  const total   = Math.max(cycles * 3, pending + cycles * 3, 1);
-  const done    = cycles * 3;
-  const pct     = Math.round((done / total) * 100);
-
-  document.getElementById("kalLabel").textContent = `已完成 ${cycles} 輪 · ${pending} 個目標待處理`;
-  document.getElementById("kalPct").textContent   = pct + "%";
-  document.getElementById("kalFill").style.width  = pct + "%";
-
-  // chips
-  const chips = [
-    { label: "蒸餾器", on: kal.distiller_active },
-    { label: "驗證器", on: kal.validator_active },
-    { label: "Brave 搜尋", on: kal.brave_api },
-    { label: "最多 " + (kal.max_rounds_per_goal || 3) + " 輪", on: true },
-  ];
-  document.getElementById("kalChips").innerHTML = chips.map(c =>
-    `<span class="kal-chip ${c.on ? "on" : "off"}">${c.on ? "●" : "○"} ${c.label}</span>`
-  ).join("");
-
-  // pending items from learn
-  const items = (learn.pending_items || []).slice(0, 5);
-  document.getElementById("kalPending").innerHTML = items.length
-    ? items.map(g => {
-        const q = (g.query || g.id || "").slice(0, 28);
-        const lbl = TYPE_MAP[g.type] || g.type || "";
-        return `<div class="kal-item" onclick="triggerLearn('${(g.query||g.id||"").replace(/'/g,"\\'")}')">
-          <div class="kal-item-name">${q}</div>
-          <div class="kal-item-meta"><span class="kal-badge">${lbl}</span>優先 ${g.priority||0}</div>
-        </div>`;
-      }).join("")
-    : '<div class="kal-empty">全部完成 🎉</div>';
-
-  // logs
-  const logs = (learn.recent_logs || []).slice(-4).reverse();
-  document.getElementById("kalLogs").innerHTML = logs.length
-    ? logs.map(l => `<div class="kal-item">
-        <div class="kal-item-name">${(l.task||"").slice(0,30)}</div>
-        <div class="kal-item-meta"><span class="kal-badge done">${TYPE_MAP[l.type]||l.type||""}</span>${(l.timestamp||"").slice(0,16)}</div>
-      </div>`).join("")
-    : '<div class="kal-empty">尚無記錄</div>';
-}
-
-function updateMonitor(orch) {
-  const kal = orch.kal_loop || {};
-  const set = (id, val, ok) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.textContent = val;
-    el.className = "mon-val" + (ok === true ? " ok" : ok === false ? " err" : "");
-  };
-  set("mon-kal",     orch.running ? "運行中" : "停止",  orch.running);
-  set("mon-distill", kal.distiller_active ? "啟用" : "停用", kal.distiller_active);
-  set("mon-valid",   kal.validator_active ? "啟用" : "停用", kal.validator_active);
-  set("mon-brave",   kal.brave_api        ? "已接" : "未設",  kal.brave_api);
-  set("mon-cycles",  orch.cycle_count || 0, null);
-  set("mon-pending", orch.pending_goals || 0, null);
-
-  const badge = document.getElementById("bridgeState");
-  badge.textContent = orch.running ? `KAL ✓ · 第 ${orch.cycle_count||0} 輪` : "KAL 停止";
-  badge.className = "tb-badge " + (orch.running ? "ok" : "err");
-  document.getElementById("bridgeInfo").textContent = orch.last_cycle_at ? orch.last_cycle_at.slice(11,16) : "—";
 }
 
 function updateHarmonyMonitor(harmony = {}) {
@@ -1581,16 +1408,6 @@ function updateHarmonyMonitor(harmony = {}) {
     const shortTs = ts ? ts.replace("T", " ").slice(5, 16) : "未知";
     note.textContent = `報告時間：${shortTs}`;
   }
-}
-
-async function triggerLearn(query) {
-  await selectAgent("researcher", "🔬", "研究學習中樞");
-  const input = document.getElementById("msgInput");
-  input.value = "開始學習：" + query;
-  input.focus();
-  input.style.height = "auto";
-  input.style.height = Math.min(input.scrollHeight, 100) + "px";
-  resetSendConfirmation();
 }
 
 function refreshInputPlaceholder() {
@@ -1636,7 +1453,6 @@ async function reconnectAll() {
   const snap = await fetchFrontendSnapshot(true);
   if (!snap) {
     await Promise.all([
-      fetchKALStatus(true),
       fetchTasksSummary(true),
       fetchProviderStatus(true),
       fetchHistory(true),
@@ -1652,10 +1468,7 @@ let _tasksFilter = "";
 
 /* ── Cloud Provider Status ── */
 const PROVIDER_META = {
-  nvidia:      { label:"NVIDIA",       sub:"Llama 3.1 405B",      icon:"🟢", bg:"rgba(34,197,94,.2)"  },
-  openai:      { label:"OpenAI GPT",   sub:"gpt-4o",              icon:"🤖", bg:"rgba(5,46,22,.35)"   },
-  gemini:      { label:"Gemini",       sub:"gemini-2.5-flash",    icon:"✨", bg:"rgba(30,64,175,.35)" },
-  groq:        { label:"Groq",         sub:"gpt-oss-20b",         icon:"⚡", bg:"rgba(124,45,18,.35)" },
+  openrouter:  { label:"OpenRouter",   sub:"nvidia/nemotron-3-ultra-550b-a55b:free", icon:"🌐", bg:"rgba(59,130,246,.2)" },
 };
 
 function inferProviderKey(modelText) {
@@ -1664,6 +1477,7 @@ function inferProviderKey(modelText) {
   if (text.includes("qwen2.5:7b") || (text.includes("qwen2.5") && text.includes("7b"))) return "ollama_qwen25_7b";
   if (text.includes("qwen")) return "ollama_qwen25_7b";
   if (text.includes("tinyllama") || text.includes("mistral") || text.includes("ollama")) return "ollama_qwen25_7b";
+  if (text.includes("openrouter") || text.includes(":free") || text.includes("nemotron-3-ultra")) return "openrouter";
   if (text.includes("openai") || text.includes("gpt-4o")) return "openai";
   if (text.includes("nvidia") || text.includes("llama")) return "nvidia";
   if (text.includes("gemini")) return "gemini";
@@ -1758,7 +1572,6 @@ function syncAfterChat(data = {}) {
       await delay(400);
       await fetchProviderStatus(true);
       await delay(400);
-      await fetchKALStatus(true);
       renderBackendSync(data, "ok");
     } catch (e) {
       console.warn("syncAfterChat partial failure", e);
@@ -1873,7 +1686,7 @@ async function fetchTasksSummary(force = false) {
     renderTasksPanel(sum, tasks.items || []);
   } catch (_) {
     const el = document.getElementById("tasksList");
-    if (el) el.innerHTML = '<div class="kal-empty">無法連線後端</div>';
+    if (el) el.innerHTML = '<div class="empty-state">無法連線後端</div>';
   } finally {
     fs.busy = false;
   }
@@ -1895,7 +1708,7 @@ function renderTasksPanel(sum, items) {
 
   const list = document.getElementById("tasksList");
   if (!list) return;
-  if (!items.length) { list.innerHTML = '<div class="kal-empty">沒有符合的任務</div>'; return; }
+  if (!items.length) { list.innerHTML = '<div class="empty-state">沒有符合的任務</div>'; return; }
   list.innerHTML = items.map(t => {
     const st    = t.status || "unknown";
     const agent = normalizeAgentKey(t.assigned_agent || t.agent_label || "?");
@@ -2065,7 +1878,7 @@ async function fetchHistory(force = false) {
 
 function renderHistory(records) {
   const el = document.getElementById("histList");
-  if (!records.length) { el.innerHTML = '<div class="kal-empty" style="padding:3px 0">尚無記錄</div>'; return; }
+  if (!records.length) { el.innerHTML = '<div class="empty-state" style="padding:3px 0">尚無記錄</div>'; return; }
   // Group by agent, show last message per agent
   const byAgent = {};
   records.forEach(r => {
@@ -2259,7 +2072,6 @@ renderBackendSync({ agent: state.agentKey, model: state.modelLabel }, "idle");
 function bootstrapPolling() {
   fetchFrontendSnapshot(true).then((snap) => {
     if (!snap) {
-      fetchKALStatus(true);
       fetchHistory(true);
       fetchTasksSummary(true);
       fetchProviderStatus(true);
@@ -2270,7 +2082,6 @@ function bootstrapPolling() {
   setInterval(async () => {
     const snap = await fetchFrontendSnapshot(false);
     if (!snap) {
-      fetchKALStatus(false);
       fetchTasksSummary(false);
     }
   }, POLL_INTERVAL_MS.snapshot);
