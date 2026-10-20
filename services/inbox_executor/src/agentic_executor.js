@@ -78,6 +78,7 @@ function runTool(command, args, options = {}) {
 }
 
 function codexExecArgs(analysisOnly) {
+  const preserveMcpConfig = process.env.INBOX_MCP_READONLY === "1";
   const help = runTool("codex", ["exec", "--help"], {
     cwd: vaultRoot,
     timeout: 10000,
@@ -91,7 +92,7 @@ function codexExecArgs(analysisOnly) {
       "--sandbox",
       analysisOnly ? "read-only" : "workspace-write",
       "--ask-for-approval",
-      "never"
+      analysisOnly ? "on-request" : "never"
     );
   } else if (helpText.includes("--approve-for-me")) {
     // Newer local Codex builds route approvals through automatic review and
@@ -104,7 +105,12 @@ function codexExecArgs(analysisOnly) {
     });
   }
 
-  if (helpText.includes("--ephemeral")) args.push("--ephemeral");
+  // MCP verification needs the host's configured CODEX_HOME and MCP servers.
+  // Ephemeral mode intentionally omits that configuration, so only use it for
+  // tasks that explicitly do not need MCP.
+  if (helpText.includes("--ephemeral") && !preserveMcpConfig) {
+    args.push("--ephemeral");
+  }
   args.push("-");
   return args;
 }
