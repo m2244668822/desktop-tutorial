@@ -85,6 +85,11 @@ function runTool(command, args, options = {}) {
 
 function codexExecArgs(analysisOnly) {
   const preserveMcpConfig = process.env.INBOX_MCP_READONLY === "1";
+  // A read-only task that must call MCP still needs workspace-write for the
+  // server's audit log. The prompt, post-run dirty check, and task policy keep
+  // the assigned repository read-only; the sandbox must not hide host MCP
+  // configuration behind CodexSandboxOffline.
+  const mcpReadOnlyTask = analysisOnly && preserveMcpConfig;
   const help = runTool("codex", ["exec", "--help"], {
     cwd: vaultRoot,
     timeout: 10000,
@@ -96,14 +101,14 @@ function codexExecArgs(analysisOnly) {
   if (helpText.includes("--ask-for-approval")) {
     args.push(
       "--sandbox",
-      analysisOnly ? "read-only" : "workspace-write",
+      analysisOnly && !mcpReadOnlyTask ? "read-only" : "workspace-write",
       "--ask-for-approval",
       analysisOnly ? "on-request" : "never"
     );
   } else if (helpText.includes("--approve-for-me")) {
     // Newer local Codex builds route approvals through automatic review and
     // reject --approve-for-me together with an explicit --sandbox flag.
-    if (analysisOnly) args.push("--sandbox", "read-only");
+    if (analysisOnly && !mcpReadOnlyTask) args.push("--sandbox", "read-only");
     else args.push("--approve-for-me");
   } else {
     throw Object.assign(new Error("codex_approval_flag_unsupported"), {
