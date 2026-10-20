@@ -58,6 +58,12 @@ function git(cwd, args, timeout = 30000) {
 }
 
 function runTool(command, args, options = {}) {
+  if (process.platform === "win32" && command === "codex") {
+    const configured = String(process.env.CODEX_CLI_PATH || "").trim();
+    if (configured && fs.existsSync(configured)) {
+      return run(configured, args, options);
+    }
+  }
   if (process.platform !== "win32") return run(command, args, options);
   const located = run("where.exe", [command], {
     cwd: options.cwd || vaultRoot,
