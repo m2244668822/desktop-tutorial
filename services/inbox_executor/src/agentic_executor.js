@@ -343,23 +343,28 @@ if (refCheck.status !== 0) {
 // still use a detached worktree and independent validation.
 let worktreeRoot = sourceRepoRoot;
 if (!analysisOnly) {
-  worktreeRoot = path.join(
+  const worktreeBase = path.join(
     process.env.RUNNER_TEMP || os.tmpdir(),
-    "white-studio-worktrees",
-    safeName
+    "white-studio-worktrees"
   );
+  const worktreeNonce = `${process.pid}-${Date.now()}`;
+  worktreeRoot = path.join(worktreeBase, `${safeName}-${worktreeNonce}`);
   fs.mkdirSync(path.dirname(worktreeRoot), { recursive: true });
-  git(sourceRepoRoot, ["worktree", "remove", "--force", worktreeRoot], 60000);
   git(sourceRepoRoot, ["worktree", "prune"], 30000);
-  if (fs.existsSync(worktreeRoot)) {
-    fs.rmSync(worktreeRoot, { recursive: true, force: true });
-  }
-  const worktreeAdd = git(sourceRepoRoot, ["worktree", "add", "--detach", worktreeRoot, baseSha], 60000);
+  let worktreeAdd = git(sourceRepoRoot, ["worktree", "add", "--detach", worktreeRoot, baseSha], 60000);
   if (worktreeAdd.status !== 0) {
-    throw Object.assign(new Error("worktree_create_failed"), {
-      code: "worktree_create_failed",
-      detail: String(worktreeAdd.stderr || worktreeAdd.stdout || "").slice(-1600),
-    });
+    const firstDetail = String(worktreeAdd.stderr || worktreeAdd.stdout || "").trim();
+    const retryRoot = path.join(worktreeBase, `${safeName}-${worktreeNonce}-retry`);
+    git(sourceRepoRoot, ["worktree", "prune"], 30000);
+    worktreeAdd = git(sourceRepoRoot, ["worktree", "add", "--detach", retryRoot, baseSha], 60000);
+    if (worktreeAdd.status !== 0) {
+      const retryDetail = String(worktreeAdd.stderr || worktreeAdd.stdout || "").trim();
+      throw Object.assign(new Error("worktree_create_failed"), {
+        code: "worktree_create_failed",
+        detail: `first=${firstDetail.slice(-800)}; retry=${retryDetail.slice(-800)}`,
+      });
+    }
+    worktreeRoot = retryRoot;
   }
 }
 
