@@ -486,6 +486,8 @@ const prompt = [
   "- Read AGENTS.md at the repository root if present.",
   "- Work only inside the assigned repository/worktree.",
   "- Do not commit, push, merge, deploy, reset --hard, clean, force push, or modify secrets.",
+  "- This is a headless MCP executor. Do not use Computer Use, browser/UI automation, screenshots, CUA, or interactive host controls.",
+  "- Do not load or print skill/API documentation. Use the configured vault-workspace MCP host directly.",
   analysisOnly
     ? "- This is a read-only analysis task. Do not modify repository files. Return the complete requested deliverable in your final response."
     : "- Make the smallest change needed for the task.",
