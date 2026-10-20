@@ -395,9 +395,12 @@ const prompt = [
 
 let agentRun;
 if (selected === "codex") {
+  const codexArgs = analysisOnly
+    ? ["exec", "--json", "--sandbox", "read-only", "-"]
+    : ["exec", "--json", "--approve-for-me", "-"];
   agentRun = runTool(
     "codex",
-    ["exec", "--json", "--sandbox", analysisOnly ? "read-only" : "workspace-write", "--ask-for-approval", "never", "-"],
+    codexArgs,
     {
       cwd: agentProjectRoot,
       input: prompt,
