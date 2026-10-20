@@ -351,12 +351,12 @@ if (!analysisOnly) {
   worktreeRoot = path.join(worktreeBase, `${safeName}-${worktreeNonce}`);
   fs.mkdirSync(path.dirname(worktreeRoot), { recursive: true });
   git(sourceRepoRoot, ["worktree", "prune"], 30000);
-  let worktreeAdd = git(sourceRepoRoot, ["worktree", "add", "--detach", worktreeRoot, baseSha], 60000);
+  let worktreeAdd = git(sourceRepoRoot, ["-c", "core.longpaths=true", "worktree", "add", "--detach", worktreeRoot, baseSha], 60000);
   if (worktreeAdd.status !== 0) {
     const firstDetail = String(worktreeAdd.stderr || worktreeAdd.stdout || "").trim();
     const retryRoot = path.join(worktreeBase, `${safeName}-${worktreeNonce}-retry`);
     git(sourceRepoRoot, ["worktree", "prune"], 30000);
-    worktreeAdd = git(sourceRepoRoot, ["worktree", "add", "--detach", retryRoot, baseSha], 60000);
+    worktreeAdd = git(sourceRepoRoot, ["-c", "core.longpaths=true", "worktree", "add", "--detach", retryRoot, baseSha], 60000);
     if (worktreeAdd.status !== 0) {
       const retryDetail = String(worktreeAdd.stderr || worktreeAdd.stdout || "").trim();
       throw Object.assign(new Error("worktree_create_failed"), {
