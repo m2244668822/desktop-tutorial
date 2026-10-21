@@ -502,10 +502,11 @@ if (agentOk && !analysisOnly) {
   }
 }
 
-const testsOk =
-  agentOk &&
-  tests.length === testProfile.tests.length &&
-  tests.every((item) => item.ok);
+const testsOk = analysisOnly
+  ? agentOk
+  : agentOk &&
+    tests.length === testProfile.tests.length &&
+    tests.every((item) => item.ok);
 
 let add = { status: 0, stdout: "", stderr: "" };
 let diffCheck = { status: 0, stdout: "", stderr: "" };
