@@ -482,7 +482,7 @@ const worktreeWs = new VaultWorkspace({
   autoApprove: false,
 });
 const tests = [];
-if (agentOk) {
+if (agentOk && !analysisOnly) {
   for (const test of testProfile.tests) {
     const result = worktreeWs.runTest({
       runner: test.runner,
