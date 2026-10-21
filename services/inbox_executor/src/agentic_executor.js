@@ -74,18 +74,19 @@ function codexExecArgs(analysisOnly) {
   const helpText = String(help.stdout || "") + "\n" + String(help.stderr || "");
   const args = ["exec", "--json"];
 
-  if (helpText.includes("--ask-for-approval")) {
+  if (helpText.includes("--approve-for-me")) {
+    // Automatic review is required for read-only MCP calls too: Codex tool
+    // approval is separate from the model sandbox. The analysis lane remains
+    // read-only by contract and rejects any tracked worktree change after the
+    // agent exits; audit and task Result writes are orchestrator-owned.
+    args.push("--approve-for-me");
+  } else if (helpText.includes("--ask-for-approval")) {
     args.push(
       "--sandbox",
       analysisOnly ? "read-only" : "workspace-write",
       "--ask-for-approval",
       "never"
     );
-  } else if (helpText.includes("--approve-for-me")) {
-    // Newer local Codex builds route approvals through automatic review and
-    // reject --approve-for-me together with an explicit --sandbox flag.
-    if (analysisOnly) args.push("--sandbox", "read-only");
-    else args.push("--approve-for-me");
   } else {
     throw Object.assign(new Error("codex_approval_flag_unsupported"), {
       code: "codex_approval_flag_unsupported",
