@@ -316,8 +316,28 @@ assert.notEqual(declaredDaemon.executor_id, "codex");
 assert.notEqual(declaredDaemon.executor_id, "cursor");
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+function writeFixtureProfiles(root) {
+  const runtimeDir = path.join(root, "runtime");
+  fs.mkdirSync(runtimeDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(runtimeDir, "test-profiles.json"),
+    JSON.stringify({
+      policy: { unknown_project: "blocked" },
+      projects: {
+        "obsidian-vault-refactor-2026-09-08": {
+          root: ".",
+          automation_mode: "manual_only",
+          policy_scope: "primary-vault",
+          allowed_write_tools: [],
+        },
+      },
+    }),
+    "utf8"
+  );
+}
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "executor-identity-e2e-"));
 try {
+  writeFixtureProfiles(tempRoot);
   const inboxDir = path.join(tempRoot, "智能體");
   fs.mkdirSync(inboxDir, { recursive: true });
   fs.writeFileSync(path.join(tempRoot, "sample.md"), "# sample\n", "utf8");
@@ -353,6 +373,7 @@ try {
 for (const invalidIdentity of ["{", JSON.stringify({ executor_id: "codex" })]) {
   const invalidRoot = fs.mkdtempSync(path.join(os.tmpdir(), "executor-identity-invalid-e2e-"));
   try {
+    writeFixtureProfiles(invalidRoot);
     const inboxDir = path.join(invalidRoot, "智能體");
     fs.mkdirSync(inboxDir, { recursive: true });
     fs.writeFileSync(path.join(invalidRoot, "sample.md"), "# sample\n", "utf8");

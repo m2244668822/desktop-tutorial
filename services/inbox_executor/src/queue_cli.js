@@ -56,7 +56,9 @@ function queuedFiles() {
       files.push({ abs, source: "queue" });
     }
   }
-  if (fs.existsSync(legacyInbox)) {
+  // Durable task files are the authoritative queue. The legacy cross-host
+  // inbox is opt-in so two checkouts cannot create a split-brain executor.
+  if (process.env.WHITE_STUDIO_ALLOW_LEGACY_INBOX === "1" && fs.existsSync(legacyInbox)) {
     files.push({ abs: legacyInbox, source: "legacy-inbox" });
   }
   return files;

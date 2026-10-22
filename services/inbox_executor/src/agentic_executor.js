@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { VaultWorkspace } from "../../vault_workspace_mcp/src/workspace.js";
 import {
   currentTaskEnvelope,
+  contractHash,
   readInbox,
   resolveInboxPath,
   setStatus,
@@ -20,6 +21,17 @@ import {
   validateClaimResult,
 } from "./executor_identity.js";
 import { contractField, routeInboxTask } from "./executor_router.js";
+import {
+  acquireLease,
+  appendJournalTransition,
+  assertLeaseFence,
+  captureWorkspaceState,
+  evaluateProjectPolicy,
+  gitBlobRevision,
+  releaseLease,
+  sha256,
+  stableJson,
+} from "./transaction.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const vaultRoot = path.resolve(
@@ -30,6 +42,11 @@ const maxAgentSeconds = Math.max(
   60,
   Math.min(Number(process.env.WHITE_STUDIO_AGENT_TIMEOUT_SEC || 1200), 1800)
 );
+const leasePath = path.join(vaultRoot, "runtime", ".mcp-state", "leases.json");
+const journalPath = path.join(vaultRoot, "runtime", ".mcp-state", "operations.jsonl");
+let executionLease = null;
+let remoteTaskRevision = "";
+let executionRunId = "";
 
 function run(command, args, options = {}) {
   return spawnSync(command, args, {
@@ -186,6 +203,15 @@ function writeTerminalResult({ text, marker, status, taskId, identity, validatio
     `- task_id：\`${taskId}\``,
     `- 結果：${status}`,
     executorIdentityMarkdown(identity, validation),
+    ...(executionLease
+      ? [
+          "- run_id：`" + executionRunId + "`",
+          "- lease_id：`" + executionLease.lease_id + "`",
+          "- lease_generation：" + executionLease.lease_generation,
+          "- fencing_token：`" + executionLease.fencing_token + "`",
+          "- remote_task_revision：`" + remoteTaskRevision + "`",
+        ]
+      : []),
     ...details,
   ].join("\n");
   let next = setStatus(text, status === "done" ? "done" : "blocked");
@@ -203,6 +229,19 @@ function currentClaimState(taskId, identity) {
   const text = fs.readFileSync(inboxPath, "utf8");
   if (taskIdFromText(text) !== taskId) {
     return { ok: false, code: "task_replaced", text };
+  }
+  if (executionLease) {
+    try {
+      assertLeaseFence({ storePath: leasePath, lease: executionLease });
+    } catch (error) {
+      return { ok: false, code: error.code || "stale_lease", text };
+    }
+  }
+  if (
+    remoteTaskRevision &&
+    gitBlobRevision(vaultRoot, path.relative(vaultRoot, inboxPath), contractHash(text)) !== remoteTaskRevision
+  ) {
+    return { ok: false, code: "stale_task_revision", text };
   }
   const validation = validateClaimResult(text, taskId, identity);
   if (!validation.ok) {
@@ -268,6 +307,12 @@ if (initial.status !== "queued") {
 }
 
 const taskId = taskIdFromText(initial.text);
+remoteTaskRevision = gitBlobRevision(
+  vaultRoot,
+  path.relative(vaultRoot, inboxPath),
+  contractHash(initial.text)
+);
+executionRunId = crypto.randomUUID();
 const outputKind = String(contractField(initial.text, "Output") || "").trim().toLowerCase();
 const analysisOnly = new Set(["analysis", "summary", "checklist", "proposal", "reading-layer"]).has(outputKind);
 
@@ -292,6 +337,37 @@ fs.writeFileSync(inboxPath, running, "utf8");
 installFailClosedHandlers(taskId, identity, selected);
 
 const project = resolveAssignedProject(contractField(initial.text, "project"));
+const projectPolicy = evaluateProjectPolicy({
+  vaultRoot,
+  projectId: project.name,
+  tool: "workspace.patch",
+  targetPath: project.vaultRelative,
+});
+if (!projectPolicy.ok) {
+  throw Object.assign(new Error(projectPolicy.code), { code: projectPolicy.code });
+}
+executionLease = acquireLease({
+  storePath: leasePath,
+  taskId,
+  executorId: identity.executor_id,
+  ttlMs: Number(process.env.INBOX_LEASE_TTL_MS || 30000),
+});
+const agentOperationId = "op-" + sha256(stableJson({ taskId, remoteTaskRevision, project: project.name })).slice(0, 24);
+const agentJournal = {
+  operation_id: agentOperationId,
+  task_id: taskId,
+  run_id: executionRunId,
+  lease_id: executionLease.lease_id,
+  lease_generation: executionLease.lease_generation,
+  fencing_token: executionLease.fencing_token,
+  timestamp: new Date().toISOString(),
+  executor_id: identity.executor_id,
+  state_hash: "pending",
+  request_hash: sha256(stableJson({ taskId, project: project.name, outputKind })),
+  idempotency_key: sha256(taskId + ":" + remoteTaskRevision),
+  evidence_ref: "runtime/.mcp-state/operations.jsonl",
+  error_code: "",
+};
 const testProfile = loadTestProfile(project.name, { allowEmpty: analysisOnly });
 
 const repoRootResult = git(project.abs, ["rev-parse", "--show-toplevel"]);
@@ -302,6 +378,15 @@ const sourceRepoRoot = path.resolve(String(repoRootResult.stdout || "").trim());
 const projectRelInRepo = path.relative(sourceRepoRoot, project.abs).replace(/\\/g, "/");
 const baseShaResult = git(sourceRepoRoot, ["rev-parse", "HEAD"]);
 const baseSha = String(baseShaResult.stdout || "").trim();
+agentJournal.state_hash = captureWorkspaceState({
+  projectRoot: sourceRepoRoot,
+  projectId: project.name,
+  policyScope: projectPolicy.policyScope,
+  normalizedRoot: project.vaultRelative,
+}).hash;
+appendJournalTransition(journalPath, { ...agentJournal, transition: "requested" });
+appendJournalTransition(journalPath, { ...agentJournal, transition: "authorized" });
+appendJournalTransition(journalPath, { ...agentJournal, transition: "executing" });
 const sourceStatus = git(sourceRepoRoot, [
   "-c",
   "core.quotepath=false",
@@ -613,6 +698,24 @@ const code = !agentOk
             ? identityValidation.code
             : "done";
 
+assertLeaseFence({ storePath: leasePath, lease: executionLease });
+appendJournalTransition(journalPath, {
+  ...agentJournal,
+  transition: done ? "validated" : "failed",
+  state_hash: commitSha || baseSha,
+  error_code: done ? "" : code,
+  timestamp: new Date().toISOString(),
+});
+if (done) {
+  appendJournalTransition(journalPath, {
+    ...agentJournal,
+    transition: "completed",
+    state_hash: commitSha || baseSha,
+    result: { branch: branchName, commit: commitSha },
+    timestamp: new Date().toISOString(),
+  });
+}
+
 writeTerminalResult({
   text: persisted,
   marker: `## Result（${selected}-executor 回寫）`,
@@ -641,6 +744,8 @@ writeTerminalResult({
     `- worktree：\`${done ? "(cleanable)" : worktreeRoot}\``,
   ],
 });
+
+releaseLease({ storePath: leasePath, lease: executionLease });
 
 if (done && !analysisOnly) {
   git(sourceRepoRoot, ["worktree", "remove", "--force", worktreeRoot], 60000);

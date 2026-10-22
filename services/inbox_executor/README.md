@@ -63,3 +63,22 @@ Pushback requires `INBOX_SYNC_PUSH=1`.
 - `executor_mode`、`executor_version`、`executor_capabilities`、`claimed_at`
 
 目前執行者以主動宣告為準：可用 `INBOX_EXECUTOR_IDENTITY` JSON，或使用 `INBOX_EXECUTOR_*` 欄位。CLI／工具是否存在只代表 capability，不得推定為目前 executor。舊任務沒有 identity 欄位時仍可讀為 legacy；新 claim 與 Result 不一致則回傳 `executor_identity_mismatch`。
+
+## Policy-governed transactional execution
+
+目前的 durable queue 是 `智能體/tasks/*.md`。舊的
+`智能體/chatgpt-inbox.md` 只有在明確設定
+`WHITE_STUDIO_ALLOW_LEGACY_INBOX=1` 時才會被選取，避免兩個 checkout
+同時執行同一份任務。
+
+每次執行都建立：
+
+- lease：`lease_id`、`lease_generation`、`fencing_token`、`executor_id`、到期與 heartbeat。
+- operation journal：追加 `requested`、`authorized`、`executing`、`applied`、`validated`、`completed` 或失敗 transition。
+- idempotency：相同 key 與 request replay 原結果；相同 key 搭配不同 request 回傳 `HARD_CONFLICT`。
+- Result CAS：回寫前檢查 lease、executor identity 與被 claim 的 task blob revision。
+
+`runtime/test-profiles.json` 的 `automation_mode` 控制 project：Primary Vault
+為 `manual_only`；註冊的產品／Runtime project 才能進入 `bounded_write`。
+canonical、frozen、secret pattern 仍被拒絕。`runtime/.mcp-state/` 只保存本機
+狀態，不是 canonical source，也不會自動 promotion。

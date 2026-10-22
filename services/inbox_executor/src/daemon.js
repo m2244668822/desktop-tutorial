@@ -30,6 +30,22 @@ import {
   upsertExecutorClaim,
   validateClaimResult,
 } from "./executor_identity.js";
+import { contractField } from "./executor_router.js";
+import {
+  acquireLease,
+  appendJournalTransition,
+  assertLeaseFence,
+  captureWorkspaceState,
+  buildRollbackManifest,
+  evaluateProjectPolicy,
+  gitBlobRevision,
+  idempotencyDecision,
+  readJournal,
+  releaseLease,
+  sha256,
+  stableJson,
+  validateResultWriteback,
+} from "./transaction.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const vaultRoot = path.resolve(
@@ -42,6 +58,9 @@ const autoApproveEnv = process.env.INBOX_AUTO_APPROVE === "1";
 
 const auditDir = path.join(vaultRoot, "runtime", ".mcp-audit");
 const trashDir = path.join(vaultRoot, "runtime", ".mcp-trash");
+const stateDir = path.join(vaultRoot, "runtime", ".mcp-state");
+const leasePath = path.join(stateDir, "leases.json");
+const journalPath = path.join(stateDir, "operations.jsonl");
 
 const ALLOWED = new Set([
   "workspace.list",
@@ -136,6 +155,25 @@ async function runContract() {
     busy = false;
     return;
   }
+  let lease;
+  try {
+    lease = acquireLease({
+      storePath: leasePath,
+      taskId,
+      executorId: executorIdentity.executor_id,
+      ttlMs: Number(process.env.INBOX_LEASE_TTL_MS || 30000),
+    });
+  } catch (err) {
+    log(`blocked: ${err.code || "lease_acquire_failed"} task_id=${taskId}`);
+    busy = false;
+    return;
+  }
+  const runId = crypto.randomUUID();
+  const remoteTaskRevision = gitBlobRevision(
+    vaultRoot,
+    path.relative(vaultRoot, inboxPath),
+    hash
+  );
   log(`detected queued → running executor_id=${executorIdentity.executor_id}`);
   let next = setStatus(text, "running");
   next = upsertExecutorClaim(next, taskId, executorIdentity);
@@ -169,6 +207,7 @@ async function runContract() {
       identity_validation: identityValidation,
     });
     log(reason);
+    releaseLease({ storePath: leasePath, lease });
     busy = false;
     return;
   }
@@ -183,7 +222,7 @@ async function runContract() {
 
   const results = [];
   try {
-    for (const step of mechanical.actions) {
+    for (const [index, step] of mechanical.actions.entries()) {
       const tool = step.tool;
       const args = step.args || {};
       if (!ALLOWED.has(tool)) {
@@ -191,6 +230,55 @@ async function runContract() {
           code: "tool_not_allowed",
         });
       }
+      assertLeaseFence({ storePath: leasePath, lease });
+      const projectId = contractField(text, "project") || "obsidian-vault-refactor-2026-09-08";
+      const policy = evaluateProjectPolicy({
+        vaultRoot,
+        projectId,
+        tool,
+        targetPath: args.path || args.source || args.destination || "",
+      });
+      if (!policy.ok) {
+        throw Object.assign(new Error(policy.code), { code: policy.code });
+      }
+      const operationRequest = { task_id: taskId, tool, args };
+      const requestHash = sha256(stableJson(operationRequest));
+      const idempotencyKey = sha256(`${taskId}:${hash}:${index}:${tool}`);
+      const operationId = `op-${idempotencyKey.slice(0, 24)}`;
+      const stateBefore = captureWorkspaceState({
+        projectRoot: vaultRoot,
+        projectId,
+        policyScope: policy.policyScope,
+        normalizedRoot: policy.projectRoot || projectId,
+        targetPaths: [args.path, args.source, args.destination].filter(Boolean),
+      });
+      const journalBase = {
+        operation_id: operationId,
+        task_id: taskId,
+        run_id: runId,
+        lease_id: lease.lease_id,
+        lease_generation: lease.lease_generation,
+        fencing_token: lease.fencing_token,
+        timestamp: new Date().toISOString(),
+        executor_id: executorIdentity.executor_id,
+        state_hash: stateBefore.hash,
+        request_hash: requestHash,
+        idempotency_key: idempotencyKey,
+        evidence_ref: path.relative(vaultRoot, journalPath).replace(/\\/g, "/"),
+        error_code: "",
+      };
+      const decision = idempotencyDecision(readJournal(journalPath), idempotencyKey, requestHash);
+      if (decision.action === "deny") {
+        throw Object.assign(new Error("HARD_CONFLICT"), { code: "HARD_CONFLICT" });
+      }
+      appendJournalTransition(journalPath, { ...journalBase, transition: "requested" });
+      if (decision.action === "replay") {
+        results.push({ tool, ok: true, replay: true, out: decision.result });
+        continue;
+      }
+      appendJournalTransition(journalPath, { ...journalBase, transition: "authorized" });
+      assertLeaseFence({ storePath: leasePath, lease });
+      appendJournalTransition(journalPath, { ...journalBase, transition: "executing" });
       // L2+ without auto_approve needs approval object on write tools
       if (
         !autoApprove &&
@@ -218,6 +306,39 @@ async function runContract() {
         }
       }
       const out = await dispatch(ws, tool, args);
+      assertLeaseFence({ storePath: leasePath, lease });
+      const stateAfter = captureWorkspaceState({
+        projectRoot: vaultRoot,
+        projectId,
+        policyScope: policy.policyScope,
+        normalizedRoot: policy.projectRoot || projectId,
+        targetPaths: [args.path, args.source, args.destination].filter(Boolean),
+      });
+      const rollbackManifest = buildRollbackManifest({
+        tool,
+        args,
+        result: out,
+        beforeStateHash: stateBefore.hash,
+      });
+      appendJournalTransition(journalPath, {
+        ...journalBase,
+        transition: "applied",
+        state_hash: stateAfter.hash,
+        result: out,
+        rollback_manifest: rollbackManifest,
+      });
+      appendJournalTransition(journalPath, {
+        ...journalBase,
+        transition: "validated",
+        state_hash: stateAfter.hash,
+      });
+      appendJournalTransition(journalPath, {
+        ...journalBase,
+        transition: "completed",
+        state_hash: stateAfter.hash,
+        result: out,
+        rollback_manifest: rollbackManifest,
+      });
       const slim =
         out && typeof out === "object"
           ? {
@@ -231,6 +352,25 @@ async function runContract() {
       results.push({ tool, ok: true, out: slim });
     }
 
+    assertLeaseFence({ storePath: leasePath, lease });
+    const currentText = fs.readFileSync(inboxPath, "utf8");
+    const currentRevision = gitBlobRevision(
+      vaultRoot,
+      path.relative(vaultRoot, inboxPath),
+      contractHash(currentText)
+    );
+    const writebackCheck = validateResultWriteback({
+      taskId,
+      expectedTaskId: taskId,
+      lease,
+      expectedLease: lease,
+      remoteTaskRevision: currentRevision,
+      expectedRemoteTaskRevision: remoteTaskRevision,
+      remoteStatus: "queued",
+    });
+    if (!writebackCheck.ok) {
+      throw Object.assign(new Error("stale_task_revision"), { code: "stale_task_revision" });
+    }
     const identityValidation = validateClaimResult(
       fs.readFileSync(inboxPath, "utf8"),
       taskId,
@@ -243,7 +383,7 @@ async function runContract() {
       });
     }
     const summary = results.map((r) => `- \`${r.tool}\` ok`).join("\n");
-    const resultMarkdown = `- trace_id：\`${traceId}\`\n- task_id：\`${taskId}\`\n- 時間：${new Date().toISOString()}\n- 結果：done\n${executorIdentityMarkdown(executorIdentity, identityValidation)}\n- auto_approve：${autoApprove}\n- 動作：\n${summary}\n- 詳情：\n\`\`\`json\n${JSON.stringify(results, null, 2).slice(0, 4000)}\n\`\`\``;
+    const resultMarkdown = `- trace_id：\`${traceId}\`\n- task_id：\`${taskId}\`\n- run_id：\`${runId}\`\n- lease_id：\`${lease.lease_id}\`\n- lease_generation：${lease.lease_generation}\n- fencing_token：\`${lease.fencing_token}\`\n- remote_task_revision：\`${remoteTaskRevision}\`\n- 時間：${new Date().toISOString()}\n- 結果：done\n${executorIdentityMarkdown(executorIdentity, identityValidation)}\n- auto_approve：${autoApprove}\n- 動作：\n${summary}\n- 詳情：\n\`\`\`json\n${JSON.stringify(results, null, 2).slice(0, 4000)}\n\`\`\``;
     next = setStatus(fs.readFileSync(inboxPath, "utf8"), "done");
     next = upsertDaemonResult(next, resultMarkdown);
     fs.writeFileSync(inboxPath, next, "utf8");
@@ -259,8 +399,41 @@ async function runContract() {
       identity_validation: identityValidation,
     });
     log(`done trace_id=${traceId}`);
+    releaseLease({ storePath: leasePath, lease });
   } catch (err) {
     const code = err.code || "error";
+    if (!['stale_lease', 'lease_expired', 'stale_fencing_token'].includes(code)) {
+      const failedStep = mechanical.actions[results.length] || {};
+      const failedRequestHash = sha256(stableJson({ task_id: taskId, tool: failedStep.tool || "unknown", args: failedStep.args || {} }));
+      try {
+        appendJournalTransition(journalPath, {
+          operation_id: "op-failed-" + sha256(taskId + ":" + results.length).slice(0, 20),
+          task_id: taskId,
+          run_id: runId,
+          lease_id: lease.lease_id,
+          lease_generation: lease.lease_generation,
+          fencing_token: lease.fencing_token,
+          timestamp: new Date().toISOString(),
+          executor_id: executorIdentity.executor_id,
+          state_hash: "unknown",
+          request_hash: failedRequestHash,
+          idempotency_key: sha256(taskId + ":failed:" + results.length),
+          evidence_ref: path.relative(vaultRoot, journalPath).replace(/\\/g, "/"),
+          error_code: code,
+          transition: code === "approval_required" ? "blocked" : "failed",
+        });
+      } catch (journalError) {
+        log(`journal_failure code=${journalError.code || journalError.message}`);
+      }
+    }
+    try {
+      assertLeaseFence({ storePath: leasePath, lease });
+    } catch (fenceError) {
+      log(`result_not_published task_id=${taskId} code=${fenceError.code}`);
+      releaseLease({ storePath: leasePath, lease });
+      busy = false;
+      return;
+    }
     next = setStatus(fs.readFileSync(inboxPath, "utf8"), "blocked");
     const extra =
       err.proposed != null
@@ -270,7 +443,7 @@ async function runContract() {
     const identityValidation =
       err.identityValidation ||
       validateClaimResult(fs.readFileSync(inboxPath, "utf8"), taskId, executorIdentity);
-    const resultMarkdown = `- trace_id：\`${traceId}\`\n- task_id：\`${taskId}\`\n- 時間：${new Date().toISOString()}\n- 結果：blocked\n${executorIdentityMarkdown(executorIdentity, identityValidation)}\n- code：\`${code}\`\n- failure_class：\`${policy.klass}\`\n- auto_retry：${policy.auto_retry}\n- message：${err.message}${extra}`;
+    const resultMarkdown = `- trace_id：\`${traceId}\`\n- task_id：\`${taskId}\`\n- run_id：\`${runId}\`\n- lease_id：\`${lease.lease_id}\`\n- lease_generation：${lease.lease_generation}\n- fencing_token：\`${lease.fencing_token}\`\n- remote_task_revision：\`${remoteTaskRevision}\`\n- 時間：${new Date().toISOString()}\n- 結果：blocked\n${executorIdentityMarkdown(executorIdentity, identityValidation)}\n- code：\`${code}\`\n- failure_class：\`${policy.klass}\`\n- auto_retry：${policy.auto_retry}\n- message：${err.message}${extra}`;
     next = upsertDaemonResult(next, resultMarkdown);
     fs.writeFileSync(inboxPath, next, "utf8");
     recordAttempt(vaultRoot, taskId, {
@@ -288,6 +461,7 @@ async function runContract() {
     log(
       `blocked: ${code} class=${policy.klass} auto_retry=${policy.auto_retry} trace_id=${traceId}`
     );
+    releaseLease({ storePath: leasePath, lease });
   } finally {
     busy = false;
   }
