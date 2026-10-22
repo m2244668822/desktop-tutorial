@@ -88,5 +88,8 @@ try {
   assert.equal(second.outputs.task_id, "queue-low");
   console.log("QUEUE_E2E_PASS");
 } finally {
-  fs.rmSync(root, { recursive: true, force: true });
+  // Windows runners can briefly retain a fixture handle after the child
+  // queue process exits. Retry bounded cleanup instead of turning a passing
+  // queue contract into a false-negative EPERM failure.
+  fs.rmSync(root, { recursive: true, force: true, maxRetries: 8, retryDelay: 250 });
 }
