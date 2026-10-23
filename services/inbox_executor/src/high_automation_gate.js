@@ -39,6 +39,11 @@ for (const item of [
   if (evidence?.gates?.[item] !== "pass") reasons.push(item + "_not_passed");
 }
 
+// A single disposable run is not long-term unattended evidence. Registered
+// projects must also have their own Phase B-E evidence before the final gate.
+if (evidence?.long_term_replay?.status !== "pass") reasons.push("long_term_replay_not_passed");
+if (evidence?.registered_projects?.status !== "pass") reasons.push("registered_projects_not_passed");
+
 const ready = reasons.length === 0;
 const output = {
   status: ready ? "MCP_HIGH_AUTOMATION_READY" : "MCP_HIGH_AUTOMATION_NOT_READY",
