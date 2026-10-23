@@ -86,9 +86,12 @@ export function executorIdentityFromEnvironment(env = process.env, now = new Dat
   });
 }
 
-export function upsertExecutorClaim(text, taskId, identity) {
+export function upsertExecutorClaim(text, taskId, identity, remoteTaskRevision = "") {
   const normalized = normalizeExecutorIdentity(identity);
-  const block = `${CLAIM_MARKER}\n\n- task_id：\`${taskId}\`\n- status：\`running\`\n\n\`\`\`json\n${JSON.stringify(normalized, null, 2)}\n\`\`\`\n`;
+  const revisionLine = remoteTaskRevision
+    ? `- remote_task_revision：\`${remoteTaskRevision}\`\n`
+    : "";
+  const block = `${CLAIM_MARKER}\n\n- task_id：\`${taskId}\`\n- status：\`running\`\n${revisionLine}\n\`\`\`json\n${JSON.stringify(normalized, null, 2)}\n\`\`\`\n`;
   const sections = topLevelSections(text);
   const claimSection = sections.find((section) =>
     /^## Executor Claim(?:（[^）]+）)?[ \t]*$/.test(section.heading)

@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { Worker } from "node:worker_threads";
 import { fileURLToPath } from "node:url";
 import { VaultWorkspace } from "../../vault_workspace_mcp/src/workspace.js";
 import {
@@ -48,6 +49,8 @@ const journalPath = path.join(vaultRoot, "runtime", ".mcp-state", "operations.js
 let executionLease = null;
 let remoteTaskRevision = "";
 let executionRunId = "";
+let leaseHeartbeatError = null;
+let leaseHeartbeatWorker = null;
 
 function run(command, args, options = {}) {
   return spawnSync(command, args, {
@@ -228,6 +231,9 @@ function currentClaimState(taskId, identity) {
       return { ok: false, code: error.code || "stale_lease", text };
     }
   }
+  if (leaseHeartbeatError) {
+    return { ok: false, code: leaseHeartbeatError.code || "lease_heartbeat_failed", text };
+  }
   if (
     remoteTaskRevision &&
     gitBlobRevision(vaultRoot, path.relative(vaultRoot, inboxPath), contractHash(text)) !== remoteTaskRevision
@@ -323,7 +329,10 @@ if (!decision.ok || decision.route !== "agentic") {
 const selected = decision.selected_executor;
 const identity = buildIdentity(selected, capabilities, new Date());
 let running = setStatus(initial.text, "running");
-running = upsertExecutorClaim(running, taskId, identity);
+// The publisher performs CAS against the original remote task blob. Keep that
+// revision in the claim so the writeback step can verify the exact contract it
+// claimed, even after the local claim/result text changes the working copy.
+running = upsertExecutorClaim(running, taskId, identity, remoteTaskRevision);
 fs.writeFileSync(inboxPath, running, "utf8");
 installFailClosedHandlers(taskId, identity, selected);
 
@@ -337,11 +346,31 @@ const projectPolicy = evaluateProjectPolicy({
 if (!projectPolicy.ok) {
   throw Object.assign(new Error(projectPolicy.code), { code: projectPolicy.code });
 }
+const leaseTtlMs = Math.max(5000, Number(process.env.INBOX_LEASE_TTL_MS || 30000));
 executionLease = acquireLease({
   storePath: leasePath,
   taskId,
   executorId: identity.executor_id,
-  ttlMs: Number(process.env.INBOX_LEASE_TTL_MS || 30000),
+  ttlMs: leaseTtlMs,
+});
+// Agentic work can legitimately exceed the short default lease. Renew
+// cooperatively; a failed heartbeat remains fail-closed and is surfaced by the
+// next fence check before mutation, journal transition, or Result writeback.
+leaseHeartbeatWorker = new Worker(new URL("./lease_heartbeat_worker.js", import.meta.url), {
+  workerData: {
+    storePath: leasePath,
+    lease: executionLease,
+    ttlMs: leaseTtlMs,
+    intervalMs: Math.max(1000, Math.floor(leaseTtlMs / 3)),
+  },
+});
+leaseHeartbeatWorker.on("message", (message) => {
+  if (message?.type === "error") {
+    leaseHeartbeatError = new Error(message.code || "lease_heartbeat_failed");
+  }
+});
+leaseHeartbeatWorker.on("error", (error) => {
+  leaseHeartbeatError = error;
 });
 const agentOperationId = "op-" + sha256(stableJson({ taskId, remoteTaskRevision, project: project.name })).slice(0, 24);
 const agentJournal = {
@@ -736,6 +765,11 @@ writeTerminalResult({
   ],
 });
 
+if (leaseHeartbeatWorker) {
+  leaseHeartbeatWorker.postMessage({ type: "stop" });
+  leaseHeartbeatWorker.terminate();
+  leaseHeartbeatWorker = null;
+}
 releaseLease({ storePath: leasePath, lease: executionLease });
 
 if (done && !analysisOnly) {
