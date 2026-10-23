@@ -4,8 +4,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
-const gateScript = path.resolve("services/inbox_executor/src/high_automation_gate.js");
+const here = path.dirname(fileURLToPath(import.meta.url));
+const gateScript = path.resolve(here, "..", "src", "high_automation_gate.js");
 
 function runGate(evidence) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-gate-"));
