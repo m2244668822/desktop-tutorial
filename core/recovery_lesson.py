@@ -23,7 +23,7 @@ _PROMPTS = {
     "next_step": "最後想一個下一個安全可逆的小行動：你願意先做哪一小步？",
 }
 _OMISSION = re.compile(r"^[\s\W_]+$", re.UNICODE)
-_OMISSION_WORDS = {"略", "跳過", "不知道", "不想說", "先不說", "無"}
+_OMISSION_WORDS = {"略", "跳過", "不想說", "先不說"}
 
 
 @dataclass(frozen=True)
@@ -84,6 +84,8 @@ class LessonTurn:
 class RecoveryLessonEngine:
     def is_start_request(self, message: str) -> bool:
         text = str(message or "").strip()
+        if re.match(r"^(?:請)?(?:不要|先不要|暫時不要|別|不想|不用)(?:開始|進入|做|上)?(?:第一課)?", text):
+            return False
         return bool(re.search(r"(?:開始|開始第一課|第一課|進入第一課|做第一課)", text))
 
     def start(self, *, faith_opt_in: bool = False) -> LessonTurn:
@@ -94,9 +96,9 @@ class RecoveryLessonEngine:
         self,
         message: str,
         state: LessonState,
-        safety: SafetyAssessment | None = None,
+        safety: SafetyAssessment,
     ) -> LessonTurn:
-        assessment = safety or SafetyAssessment()
+        assessment = safety
         if assessment.urgent:
             return LessonTurn("safety_hold", assessment.nudge or "先確認安全。", state)
 
