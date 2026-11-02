@@ -388,7 +388,7 @@ class LocalModelAdaptivelearner:
         }
 
         # 分析性能趨勢並生成建議
-        if monitor_result["learning_progress"]["items_learned"] > 100:
+        if monitor_result["learning_progress"]["total_items_learned"] > 100:
             monitor_result["recommendations"].append(
                 {
                     "action": "consolidate_learning",
