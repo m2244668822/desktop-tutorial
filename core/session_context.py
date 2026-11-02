@@ -12,6 +12,7 @@ from typing import Any, Iterable, Mapping
 @dataclass
 class _SessionState:
     messages: list[dict[str, Any]] = field(default_factory=list)
+    lesson_state: dict[str, Any] | None = None
     pending_action: str = ""
     pending_interaction: dict[str, Any] | None = None
     updated_at: float = field(default_factory=monotonic)
@@ -83,6 +84,27 @@ class SessionConversationStore:
             state = self._state_unlocked(session_id)
             selected = state.messages[-max(1, int(limit)) :] if limit else state.messages
             return deepcopy(selected)
+
+    def set_lesson_state(
+        self,
+        session_id: str | None,
+        state: Mapping[str, Any],
+    ) -> None:
+        with self._lock:
+            session = self._state_unlocked(session_id)
+            session.lesson_state = deepcopy(dict(state))
+            session.updated_at = monotonic()
+
+    def lesson_state(self, session_id: str | None) -> dict[str, Any] | None:
+        with self._lock:
+            state = self._state_unlocked(session_id)
+            return deepcopy(state.lesson_state)
+
+    def clear_lesson_state(self, session_id: str | None) -> None:
+        with self._lock:
+            state = self._state_unlocked(session_id)
+            state.lesson_state = None
+            state.updated_at = monotonic()
 
     def append_turn(
         self,
