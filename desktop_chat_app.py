@@ -777,15 +777,37 @@ class DesktopBridge:
                 return {
                     "ok": False,
                     "state": "parse_error",
+                    "intro_zh": "中文說明：這個區塊用來確認智能體訓練資料層是否存在且可讀。",
+                    "summary_zh": "訓練資料索引無法解析，請先檢查 AEG keyword graph 檔案。",
+                    "field_descriptions_zh": {
+                        "sources_seen": "訓練資料層看見的來源數量。",
+                        "text_items": "可供檢索與訓練的文字項目數量。",
+                        "readable_ratio": "來源內容可讀的比例。",
+                    },
                     "path": str(aeg_path),
                     "error": str(exc),
                 }
         source_breakdown = payload.get("source_breakdown", {}) if isinstance(payload, dict) else {}
         text_items = int(payload.get("text_items", 0) or 0) if payload else 0
         ready = bool(text_items > 0 and source_breakdown)
+        summary_zh = (
+            f"訓練資料層已就緒：{text_items} 個文字項目、"
+            f"{int(payload.get('sources_seen', 0) or 0) if payload else 0} 個來源。"
+            if ready
+            else "訓練資料層尚未就緒，請先確認來源索引與文字項目。"
+        )
         return {
             "ok": ready,
             "state": "ready" if ready else "missing",
+            "intro_zh": "中文說明：這個區塊用來確認智能體訓練資料層是否存在、可讀且有可用樣本。",
+            "summary_zh": summary_zh,
+            "field_descriptions_zh": {
+                "sources_seen": "訓練資料層看見的來源數量。",
+                "text_items": "可供檢索與訓練的文字項目數量。",
+                "keywords_count": "從資料中抽出的關鍵詞數量。",
+                "edges_count": "關鍵詞圖譜中的關聯邊數量。",
+                "readable_ratio": "來源內容可讀的比例。",
+            },
             "path": str(aeg_path),
             "generated_at": payload.get("generated_at", ""),
             "sources_seen": int(payload.get("sources_seen", 0) or 0),

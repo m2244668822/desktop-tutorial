@@ -34,6 +34,8 @@ class PerobMainlineHealthContractTests(unittest.TestCase):
         self.assertIn('"field_descriptions_zh"', WEB_SERVER)
         self.assertIn("get_memory_autosave_status", DESKTOP_APP)
         self.assertIn("get_aeg_training_status", DESKTOP_APP)
+        self.assertIn("訓練資料層已就緒", DESKTOP_APP)
+        self.assertIn('"field_descriptions_zh"', DESKTOP_APP)
 
     def test_rerun_route_is_wired_from_http_to_runtime(self):
         self.assertIn('route_path == "/api/rerun_workflow_step"', WEB_SERVER)
