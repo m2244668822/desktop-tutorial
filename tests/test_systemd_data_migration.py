@@ -1,15 +1,11 @@
 import os
+import pwd
 import stat
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
-
-try:
-    import pwd
-except ImportError:  # Windows has no POSIX account database.
-    pwd = None
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,10 +21,7 @@ def _migration_source() -> str:
     return content[start:end]
 
 
-@unittest.skipUnless(
-    os.name == 'posix' and pwd is not None,
-    'descriptor-relative migration is POSIX-only',
-)
+@unittest.skipUnless(os.name == 'posix', 'descriptor-relative migration is POSIX-only')
 class SystemdDataMigrationTests(unittest.TestCase):
     def _run_migration(self, data_root: Path) -> subprocess.CompletedProcess[str]:
         user_name = pwd.getpwuid(os.getuid()).pw_name

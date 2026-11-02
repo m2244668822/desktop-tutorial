@@ -21,7 +21,6 @@ class TrevorAutonomyLaunchAgentTests(unittest.TestCase):
         self.assertIn("--evaluation 900", content)
         self.assertIn(".venv312", content)
 
-    @unittest.skipIf(os.name == 'nt', 'macOS shell manager contract')
     def test_stop_and_status_do_not_require_provider_credentials(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
@@ -53,7 +52,6 @@ class TrevorAutonomyLaunchAgentTests(unittest.TestCase):
         self.assertNotIn('missing private credential', stop.stderr + status.stderr)
         self.assertFalse((root / 'data').exists())
 
-    @unittest.skipIf(os.name == 'nt', 'symlink contract requires POSIX privileges')
     def test_python_path_preserves_virtualenv_symlink(self):
         from tools.install_trevor_autonomy_launchagent import normalize_executable_path
 
@@ -69,7 +67,6 @@ class TrevorAutonomyLaunchAgentTests(unittest.TestCase):
                 normalize_executable_path(str(virtualenv_python)),
             )
 
-    @unittest.skipIf(os.name == 'nt', 'LaunchAgent paths are POSIX-only')
     def test_launchagent_contract_is_persistent_and_secret_free(self):
         module_name = "tools.install_trevor_autonomy_launchagent"
         self.assertIsNotNone(importlib.util.find_spec(module_name))
@@ -137,7 +134,6 @@ class TrevorAutonomyLaunchAgentTests(unittest.TestCase):
         bootstrap_commands = [command for command in commands if command[1] == "bootstrap"]
         self.assertEqual(2, len(bootstrap_commands))
 
-    @unittest.skipIf(os.name == 'nt', 'POSIX credential modes are not Windows ACLs')
     def test_private_credentials_are_required_before_disabling_keychain(self):
         from tools.install_trevor_autonomy_launchagent import (
             validate_private_credential_root,
