@@ -284,7 +284,7 @@ class WebServerMode:
         return {
             "ok": required_ready,
             "status": "ready" if required_ready else "degraded",
-            "intro_zh": "中文說明：這份健康檢查用來確認核心服務是否可用；optional gap 不等於核心故障。",
+            "intro_zh": "中文說明：這份健康檢查用來確認核心服務是否可用；可選服務缺口不等於核心故障。",
             "summary_zh": summary_zh,
             "field_descriptions_zh": {
                 "required_ready": "核心橋接與資料庫是否已達到可用門檻。",
