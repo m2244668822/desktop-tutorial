@@ -47,7 +47,8 @@ def build_recovery_lesson_prompt(
         return (
             prompt
             + "\n\n[安全暫停] 先停止課程，不要繼續課程，也不要要求填寫下一格。"
-            "先確認你現在是否安全；以簡短、直接、不帶判斷的方式詢問。"
+            "本輪必須且只能提出一個安全確認問題；不得提出課程欄位問題，也不得再提出第二個問題。"
+            "請用簡短、直接、不帶判斷的方式先確認你現在是否安全。"
         )
 
     label, question = _LESSON_FIELDS[selected_field]

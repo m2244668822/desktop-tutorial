@@ -67,5 +67,6 @@ def test_safety_hold_prompt_cannot_continue_lesson():
     prompt = build_recovery_lesson_prompt("event", {}, safety_hold=True)
 
     assert "先確認你現在是否安全" in prompt
+    assert "本輪必須且只能提出一個安全確認問題；不得提出課程欄位問題，也不得再提出第二個問題" in prompt
     assert "不要繼續課程" in prompt
     assert "不要要求填寫下一格" in prompt
