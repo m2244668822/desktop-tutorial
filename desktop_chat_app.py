@@ -3162,14 +3162,20 @@ class DesktopBridge:
         safety: SafetyAssessment,
     ) -> LessonTurn | None:
         text = str(user_message or "").strip()
-        negated_alias = re.search(
-            r"(?:不要|先不要|暫時不要|別|不想|不用).{0,4}(?:開始壓力不是命令|做五格紀錄)",
+        raw_state = self.session_store.lesson_state(session_id)
+        if safety.urgent and raw_state and not raw_state.get("completed"):
+            turn = self.recovery_lesson_engine.accept(
+                user_message, LessonState.from_dict(raw_state), safety
+            )
+            self.session_store.set_lesson_state(session_id, turn.state.to_dict())
+            return turn
+
+        explicit_start = re.fullmatch(
+            r"(?:請|我想|我要|想)?\s*(?:開始第一課|進入第一課|做第一課|開始壓力不是命令|做五格紀錄)(?:吧|。|！|!)?",
             text,
         )
-        is_start = ("第一課" in text and self.recovery_lesson_engine.is_start_request(text)) or (
-            not negated_alias and bool(re.search(r"(?:開始壓力不是命令|做五格紀錄)", text))
-        )
-        raw_state = self.session_store.lesson_state(session_id)
+        engine_request = "開始第一課" if "做五格紀錄" in text else text
+        is_start = bool(explicit_start and self.recovery_lesson_engine.is_start_request(engine_request))
         if is_start:
             turn = self.recovery_lesson_engine.start()
             if safety.urgent:
@@ -3182,6 +3188,38 @@ class DesktopBridge:
             return None
         self.session_store.set_lesson_state(session_id, turn.state.to_dict())
         return turn
+
+    @staticmethod
+    def _lesson_reply_crosses_boundary(reply: str, state: LessonState) -> bool:
+        if not state.faith_opt_in:
+            user_words = " ".join(str(value) for value in state.to_dict()["record"].values())
+            faith_terms = re.findall(
+                r"聖經|上帝|耶穌|禱告|祈禱|信仰|宗教|菩薩|佛(?:教|法|祖)|神(?:的|給|說|要|會|愛|能|旨|諭|明)",
+                reply,
+            )
+            if any(term not in user_words for term in faith_terms):
+                return True
+
+        claim = re.compile(
+            r"(?:電視|新聞|廣告|資訊|訊息|演算法|聲音|宇宙|神|上帝).{0,16}"
+            r"(?:真的|確實|一定|就是|正在|在|是).{0,16}"
+            r"(?:對你說話|向你傳訊|對你傳訊|給你指示|命令你|給你的命令|外部訊息|權威指示)"
+        )
+        directive = re.compile(
+            r"(?:聲音|訊息|命令).{0,16}(?:必須|應該|請|要).{0,8}(?:服從|照做|遵從)"
+            r"|(?:必須|應該|請|要).{0,8}(?:服從|照做|遵從).{0,12}(?:聲音|訊息|命令)"
+        )
+        for clause in re.split(r"[，。；;!?！？\n]", reply):
+            for pattern in (claim, directive):
+                for match in pattern.finditer(clause):
+                    preceding = clause[:match.start()]
+                    if re.search(
+                        r"(?:不代表|不是|並非|不要|不必|未必|無法確認|不能證明|沒有證據|只是感覺|感覺像).{0,8}$",
+                        preceding,
+                    ):
+                        continue
+                    return True
+        return False
 
     def _build_recovery_lesson_response(
         self,
@@ -3231,10 +3269,14 @@ class DesktopBridge:
                     "provider": backend,
                     "fallback_reason": str(exc),
                 }
-            if live_reply.strip():
+            if live_reply.strip() and not self._lesson_reply_crosses_boundary(live_reply, turn.state):
                 reply = live_reply.strip()
             else:
-                llm_meta = {**llm_meta, "fallback_used": True}
+                llm_meta = {
+                    **llm_meta,
+                    "fallback_used": True,
+                    "fallback_reason": "lesson_reply_boundary" if live_reply.strip() else llm_meta.get("fallback_reason", "lesson_empty_reply"),
+                }
         reply = canonicalize_trevor_reply(self._with_safety_nudge(reply, safety), capability_mode)
         analysis = self._fallback_message_analysis(user_message)
         analysis["interaction_route"] = "lesson"
@@ -3308,10 +3350,30 @@ class DesktopBridge:
             capability_mode=capability_mode,
         )
         deliberation = self._normalize_deliberation_mode(deliberation)
+        safety = self.safety_tracker.assess(session_id, user_message)
+        if safety.urgent:
+            lesson_state = self.session_store.lesson_state(session_id)
+            if lesson_state and not lesson_state.get("completed"):
+                self.last_message = user_message
+                self.last_message_ts = start_ts
+                self.reply_counter += 1
+                self._update_user_repeat_tracking(user_message)
+                lesson_turn = self._process_recovery_lesson_turn(
+                    session_id, raw_user_message, safety
+                )
+                return self._build_recovery_lesson_response(
+                    turn=lesson_turn,
+                    user_message=user_message,
+                    session_id=session_id,
+                    requested_role=requested_role,
+                    capability_mode=requested_identity.capability_mode,
+                    model_key=model_key,
+                    safety=safety,
+                    start_ts=start_ts,
+                )
         control_command = self.self_improvement.parse_control_command(user_message)
         if control_command:
             action, proposal_id = control_command
-            safety = self.safety_tracker.assess(session_id, user_message)
             self.last_message = user_message
             self.last_message_ts = start_ts
             self.reply_counter += 1
@@ -3352,7 +3414,6 @@ class DesktopBridge:
                     reason="confirmation_without_pending_action",
                     clarification="目前沒有等待確認的操作。請直接說你要我處理的目標與範圍。",
                 )
-                safety = self.safety_tracker.assess(session_id, user_message)
                 self.last_message = user_message
                 self.last_message_ts = start_ts
                 self.reply_counter += 1
@@ -3382,7 +3443,6 @@ class DesktopBridge:
         else:
             message = user_message
 
-        safety = self.safety_tracker.assess(session_id, user_message)
         self.last_message = user_message
         self.last_message_ts = start_ts
         self.reply_counter += 1

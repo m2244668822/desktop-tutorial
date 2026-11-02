@@ -67,6 +67,33 @@ def test_urgent_safety_bypasses_llm_and_returns_safety_hold(bridge, monkeypatch)
     assert not result["workflow_ran"]
 
 
+@pytest.mark.parametrize("pending_kind", ["clarification", "confirmation"])
+def test_urgent_lesson_turn_preserves_pending_interaction(bridge, monkeypatch, pending_kind):
+    bridge.send_message("開始第一課", session_id="lesson")
+    bridge.send_message("昨天與家人談工作", session_id="lesson")
+    if pending_kind == "clarification":
+        bridge.session_store.set_pending_interaction(
+            "lesson", kind="clarification", original_message="幫我處理登入", question="哪個系統？"
+        )
+    else:
+        bridge.session_store.set_pending_action("lesson", "幫我修改登入程式")
+    pending_before = bridge.session_store.pending_interaction("lesson")
+    action_before = bridge.session_store.pending_action("lesson")
+    lesson_before = bridge.session_store.lesson_state("lesson")
+    monkeypatch.setattr(bridge.interaction_gateway, "decide", lambda *args, **kwargs: pytest.fail("router called"))
+    monkeypatch.setattr(bridge, "_generate_live_llm_reply", lambda **kwargs: pytest.fail("LLM called"))
+
+    result = bridge.send_message("我現在想傷害自己", session_id="lesson")
+
+    assert result["lesson"]["status"] == "safety_hold"
+    assert result["lesson"]["record"] == lesson_before["record"]
+    assert result["lesson"]["current_field"] == lesson_before["current_field"]
+    assert bridge.session_store.lesson_state("lesson") == lesson_before
+    assert bridge.session_store.pending_interaction("lesson") == pending_before
+    assert bridge.session_store.pending_action("lesson") == action_before
+    assert not result["workflow_ran"]
+
+
 def test_lesson_state_is_not_promoted_to_long_term_memory(bridge, monkeypatch):
     bridge.send_message("開始第一課", session_id="lesson")
     monkeypatch.setattr(bridge, "_persist_promoted_memory", lambda **kwargs: pytest.fail("memory promoted"))
@@ -102,6 +129,28 @@ def test_unrelated_start_request_does_not_open_lesson(bridge, monkeypatch):
 
     assert "lesson" not in result
     assert bridge.session_store.lesson_state("ordinary") is None
+
+
+def test_mentioning_first_lesson_does_not_start_it(bridge, monkeypatch):
+    monkeypatch.setattr(bridge, "_generate_live_llm_reply", lambda **kwargs: (
+        "先聊你的問題。", {"ok": True, "attempted": True, "provider": "open_source"},
+    ))
+
+    result = bridge.send_message("我想討論第一課的概念", session_id="ordinary")
+
+    assert "lesson" not in result
+    assert bridge.session_store.lesson_state("ordinary") is None
+
+
+def test_active_answer_mentioning_first_lesson_does_not_reset_record(bridge):
+    bridge.send_message("開始第一課", session_id="lesson")
+    bridge.send_message("昨天家人問了工作進度", session_id="lesson")
+
+    result = bridge.send_message("第一課讓我想到家人期待我快點穩定", session_id="lesson")
+
+    assert result["lesson"]["record"]["event"] == "昨天家人問了工作進度"
+    assert result["lesson"]["record"]["expectation"] == "第一課讓我想到家人期待我快點穩定"
+    assert result["lesson"]["current_field"] == "inner_content"
 
 
 def test_completed_lesson_releases_next_turn_to_normal_route(bridge, monkeypatch):
@@ -141,6 +190,63 @@ def test_lesson_falls_back_to_engine_reply_when_llm_raises(bridge, monkeypatch):
     assert result["lesson"]["current_field"] == "expectation"
     assert "你感受到哪些期待或要求" in result["reply"]
     assert result["llm_live"]["fallback_used"]
+
+
+@pytest.mark.parametrize("unsafe_reply", [
+    "電視確實在對你傳訊，照著做。",
+    "電視確實在對你傳訊但這不代表你要做什麼。",
+    "你聽到的聲音確實是外部訊息。",
+    "你必須服從那個聲音。",
+    "這是神給你的命令，照著做。",
+])
+def test_unsafe_lesson_llm_reply_uses_engine_fallback(bridge, monkeypatch, unsafe_reply):
+    bridge.send_message("開始第一課", session_id="lesson")
+    monkeypatch.setattr(bridge, "_generate_live_llm_reply", lambda **kwargs: (
+        unsafe_reply, {"ok": True, "attempted": True, "provider": "open_source"},
+    ))
+
+    result = bridge.send_message("昨天家人問我工作進度", session_id="lesson")
+
+    assert "你感受到哪些期待或要求" in result["reply"]
+    assert unsafe_reply not in result["reply"]
+    assert result["llm_live"]["fallback_used"]
+
+
+def test_safe_negation_in_lesson_llm_reply_is_kept(bridge, monkeypatch):
+    bridge.send_message("開始第一課", session_id="lesson")
+    safe_reply = "這不代表電視真的在對你說話。接著看看你感受到的外部期待？"
+    monkeypatch.setattr(bridge, "_generate_live_llm_reply", lambda **kwargs: (
+        safe_reply, {"ok": True, "attempted": True, "fallback_used": False, "provider": "open_source"},
+    ))
+
+    result = bridge.send_message("昨天家人問我工作進度", session_id="lesson")
+
+    assert result["reply"] == safe_reply
+    assert not result["llm_live"]["fallback_used"]
+
+
+def test_safe_voice_negation_in_lesson_llm_reply_is_kept(bridge, monkeypatch):
+    bridge.send_message("開始第一課", session_id="lesson")
+    safe_reply = "你不必服從那個聲音。接著看看外部期待？"
+    monkeypatch.setattr(bridge, "_generate_live_llm_reply", lambda **kwargs: (
+        safe_reply, {"ok": True, "attempted": True, "fallback_used": False, "provider": "open_source"},
+    ))
+
+    result = bridge.send_message("昨天家人問我工作進度", session_id="lesson")
+
+    assert result["reply"] == safe_reply
+
+
+def test_nonreligious_mental_state_word_is_not_rejected_as_faith(bridge, monkeypatch):
+    bridge.send_message("開始第一課", session_id="lesson")
+    safe_reply = "先留意自己的精神狀態，再看看你感受到哪些外部期待？"
+    monkeypatch.setattr(bridge, "_generate_live_llm_reply", lambda **kwargs: (
+        safe_reply, {"ok": True, "attempted": True, "fallback_used": False, "provider": "open_source"},
+    ))
+
+    result = bridge.send_message("昨天家人問我工作進度", session_id="lesson")
+
+    assert result["reply"] == safe_reply
 
 
 def test_pending_clarification_takes_precedence_over_lesson(bridge, monkeypatch):
