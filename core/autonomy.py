@@ -72,6 +72,10 @@ class AutonomyConfig:
     nightly_maintenance_hour: int = 3
 
 
+class ClaimLostError(RuntimeError):
+    """Raised by a cooperative executor when its task claim is no longer valid."""
+
+
 class AutonomyLease:
     def __init__(
         self,
@@ -426,6 +430,7 @@ __all__ = [
     'AutonomyLease',
     'AutonomyPolicy',
     'AutonomyQueue',
+    'ClaimLostError',
     'mark_user_activity',
     'user_is_active',
 ]

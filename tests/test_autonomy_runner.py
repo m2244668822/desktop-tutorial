@@ -4,7 +4,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from core.autonomy import AutonomyQueue
+from core.autonomy import AutonomyQueue, ClaimLostError
 
 
 class AutonomyRunnerTests(unittest.TestCase):
@@ -89,6 +89,72 @@ class AutonomyRunnerTests(unittest.TestCase):
         self.assertEqual('task_claim_lost', result['error'])
         self.assertEqual('running', stored['status'])
         self.assertEqual('worker-b', stored['worker_id'])
+
+    def test_running_executor_stops_when_renewal_loses_claim(self):
+        from core.autonomy import AutonomyConfig
+        from core.autonomy_runner import AutonomyRunner
+
+        renewal_lost = threading.Event()
+        with tempfile.TemporaryDirectory() as tmp:
+            data_root = Path(tmp)
+            queue = AutonomyQueue(data_root / 'autonomy' / 'task_queue.json')
+            task = queue.enqueue('長時間整理', category='content')
+
+            def execute(claimed):
+                self.assertTrue(claimed['_claim_lost'].wait(timeout=1))
+                renewal_lost.set()
+                raise ClaimLostError('task_claim_lost')
+
+            runner = AutonomyRunner(
+                data_root,
+                worker_id='worker-a',
+                executor=execute,
+                config=AutonomyConfig(lease_ttl_seconds=60),
+                renewal_interval_seconds=0.01,
+            )
+            runner.queue = queue
+            runner.queue.renew_claim = lambda task_id, worker_id: False
+
+            result = runner.evaluate_once(
+                {
+                    'user_active': False,
+                    'quota_sufficient': True,
+                    'services_healthy': True,
+                }
+            )
+            stored = {item['id']: item for item in queue.tasks()}[task['id']]
+
+        self.assertTrue(renewal_lost.is_set())
+        self.assertEqual('lease_lost', result['status'])
+        self.assertEqual('task_claim_lost', result['error'])
+        self.assertEqual('running', stored['status'])
+
+    def test_rejected_policy_reports_lease_lost_if_finish_owner_changed(self):
+        from core.autonomy_runner import AutonomyRunner
+
+        with tempfile.TemporaryDirectory() as tmp:
+            data_root = Path(tmp)
+            queue = AutonomyQueue(data_root / 'autonomy' / 'task_queue.json')
+            task = queue.enqueue('執行禁止操作', category='maintenance')
+            runner = AutonomyRunner(
+                data_root,
+                worker_id='worker-a',
+                executor=lambda claimed: {'ok': True},
+            )
+            runner.queue = queue
+            runner.queue.finish = lambda *args, **kwargs: False
+
+            result = runner.evaluate_once(
+                {
+                    'user_active': False,
+                    'quota_sufficient': True,
+                    'services_healthy': True,
+                }
+            )
+
+        self.assertEqual('lease_lost', result['status'])
+        self.assertEqual('task_claim_lost', result['error'])
+        self.assertEqual(task['id'], result['task_id'])
 
     def test_approved_task_runs_under_single_lease(self):
         from core.autonomy_runner import AutonomyRunner
