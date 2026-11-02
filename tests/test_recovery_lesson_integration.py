@@ -270,6 +270,7 @@ def test_record_faith_words_do_not_opt_in_lesson_llm_reply(bridge, monkeypatch):
 @pytest.mark.parametrize("llm_reply, should_fallback", [
     ("電視並沒有在對你說話", False),
     ("聲音沒有要求你服從", False),
+    ("聲音不是外部訊息", False),
     ("電視正在對你說話", True),
 ])
 def test_external_message_negation_boundary(bridge, monkeypatch, llm_reply, should_fallback):

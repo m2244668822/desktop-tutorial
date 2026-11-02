@@ -3224,7 +3224,12 @@ class DesktopBridge:
                     immediately_before_predicate = (
                         match.group()[:markers[-1].start()] if markers else ""
                     )
-                    if re.search(
+                    # For "不是", the checked "是" is part of the negation itself.
+                    negated_copula = (
+                        markers and markers[-1].group() == "是"
+                        and immediately_before_predicate.endswith("不")
+                    )
+                    if negated_copula or re.search(
                         r"(?:並沒有|沒有|未曾|不曾|不是|不會|不在|不可能|不是真的|不確定|不必|不應該|不要)$",
                         immediately_before_predicate,
                     ):
