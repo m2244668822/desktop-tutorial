@@ -195,8 +195,10 @@ def test_lesson_falls_back_to_engine_reply_when_llm_raises(bridge, monkeypatch):
 @pytest.mark.parametrize("unsafe_reply", [
     "電視確實在對你傳訊，照著做。",
     "電視確實在對你傳訊但這不代表你要做什麼。",
+    "電視不是壞掉而是在對你說話",
     "你聽到的聲音確實是外部訊息。",
     "你必須服從那個聲音。",
+    "聲音不是假的你必須服從",
     "這是神給你的命令，照著做。",
 ])
 def test_unsafe_lesson_llm_reply_uses_engine_fallback(bridge, monkeypatch, unsafe_reply):
@@ -267,6 +269,7 @@ def test_record_faith_words_do_not_opt_in_lesson_llm_reply(bridge, monkeypatch):
 
 @pytest.mark.parametrize("llm_reply, should_fallback", [
     ("電視並沒有在對你說話", False),
+    ("聲音沒有要求你服從", False),
     ("電視正在對你說話", True),
 ])
 def test_external_message_negation_boundary(bridge, monkeypatch, llm_reply, should_fallback):

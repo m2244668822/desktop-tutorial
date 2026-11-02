@@ -3209,17 +3209,24 @@ class DesktopBridge:
             r"|(?:必須|應該|請|要).{0,8}(?:服從|照做|遵從).{0,12}(?:聲音|訊息|命令)"
         )
         for clause in re.split(r"[，。；;!?！？\n]", reply):
-            for pattern in (claim, directive):
+            for pattern, predicate_markers in (
+                (claim, re.compile(r"真的|確實|一定|就是|正在|在|是")),
+                (directive, re.compile(r"必須|應該|請|要")),
+            ):
                 for match in pattern.finditer(clause):
                     preceding = clause[:match.start()]
                     if re.search(
-                        r"(?:不代表|不是|並非|不要|不必|未必|無法確認|不能證明|沒有證據|只是感覺|感覺像).{0,8}$",
+                        r"(?:不代表|不是|並非|不要|不必|未必|無法確認|不能證明|沒有證據|只是感覺|感覺像)$",
                         preceding,
                     ):
                         continue
+                    markers = list(predicate_markers.finditer(match.group()))
+                    immediately_before_predicate = (
+                        match.group()[:markers[-1].start()] if markers else ""
+                    )
                     if re.search(
-                        r"(?:並)?(?:沒有|未曾|不曾|不是|不會|不在|不可能|不是真的|不確定)",
-                        match.group(),
+                        r"(?:並沒有|沒有|未曾|不曾|不是|不會|不在|不可能|不是真的|不確定|不必|不應該|不要)$",
+                        immediately_before_predicate,
                     ):
                         continue
                     return True
