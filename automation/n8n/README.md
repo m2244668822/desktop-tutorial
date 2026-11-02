@@ -32,3 +32,9 @@
 ```
 
 執行時請保持 `active=false`，先手動 Run 一次；若 gate 未通過，保留 `gate_passed=false` 的輸出，不要把它改成成功。回滾只需停用或刪除這份 training workflow，保留原本 health workflow。
+
+本機匯入 smoke test 會先確認 n8n `/healthz`，再以 30 秒上限執行 import；`N8N_USER_MANAGEMENT_DISABLED=true` 只傳給匯入子程序，不會修改常駐 n8n 的認證設定：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\smoke_test_n8n_training_evaluation.ps1
+```

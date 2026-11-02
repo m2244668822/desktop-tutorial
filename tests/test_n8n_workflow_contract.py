@@ -16,6 +16,7 @@ def test_training_workflow_is_manual_and_inactive():
     triggers = [node for node in nodes if node["type"].endswith("Trigger")]
 
     assert workflow["name"] == "Trevor Training Evaluation (Manual)"
+    assert isinstance(workflow.get("id"), str) and workflow["id"]
     assert workflow["active"] is False
     assert len(triggers) == 1
     assert triggers[0]["type"] == "n8n-nodes-base.manualTrigger"
