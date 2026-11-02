@@ -130,12 +130,18 @@ class KnowledgeHub:
             self._last_status = dict(payload)
             return payload
 
-    def search(self, query: str, top_k: int = 5) -> dict[str, Any]:
+    def search(
+        self, query: str, top_k: int = 5, *, include_stale: bool = False
+    ) -> dict[str, Any]:
         q = str(query or "").strip()
         if not q:
             return {"ok": False, "error": "query_required", "matches": []}
         with self._lock:
-            matches = self._memory.search(q, top_k=max(1, min(int(top_k), 20)))
+            matches = self._memory.search(
+                q,
+                top_k=max(1, min(int(top_k), 20)),
+                include_stale=include_stale,
+            )
         return {
             "ok": True,
             "query": q,

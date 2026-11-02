@@ -41,7 +41,9 @@ SOURCE_WEIGHTS = {
     "gpt_history_user": 0.16,
     "chatgpt_database_user": 0.12,
     "chatgpt_database_assistant": 0.10,
-    "knowledge_document": 0.08,
+    # Repository-backed documents are authoritative for documentation queries;
+    # keep them ahead of conversational noise when lexical evidence is close.
+    "knowledge_document": 0.40,
     "chatgpt_local_knowledge": 0.06,
 }
 SOURCE_PRIORITIES = {
@@ -386,7 +388,9 @@ class ThreeLayerMemory:
                 break
         return deduped_results
 
-    def _search_sqlite_fallback(self, query: str, top_k: int) -> list[dict[str, Any]]:
+    def _search_sqlite_fallback(
+        self, query: str, top_k: int, *, include_stale: bool = False
+    ) -> list[dict[str, Any]]:
         query_tokens = set(self._tokenize(query))
         if not query.strip():
             return []
@@ -412,6 +416,10 @@ class ThreeLayerMemory:
         if not filtered:
             filtered = [item for item in ranked if item["combined_score"] >= 0.04][
                 : max(top_k * 3, 10)
+            ]
+        if not include_stale:
+            filtered = [
+                item for item in filtered if not bool(item.get("metadata", {}).get("stale"))
             ]
         return self._dedupe_results(filtered, top_k)
 
@@ -499,9 +507,13 @@ class ThreeLayerMemory:
             "degraded_mode": None if faiss_mode else "sqlite_only",
         }
 
-    def search(self, query: str, top_k: int = 5) -> list[dict[str, Any]]:
+    def search(
+        self, query: str, top_k: int = 5, *, include_stale: bool = False
+    ) -> list[dict[str, Any]]:
         if faiss is None:
-            return self._search_sqlite_fallback(query, top_k)
+            return self._search_sqlite_fallback(
+                query, top_k, include_stale=include_stale
+            )
 
         index = self._load_index()
         meta_rows = self._load_meta()
@@ -544,6 +556,10 @@ class ThreeLayerMemory:
         if not filtered:
             filtered = [item for item in results if item["combined_score"] > 0.15][
                 : max(top_k * 3, 10)
+            ]
+        if not include_stale:
+            filtered = [
+                item for item in filtered if not bool(item.get("metadata", {}).get("stale"))
             ]
         return self._dedupe_results(filtered, top_k)
 
@@ -725,6 +741,19 @@ def collect_memory_sources(
         except (AttributeError, OSError, TypeError, ValueError):
             pass
 
+    policy_path = paths.root / "config" / "knowledge_retrieval_policy.json"
+    stale_paths: set[str] = set()
+    if policy_path.exists():
+        try:
+            policy = json.loads(policy_path.read_text(encoding="utf-8"))
+            stale_paths = {
+                str(item).replace("\\", "/").strip().lower()
+                for item in policy.get("stale_paths", [])
+                if str(item).strip()
+            }
+        except (OSError, json.JSONDecodeError, AttributeError):
+            stale_paths = set()
+
     ingestion_documents = (
         paths.data / "knowledge_hub" / "ingestion" / "documents.jsonl"
     )
@@ -740,6 +769,7 @@ def collect_memory_sources(
                 if not isinstance(document, dict):
                     continue
                 content = str(document.get("text", "")).strip()
+                normalized_path = str(document.get("path", "")).replace("\\", "/")
                 append_source(
                     "knowledge_document",
                     str(document.get("doc_id") or f"document:{line_number}"),
@@ -749,6 +779,7 @@ def collect_memory_sources(
                         "source": document.get("source", ""),
                         "path": document.get("path", ""),
                         "title": document.get("title", ""),
+                        "stale": normalized_path.strip().lower() in stale_paths,
                     },
                 )
         except (OSError, json.JSONDecodeError):

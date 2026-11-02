@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "stale_paths": [
+    "DATA_LAYER_SOURCE_OF_TRUTH.md",
+    "DATA_TRACKING_TIERS.md",
+    "AGENT_SYSTEM_GUIDE.md"
+  ],
+  "source": "docs/dev/ARCHITECTURE_BASELINE_AND_MD_BUNDLE_AUDIT_2026-05-27.md",
+  "default_include_stale": false
+}
