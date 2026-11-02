@@ -73,3 +73,25 @@ Existing non-diagnostic behavior and faith opt-in boundary are unchanged. Input 
 Reviewed signature/call sites in the focused test file, urgent short-circuit ordering, preservation of the raw “無” answer, explicit-negation gate, and faith/non-diagnostic coverage. Only `core/recovery_lesson.py`, `tests/test_recovery_lesson.py`, and this report are included in the fix commit. Unrelated pre-existing untracked n8n plan/spec documents remain untouched.
 
 - Fix commit: `16289ec92d4bcfc357bd91ecad6cea522ec21010` (`fix: close recovery lesson reviewer findings`).
+
+## Reviewer follow-up — round 2
+
+### Finding addressed
+
+- **P2 — Internal negation in start requests.** Start detection now rejects a recognized negative directive when it occurs within the short phrase leading to `第一課`, including `我不要開始第一課`. Positive start phrases continue to match. Added regression tests for the internal negative form and the positive phrase `請開始第一課`.
+- Existing safety assessment requirement and urgent hold, raw `無` preservation, non-diagnostic behavior, and faith opt-in boundary are unchanged.
+
+### TDD and validation
+
+- RED: `uv run --with pytest python -m pytest tests/test_recovery_lesson.py -q`
+  - Output: **1 failed, 14 passed**. `test_internal_negation_rejects_first_lesson_start_request` failed because the internal negation was accepted.
+- Focused GREEN: `uv run --with pytest python -m pytest tests/test_recovery_lesson.py -q`
+  - Output: **15 passed in 0.18s**.
+- Safety slice: `uv run --with pytest python -m pytest tests/test_recovery_lesson.py tests/test_safety_signal_tracker.py -q`
+  - Output: **18 passed in 0.31s**.
+- `git diff --check`
+  - Output: no errors.
+
+### Self-review
+
+Confirmed both negative and positive start examples, and reviewed the narrowly scoped guard against the existing start phrase matcher. Existing engine safety and content handling were not changed. The fix commit follows after validation.

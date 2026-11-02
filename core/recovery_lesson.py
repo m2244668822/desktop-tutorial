@@ -84,7 +84,10 @@ class LessonTurn:
 class RecoveryLessonEngine:
     def is_start_request(self, message: str) -> bool:
         text = str(message or "").strip()
-        if re.match(r"^(?:請)?(?:不要|先不要|暫時不要|別|不想|不用)(?:開始|進入|做|上)?(?:第一課)?", text):
+        if re.search(
+            r"(?:不要|先不要|暫時不要|別|不想|不用).{0,4}(?:開始|進入|做|上)?\s*第一課",
+            text,
+        ):
             return False
         return bool(re.search(r"(?:開始|開始第一課|第一課|進入第一課|做第一課)", text))
 

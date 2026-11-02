@@ -121,3 +121,11 @@ def test_none_is_saved_as_raw_answer_in_current_evidence_field():
 
 def test_negated_first_lesson_request_does_not_start():
     assert not RecoveryLessonEngine().is_start_request("不要開始第一課")
+
+
+def test_internal_negation_rejects_first_lesson_start_request():
+    assert not RecoveryLessonEngine().is_start_request("我不要開始第一課")
+
+
+def test_positive_first_lesson_request_still_starts():
+    assert RecoveryLessonEngine().is_start_request("請開始第一課")
