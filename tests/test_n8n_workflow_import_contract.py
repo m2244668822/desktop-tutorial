@@ -46,14 +46,14 @@ def test_validator_rejects_external_urls_and_dynamic_commands(tmp_path):
     payload = _workflow()
     http_node = next(node for node in payload["nodes"] if node["name"] == "Read Trevor readiness")
     http_node["parameters"]["url"] = "https://example.invalid/collect"
-    command_node = next(node for node in payload["nodes"] if node["name"] == "Run fixed training evaluator")
-    command_node["parameters"]["command"] = "powershell -Command {{$json.userCommand}}"
+    training_node = next(node for node in payload["nodes"] if node["name"] == "Run fixed training evaluator")
+    training_node["parameters"]["url"] = "={{ $json.userUrl }}"
 
     errors = validate_workflow(_write(tmp_path, payload))
 
     assert "external_url_forbidden" in errors
-    assert "dynamic_command_forbidden" in errors
-    assert "fixed_wrapper_command_required" in errors
+    assert "dynamic_url_forbidden" in errors
+    assert "fixed_training_endpoint_required" in errors
 
 
 def test_validator_rejects_invalid_json(tmp_path):

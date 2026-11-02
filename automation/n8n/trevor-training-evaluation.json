@@ -55,12 +55,16 @@
     },
     {
       "parameters": {
-        "command": "\"E:\\智能體\\城城城程式-Trevor\\.venv\\Scripts\\python.exe\" \"E:\\智能體\\Trevor-integration-20261102\\tools\\n8n_training_evaluation.py\" --repo-root \"E:\\智能體\\Trevor-integration-20261102\" --data-root \"E:\\智能體\\TrevorData\" --backup-root \"E:\\智能體\\TrevorBackups\" --retrieval-report \"E:\\智能體\\TrevorData\\knowledge_hub\\reports\\retrieval_eval_latest.json\" --training-report \"E:\\智能體\\TrevorData\\knowledge_hub\\reports\\training_status_latest.json\" --health-url \"http://127.0.0.1:5001/health/ready\" --python-executable \"E:\\智能體\\城城城程式-Trevor\\.venv\\Scripts\\python.exe\""
+        "method": "POST",
+        "url": "http://127.0.0.1:5001/api/n8n/training-evaluation",
+        "options": {
+          "timeout": 180000
+        }
       },
       "id": "3d4ea2be-2cc1-41fc-a1f6-c8e3524f3c22",
       "name": "Run fixed training evaluator",
-      "type": "n8n-nodes-base.executeCommand",
-      "typeVersion": 1,
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [720, -80]
     },
     {

@@ -1294,6 +1294,30 @@ class WebServerMode:
                     self._send_json(result, status=HTTPStatus.ACCEPTED)
                     return
 
+                if route_path == "/api/n8n/training-evaluation":
+                    if self.client_address[0] not in {"127.0.0.1", "::1"}:
+                        self._send_json(
+                            {"ok": False, "error": "local_n8n_only"},
+                            status=HTTPStatus.FORBIDDEN,
+                        )
+                        return
+                    try:
+                        result = server_instance.bridge.run_n8n_training_evaluation()
+                    except Exception as exc:
+                        self._send_json(
+                            {
+                                "schema_version": 1,
+                                "gate_passed": False,
+                                "intro_zh": "中文說明：n8n 訓練評估 wrapper 執行失敗。",
+                                "summary_zh": "無法完成訓練評估，請查看服務日誌。",
+                                "errors": ["training_evaluation_bridge_failed"],
+                                "detail": type(exc).__name__,
+                            }
+                        )
+                        return
+                    self._send_json(result)
+                    return
+
                 if route_path == "/api/trevor/search":
                     if self._require_scope("chat") is None:
                         return

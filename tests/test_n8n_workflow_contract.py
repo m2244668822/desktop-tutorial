@@ -37,23 +37,23 @@ def test_training_workflow_has_no_external_or_credentialed_edges():
     assert "scheduleTrigger" not in encoded
     assert "webhook" not in encoded.lower()
     assert "127.0.0.1:5001/health/ready" in encoded
-    assert "http://" not in encoded.replace("http://127.0.0.1:5001/health/ready", "")
+    encoded = encoded.replace("http://127.0.0.1:5001/health/ready", "")
+    encoded = encoded.replace("http://127.0.0.1:5001/api/n8n/training-evaluation", "")
+    assert "http://" not in encoded
 
 
-def test_execute_command_is_fixed_and_does_not_interpolate_item_data():
+def test_training_request_is_fixed_local_http_and_does_not_interpolate_item_data():
     workflow = _workflow()
-    execute_nodes = [node for node in workflow["nodes"] if node["type"] == "n8n-nodes-base.executeCommand"]
+    execute_nodes = [node for node in workflow["nodes"] if node["name"] == "Run fixed training evaluator"]
 
     assert len(execute_nodes) == 1
-    command = execute_nodes[0]["parameters"]["command"]
-    assert "n8n_training_evaluation.py" in command
-    assert "--repo-root" in command
-    assert "--data-root" in command
-    assert "--backup-root" in command
-    assert "--health-url" in command
-    assert "{{$json" not in command
-    assert "{{ $json" not in command
-    assert "$input" not in command
+    assert execute_nodes[0]["type"] == "n8n-nodes-base.httpRequest"
+    assert execute_nodes[0]["parameters"]["method"] == "POST"
+    assert execute_nodes[0]["parameters"]["url"] == "http://127.0.0.1:5001/api/n8n/training-evaluation"
+    encoded = json.dumps(execute_nodes[0], ensure_ascii=False)
+    assert "{{$json" not in encoded
+    assert "{{ $json" not in encoded
+    assert "$input" not in encoded
 
 
 def test_connections_enforce_health_gate_then_sanitize():

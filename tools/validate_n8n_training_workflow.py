@@ -12,6 +12,7 @@ from typing import Any
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 ALLOWED_HEALTH_URL = "http://127.0.0.1:5001/health/ready"
+ALLOWED_TRAINING_URL = "http://127.0.0.1:5001/api/n8n/training-evaluation"
 REQUIRED_NODES = {
     "Manual Trigger",
     "Read Trevor readiness",
@@ -70,22 +71,22 @@ def validate_workflow(path: str | Path) -> list[str]:
     if any(isinstance(item, dict) and "credentials" in item for item in _walk(payload)):
         errors.append("credentials_forbidden")
 
-    for url in _urls(payload):
-        if url != ALLOWED_HEALTH_URL:
+    urls = list(_urls(payload))
+    for url in urls:
+        if any(token in url for token in ("{{", "$json", "$input")):
+            errors.append("dynamic_url_forbidden")
+        elif url not in {ALLOWED_HEALTH_URL, ALLOWED_TRAINING_URL}:
             errors.append("external_url_forbidden")
-            break
-
-    execute_nodes = [node for node in nodes if isinstance(node, dict) and node.get("type") == "n8n-nodes-base.executeCommand"]
-    if len(execute_nodes) != 1:
-        errors.append("execute_command_required")
+    training_nodes = [node for node in nodes if isinstance(node, dict) and node.get("name") == "Run fixed training evaluator"]
+    if len(training_nodes) != 1:
+        errors.append("training_endpoint_required")
     else:
-        command = str((execute_nodes[0].get("parameters") or {}).get("command", ""))
-        if any(token in command for token in ("{{", "$json", "$input")):
-            errors.append("dynamic_command_forbidden")
-        if "n8n_training_evaluation.py" not in command:
-            errors.append("fixed_wrapper_command_required")
-        if any(operator in command for operator in ("&&", "||", ";", "|")):
-            errors.append("command_operator_forbidden")
+        training_node = training_nodes[0]
+        training_url = str((training_node.get("parameters") or {}).get("url", ""))
+        if training_node.get("type") != "n8n-nodes-base.httpRequest":
+            errors.append("fixed_training_endpoint_required")
+        if training_url != ALLOWED_TRAINING_URL:
+            errors.append("fixed_training_endpoint_required")
 
     return sorted(set(errors))
 

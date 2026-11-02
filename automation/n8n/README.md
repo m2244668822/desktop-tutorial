@@ -21,9 +21,11 @@
 `trevor-training-evaluation.json` 是獨立的手動訓練／評估工作流，不會覆寫上面的 health 基準工作流，也不會自行排程。它依序：
 
 1. 讀取 `http://127.0.0.1:5001/health/ready`。
-2. 健康 gate 通過後，呼叫固定工作區 wrapper `tools/n8n_training_evaluation.py`。
+2. 健康 gate 通過後，呼叫 localhost-only 的 `POST /api/n8n/training-evaluation` bridge；bridge 再呼叫固定工作區 wrapper `tools/n8n_training_evaluation.py`。
 3. 執行 retrieval golden-set 評估與 training status 報告產生器。
 4. 只輸出 `run_id`、gate、aggregate metrics、報告路徑與中文摘要。
+
+這條 bridge 是刻意的權限邊界：n8n 不開啟全域 Execute Command，也不接收任意命令或動態 URL；只有本機 `127.0.0.1` 可以觸發，訓練 wrapper 的輸出仍維持 aggregate-only。
 
 匯入前可先做離線契約檢查：
 

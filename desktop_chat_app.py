@@ -57,9 +57,10 @@ from core.runtime_capabilities import (
     render_runtime_capability_reply,
 )
 from core.web_search import WebSearchAdapter
-from core.conversation_prompt import build_trevor_system_prompt
+from core.conversation_prompt import build_recovery_lesson_prompt, build_trevor_system_prompt
 from core.interaction_gateway import InteractionDecision, InteractionGateway
 from core.memory_policy import MemoryDecision, MemoryPromotionPolicy
+from core.recovery_lesson import LessonState, LessonTurn, RecoveryLessonEngine
 from core.safety_signals import SafetyAssessment, SafetySignalTracker
 from core.session_context import SessionConversationStore
 from core.self_improvement import SelfImprovementService
@@ -280,6 +281,7 @@ class DesktopBridge:
         self.interaction_gateway = InteractionGateway()
         self.memory_policy = MemoryPromotionPolicy()
         self.safety_tracker = SafetySignalTracker()
+        self.recovery_lesson_engine = RecoveryLessonEngine()
         self.self_improvement = SelfImprovementService(
             self.workspace,
             self.paths.data,
@@ -844,6 +846,21 @@ class DesktopBridge:
                 else "unknown",
             },
         }
+
+    def run_n8n_training_evaluation(self) -> dict[str, Any]:
+        """Run the fixed, metadata-only training pipeline for local n8n."""
+        from n8n_training_evaluation import run_pipeline
+
+        reports = self.paths.data / "knowledge_hub" / "reports"
+        return run_pipeline(
+            repo_root=self.workspace,
+            data_root=self.paths.data,
+            backup_root=self.workspace.parent / "TrevorBackups",
+            retrieval_report=reports / "retrieval_eval_latest.json",
+            training_report=reports / "training_status_latest.json",
+            health_url="http://127.0.0.1:5001/health/ready",
+            python_executable=sys.executable,
+        )
 
     def _knowledge_search(self, query: str, top_k: int = 5) -> dict:
         if not self.knowledge_hub:
@@ -2515,12 +2532,15 @@ class DesktopBridge:
         capability_mode: str = "general",
         conversation_context: list[dict[str, Any]] | None = None,
         safety_nudge: str = "",
+        lesson_context: str = "",
     ) -> list[dict[str, str]]:
         mode = str(capability_mode or "general").strip().lower()
         system_prompt = build_trevor_system_prompt(
             mode,
             safety_nudge=safety_nudge,
         )
+        if lesson_context:
+            system_prompt += f"\n\n[第一課]\n{lesson_context}"
         if retrieval_brief:
             system_prompt += (
                 "\n\n[經門檻篩選的關聯記憶]\n"
@@ -2570,6 +2590,7 @@ class DesktopBridge:
         deliberation: str = "auto",
         conversation_context: list[dict[str, Any]] | None = None,
         safety_nudge: str = "",
+        lesson_context: str = "",
     ) -> tuple[str, dict[str, Any]]:
         if not self.enable_live_llm_default:
             return "", {
@@ -2580,7 +2601,7 @@ class DesktopBridge:
 
         backend = str(requested_backend or "nvidia").strip().lower()
         deliberation = self._normalize_deliberation_mode(deliberation)
-        if backend != "open_source" and deliberation != "auto":
+        if backend != "open_source" and deliberation != "auto" and not lesson_context:
             try:
                 council_mode = deliberation
                 shadow = False
@@ -2656,6 +2677,7 @@ class DesktopBridge:
             capability_mode=capability_mode,
             conversation_context=conversation_context,
             safety_nudge=safety_nudge,
+            lesson_context=lesson_context,
         )
         try:
             if backend == "open_source":
@@ -3133,6 +3155,127 @@ class DesktopBridge:
             "availability": self.self_improvement.availability(),
         }
 
+    def _process_recovery_lesson_turn(
+        self,
+        session_id: str,
+        user_message: str,
+        safety: SafetyAssessment,
+    ) -> LessonTurn | None:
+        text = str(user_message or "").strip()
+        negated_alias = re.search(
+            r"(?:不要|先不要|暫時不要|別|不想|不用).{0,4}(?:開始壓力不是命令|做五格紀錄)",
+            text,
+        )
+        is_start = ("第一課" in text and self.recovery_lesson_engine.is_start_request(text)) or (
+            not negated_alias and bool(re.search(r"(?:開始壓力不是命令|做五格紀錄)", text))
+        )
+        raw_state = self.session_store.lesson_state(session_id)
+        if is_start:
+            turn = self.recovery_lesson_engine.start()
+            if safety.urgent:
+                turn = self.recovery_lesson_engine.accept(user_message, turn.state, safety)
+        elif raw_state and not raw_state.get("completed"):
+            turn = self.recovery_lesson_engine.accept(
+                user_message, LessonState.from_dict(raw_state), safety
+            )
+        else:
+            return None
+        self.session_store.set_lesson_state(session_id, turn.state.to_dict())
+        return turn
+
+    def _build_recovery_lesson_response(
+        self,
+        *,
+        turn: LessonTurn,
+        user_message: str,
+        session_id: str,
+        requested_role: str,
+        capability_mode: str,
+        model_key: str,
+        safety: SafetyAssessment,
+        start_ts: float,
+    ) -> dict:
+        backend = self._normalize_requested_backend(model_key, "discussion")
+        reply = turn.reply
+        llm_meta: dict[str, Any] = {
+            "ok": False,
+            "attempted": False,
+            "fallback_used": False,
+            "provider": backend,
+            "fallback_reason": "lesson_deterministic",
+        }
+        if turn.status == "active" and turn.state.current_field != "event":
+            lesson_context = build_recovery_lesson_prompt(
+                turn.state.current_field,
+                turn.state.to_dict()["record"],
+                faith_opt_in=turn.state.faith_opt_in,
+            )
+            if turn.lesson_context:
+                lesson_context += f"\n\n[安全觀察]\n{turn.lesson_context}"
+            live_reply, llm_meta = self._generate_live_llm_reply(
+                message=user_message,
+                role=self._normalize_role_name(requested_role),
+                requested_backend=backend,
+                capability_mode=capability_mode,
+                deliberation="auto",
+                conversation_context=self.session_store.messages(session_id, limit=self.max_context),
+                safety_nudge=safety.nudge if safety.should_nudge else "",
+                lesson_context=lesson_context,
+            )
+            if live_reply.strip():
+                reply = live_reply.strip()
+            else:
+                llm_meta = {**llm_meta, "fallback_used": True}
+        reply = canonicalize_trevor_reply(self._with_safety_nudge(reply, safety), capability_mode)
+        analysis = self._fallback_message_analysis(user_message)
+        analysis["interaction_route"] = "lesson"
+        analysis["intent_v2"] = "learning"
+        self._remember_dialog_turn(
+            user_message=user_message,
+            assistant_message=reply,
+            analysis=analysis,
+            workflow_ran=False,
+            session_id=session_id,
+        )
+        self.last_reply = reply
+        self.last_live_llm_meta = dict(llm_meta)
+        duration = round(time.time() - start_ts, 3)
+        lesson_state = turn.state.to_dict()
+        return decorate_trevor_response({
+            "ok": True,
+            "reply": reply,
+            "backend": backend,
+            "duration_s": duration,
+            "response_time": duration,
+            "analysis": analysis,
+            "semantic_analysis": analysis,
+            "workflow": {},
+            "workflow_ran": False,
+            "purpose": "learning",
+            "interaction_mode": "lesson",
+            "interaction": {"route": "lesson", "purpose": "learning", "should_execute": False},
+            "model": str(llm_meta.get("model") or backend),
+            "completion": {"done": turn.status == "completed", "state": turn.status},
+            "escalation": {"required": False, "reason": "", "fail_streak": 0},
+            "llm_live": llm_meta,
+            "memory": {
+                "retrieval_attempted": False,
+                "promotion": {"promote": False, "saved": False, "categories": (), "reason": "lesson_session_only", "sensitive": False},
+                "saved": False,
+            },
+            "safety": safety.public_dict(),
+            "session": {
+                "id": session_id,
+                "context_messages": len(self.session_store.messages(session_id)),
+            },
+            "lesson": {
+                "id": lesson_state["lesson_id"],
+                "status": turn.status,
+                "current_field": lesson_state["current_field"],
+                "record": lesson_state["record"],
+            },
+        }, requested_role=requested_role, capability_mode=capability_mode)
+
     def send_message(
         self,
         message: str,
@@ -3146,7 +3289,8 @@ class DesktopBridge:
         execution_confirmed: bool = False,
     ) -> dict:
         start_ts = time.time()
-        user_message = str(message or "").strip()
+        raw_user_message = str(message or "")
+        user_message = raw_user_message.strip()
         session_id = self.session_store.normalize_session_id(session_id)
         self.session_store.hydrate(session_id, conversation)
         requested_role = str(role or TREVOR_DISPLAY_NAME).strip()
@@ -3185,6 +3329,7 @@ class DesktopBridge:
             )
         pending_interaction = self.session_store.pending_interaction(session_id)
         pending_action = self.session_store.pending_action(session_id)
+        pending_was_present = bool(pending_interaction or pending_action)
         resumed_interaction = False
         if self.interaction_gateway.is_confirmation_message(user_message):
             if pending_action:
@@ -3228,6 +3373,27 @@ class DesktopBridge:
         else:
             message = user_message
 
+        safety = self.safety_tracker.assess(session_id, user_message)
+        self.last_message = user_message
+        self.last_message_ts = start_ts
+        self.reply_counter += 1
+        self._update_user_repeat_tracking(user_message)
+        if not pending_was_present:
+            lesson_turn = self._process_recovery_lesson_turn(
+                session_id, raw_user_message, safety
+            )
+            if lesson_turn is not None:
+                return self._build_recovery_lesson_response(
+                    turn=lesson_turn,
+                    user_message=user_message,
+                    session_id=session_id,
+                    requested_role=requested_role,
+                    capability_mode=requested_identity.capability_mode,
+                    model_key=model_key,
+                    safety=safety,
+                    start_ts=start_ts,
+                )
+
         decision = self.interaction_gateway.decide(
             message,
             requested_mode=interaction_mode,
@@ -3240,11 +3406,6 @@ class DesktopBridge:
             capability_mode=capability_mode,
         )
         role = self._normalize_role_name(requested_role)
-        safety = self.safety_tracker.assess(session_id, user_message)
-        self.last_message = user_message
-        self.last_message_ts = start_ts
-        self.reply_counter += 1
-        self._update_user_repeat_tracking(user_message)
         if decision.requires_confirmation:
             self.session_store.set_pending_action(session_id, message)
         elif decision.route == "clarification":
