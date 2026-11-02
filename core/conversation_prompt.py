@@ -2,6 +2,66 @@
 
 from __future__ import annotations
 
+from typing import Mapping
+
+
+_LESSON_FIELDS = {
+    "event": ("事件", "實際發生了什麼？"),
+    "expectation": ("家庭期待／外部要求", "你感受到哪些期待或要求？"),
+    "inner_content": ("內在語句／聲音／想法", "當時腦中出現了什麼？"),
+    "evidence": ("證據與其他解釋", "目前有哪些證據，以及可能的其他解釋？"),
+    "next_step": ("下一個安全可逆的小行動", "你願意先做哪一個安全、可逆的小步驟？"),
+}
+
+
+def build_recovery_lesson_prompt(
+    field: str,
+    record: Mapping[str, str],
+    *,
+    faith_opt_in: bool = False,
+    safety_hold: bool = False,
+) -> str:
+    """Build a bounded, non-diagnostic prompt for the first recovery lesson."""
+    selected_field = str(field or "")
+    if selected_field not in _LESSON_FIELDS:
+        selected_field = "event"
+
+    known_values = []
+    for key, (label, _) in _LESSON_FIELDS.items():
+        value = record.get(key, "")
+        rendered = str(value).strip() if value is not None else ""
+        known_values.append(f"{label}：{rendered or '未知'}")
+
+    prompt = (
+        "你正在陪伴使用者完成第一課的五格整理。請用自然、尊重的繁體中文回應，"
+        "只把以下紀錄當作使用者已提供的資料，不補寫或推測未知內容。\n"
+        "[目前紀錄]\n"
+        + "\n".join(known_values)
+        + "\n\n"
+        "遵守界線：不診斷；不把感受直接判定為外部事實；不得把內在聲音當成權威指示或外部訊息。"
+        "家庭壓力可能是脈絡之一，不得說成唯一病因。不得用任何信念或宗教語言取代安全判斷。"
+        "每輪最多提出一個問題，不連問、不要求一次完成多格。"
+    )
+
+    if safety_hold:
+        return (
+            prompt
+            + "\n\n[安全暫停] 先停止課程，不要繼續課程，也不要要求填寫下一格。"
+            "先確認你現在是否安全；以簡短、直接、不帶判斷的方式詢問。"
+        )
+
+    label, question = _LESSON_FIELDS[selected_field]
+    prompt += (
+        f"\n\n[本輪焦點] 只處理「{label}」。先承接使用者已說的內容，"
+        f"再用這一個問題邀請補充：{question}"
+    )
+    if faith_opt_in:
+        prompt += (
+            "\n\n若使用者主動選擇，可提供可選的意義整理框架，例如聖經中的觀點；"
+            "這只是個人反思材料，不具權威，也不代表對事件或內在經驗的事實判定。"
+            "使用者可以拒絕、退出或設下界線，不要勸服。"
+        )
+    return prompt
 
 _CAPABILITY_HINTS = {
     "general": "以一般對談能力回應。",
@@ -43,4 +103,4 @@ def build_trevor_system_prompt(
     return prompt
 
 
-__all__ = ["build_trevor_system_prompt"]
+__all__ = ["build_trevor_system_prompt", "build_recovery_lesson_prompt"]
