@@ -36,6 +36,14 @@ def expected_rank(matches: list[dict[str, Any]], case: dict[str, Any]) -> int | 
 
 
 def evaluate(hub: KnowledgeHub, cases: list[dict[str, Any]], top_k: int) -> dict[str, Any]:
+    hub_status: dict[str, Any] = {}
+    try:
+        raw_status = hub.status()
+        for key in ("total_items", "sqlite_ready", "faiss_ready", "manifest_exists"):
+            if key in raw_status:
+                hub_status[key] = raw_status[key]
+    except Exception as exc:  # pragma: no cover - defensive runtime boundary
+        hub_status = {"status_error": type(exc).__name__}
     results: list[dict[str, Any]] = []
     positive_cases = 0
     hits = 0
@@ -121,6 +129,7 @@ def evaluate(hub: KnowledgeHub, cases: list[dict[str, Any]], top_k: int) -> dict
                 "retrieved": stale_retrieved,
             },
         },
+        "hub": hub_status,
         "privacy": "metadata_only_no_retrieved_content",
         "results": results,
     }
