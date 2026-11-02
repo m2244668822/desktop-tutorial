@@ -362,3 +362,25 @@ Phase 2：可重複產品
 
 暫不處理：實體硬體、情緒辨識、全天候人工服務、臨床療效宣稱、跨地區自動救援與大型多智能體融合。
 
+## 13. Phase 0 第一課驗證紀錄（2026-11-02）
+
+本節記錄在 HEAD `68fcdd32bfcfc9f5deb777e3f04d03f257532c87` 上執行的 Phase 0 軟體驗證。測試使用 uv 隔離執行環境，提供 `pytest`、`requests` 與 `requirements-ci.txt` 所列依賴；沒有為本次驗證修改程式碼。
+
+### 可重現結果
+
+| 檢查 | 驗證證據 | 結果 |
+|---|---|---|
+| 五格流程 | `FIELD_ORDER` 固定為 event、expectation、inner_content、evidence、next_step；引擎測試逐欄輸入並確認完成狀態及原始 next step；整合測試確認每輪只寫入當前欄位，並可從第一格推進至完成。 | 通過測試案例 |
+| 緊急安全中斷 | 單元與整合測試確認 urgent 訊號進入 `safety_hold`、不呼叫 LLM／路由器、不推進 lesson，且保留既有待處理互動。 | 通過測試案例 |
+| Faith opt-in | 預設 lesson state 的 `faith_opt_in` 為 false；僅提到信仰／聖經不會自行開啟模式；未 opt-in 的輸出測試未加入信仰框架。 | 通過測試案例 |
+| 長期記憶邊界 | 整合測試禁止呼叫長期記憶與訓練 overlay 寫入函式，並確認 lesson 訊息未被升格或儲存為長期記憶。 | 通過測試案例 |
+
+### 測試結果與閘門
+
+- 聚焦套件：`62 passed`。涵蓋 recovery lesson、integration、safety signal tracker 與 conversation prompt。
+- 完整 bounded pytest：`534 passed, 16 skipped, 33 subtests passed`；無失敗。
+- `git diff --check`：無 whitespace error。
+- 本次結果支持「Phase 0 第一課軟體流程與既定安全／session 邊界在測試案例中可重現」，可作為內部單人實驗的工程 go。Phase 1 對外測試仍須完成本文件所列的納入／排除標準、人工事件處理、資料保留與地區化轉介審查。
+
+上述均為測試案例與程式行為的工程證據，不是使用者研究結果、精神症狀改善證據或臨床療效證明；不得據此宣稱治療有效或降低臨床風險。
+
