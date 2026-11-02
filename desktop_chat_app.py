@@ -790,9 +790,15 @@ class DesktopBridge:
         source_breakdown = payload.get("source_breakdown", {}) if isinstance(payload, dict) else {}
         text_items = int(payload.get("text_items", 0) or 0) if payload else 0
         ready = bool(text_items > 0 and source_breakdown)
+        sources_seen = int(payload.get("sources_seen", 0) or 0) if payload else 0
+        source_summary = (
+            f"{sources_seen} 個來源"
+            if sources_seen > 0
+            else f"{len(source_breakdown)} 個來源分類"
+        )
         summary_zh = (
             f"訓練資料層已就緒：{text_items} 個文字項目、"
-            f"{int(payload.get('sources_seen', 0) or 0) if payload else 0} 個來源。"
+            f"{source_summary}。"
             if ready
             else "訓練資料層尚未就緒，請先確認來源索引與文字項目。"
         )
@@ -810,7 +816,7 @@ class DesktopBridge:
             },
             "path": str(aeg_path),
             "generated_at": payload.get("generated_at", ""),
-            "sources_seen": int(payload.get("sources_seen", 0) or 0),
+            "sources_seen": sources_seen,
             "source_breakdown": source_breakdown,
             "text_items": text_items,
             "keywords_count": int(payload.get("keywords_count", 0) or 0) if payload else 0,
