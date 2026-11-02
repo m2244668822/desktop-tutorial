@@ -4,6 +4,24 @@
 
 核心聊天不是缺件：Web/API、DesktopBridge、SQLite 記憶、Git、Ollama 與 `qwen2.5:7b` 都可用。健康狀態已拆成核心 `status` 與 `optional_gaps`；選配服務離線不再把可用的核心誤報為 `degraded`。
 
+## 整體進度快照（2026-09-05）
+
+- **核心運作：已驗證**：`/health/live` 與 `/health/ready` 均回覆 200；`required_ready=true`、DesktopBridge ready、資料庫 ready，`degraded_reasons=[]`。
+- **資料層：已接軌**：共用 `TrevorData` 已有 9,569 筆加密索引，SQLite、FAISS、Knowledge Hub manifest 與 AEG report 均存在；ChatGPT 加密遷移證據為 5,165 回合。
+- **檢索層：已驗收**：4 組版本化 metadata-only 案例全部命中，hit rate `1.0`、MRR `0.8333`，不把檢索內容寫入報告。
+- **對話續接：已完成第一階段**：session state 已有結構化 pending interaction；clarification 後的補充會帶回原始目標並續接 task/workflow，同時保留高風險確認流程與 session 隔離。
+- **雲端模型：接入能力已驗證**：NVIDIA、Gemini、Groq、Cerebras、OpenRouter、Cloudflare 的 registry、HTTP client、deliberation 與 fallback 契約測試通過；實際 provider 仍因未配置金鑰而停用。
+- **API 保護：已存在且與雲端 provider 分離**：`TrevorData/auth/api_keys.json` 保存受保護 API access key 的 metadata（digest、scopes、status、撤銷資訊），本機 HMAC／local-admin token 由 Windows Credential Manager 保護；這些是本機 API 認證，不等同 NVIDIA/Gemini 等雲端模型金鑰。
+- **智能體服務：已重載**：已重載 5001 聊天服務，使最新的來源狀態判定生效；n8n 5678 與 JS Task Broker 5679 維持運作，健康檢查工作流仍預設停用。
+- **品質驗證：已通過**：完整測試 `427 passed, 16 skipped, 33 subtests passed`。
+- **目前限制**：雲端模型未配置；OpenClaw、TLS/Tailscale、Graphiti 仍是選配或待決邊界，不阻斷本機聊天。服務重載後自動保存短暫為 `dirty`，目前僅有 `ide_context`、失敗數為 0，應由下一個保存週期收斂為 clean。
+
+### 接續原則
+
+1. 先維持本機 Qwen、SQLite/FAISS 與 DesktopBridge 的穩定運作，不在沒有金鑰或資料邊界同意時啟用雲端模型或 Graphiti。
+2. 以 `/health/ready`、檢索基準與完整測試作為每次續作前的最低驗收門檻。
+3. 下一個功能優先補齊 pending interaction 的選項型 workflow 與程序重啟後的持久化；不因新增選配服務而改變核心聊天路徑。
+
 ## 已可用
 
 | 能力 | 狀態 | 證據 |
@@ -19,6 +37,7 @@
 | AI Horde 網路 | ready | 官方 heartbeat 回覆 OK；匿名工作完成並下載 30,796-byte WebP |
 | 圖片 API 憑證層 | repaired | Windows Credential Manager 原生讀寫往返通過；API 回報 configured=true |
 | n8n 自動化 | ready | Node.js 24.19.0、n8n 2.37.10；5678 health/readiness 與 5679 JS Task Broker 正常 |
+| 檢索品質驗收 | ready | 可重跑 4 組 metadata-only 基準；不把私人檢索內文寫入報告 |
 
 ## 本輪已修復的實質缺口
 
@@ -33,6 +52,8 @@
 - SQLite 的內容、摘要與 metadata 改為 AES-256-GCM 欄位加密；FAISS 只保存向量，metadata 檔不保存摘要文字。抽樣原文未出現在 SQLite 或 metadata。
 - Windows 中文路徑下的 FAISS 改用記憶體序列化，再交由 Python Unicode 檔案 API 存取。
 - Graphiti 遷移為 pending，遷移數量 0。
+- 修正來源狀態語意：原始 ChatGPT JSON 與「已完成的加密遷移」分開顯示；遷移清單證明 5,165 個來源回合已匯入時，不再誤報整個 ChatGPT 長期記憶缺失。
+- 新增 `tools/evaluate_knowledge_retrieval.py` 與版本化基準案例，可量測 hit rate／MRR；結果只保留來源、路徑與名次，不落地私人對話內文。
 
 剩餘影響：本機 SQLite／FAISS 搜尋已可用；跨關係圖記憶仍待 Graphiti sidecar 與明確的遠端資料邊界，低流量模式下不自動上傳。
 
@@ -52,7 +73,7 @@
 - 修正臨時工作區被正式 `TREVOR_DATA_DIR` 污染、唯讀暫存憑證無法清理、Git 輸出 cp950 解碼與 macOS-only 測試邊界。
 - AEG 明文關鍵字圖只讀取 135 份公開系統文件，不再把私人對話蒸餾成明文關鍵字；目前為 137 個文字項目（含 Git 與 n8n 狀態）。
 - `/health/ready` 的核心狀態只依 DesktopBridge 與資料庫判斷；FAISS、AEG、TLS、OpenClaw 的缺口另列於 `optional_gaps`，避免選配能力污染核心可用性。
-- 完整測試現為 418 passed、0 failed、16 skipped、33 subtests passed。
+- 完整測試現為 427 passed、0 failed、16 skipped、33 subtests passed。
 
 ### P2：n8n 本機自動化（已安裝）
 
@@ -63,6 +84,7 @@
 - 遙測、版本通知、外部模板、公開 API、未驗證社群套件與 MCP registry 自動抓取均關閉；解壓上限與 runner timeout 採較保守值。
 - Python Task Runner 尚未配置；目前 JS 工作流與 n8n 主服務不受影響。若未來確實需要 Python Code node，應另外部署官方建議的 external runner，不把內建除錯 runner 誤當正式架構。
 - n8n 2.37 提示未來版本將要求官方 Docker image；本機 npm 版目前可用，但升級前需先規劃容器遷移。
+- 新增 `automation/n8n/trevor-local-health-check.json`：預設停用、手動觸發、無憑證，只讀本機 Trevor readiness；作為後續工作流的最小安全基準。
 
 ## 仍需要使用者選擇或外部服務的缺口
 
@@ -70,6 +92,7 @@
 
 - NVIDIA、Gemini、Groq、Cerebras、OpenRouter、Cloudflare 均為 `not_configured`。
 - OpenAI 前端卡片也顯示未設定。
+- 已掃描 `E:\智能體` 的環境檔與設定索引；目前只找到 `.env.example`／`.env.oci.example`，沒有可安全直接使用的現行 `.env` 憑證檔。舊稽核文件提到的 Mac `.env` 金鑰只作歷史證據，不作為 Windows 啟用來源。
 - 現在可由本機 Qwen 對談，但嚴謹推理、長上下文與快速雲端回退沒有冗餘。
 
 影響：Qwen 忙碌或能力不足時，沒有另一個已連線的模型接手。
@@ -99,7 +122,7 @@
 ## 建議順序
 
 1. 先用匿名 AI Horde 完成實圖驗證；需要速度時再由使用者以隱藏提示設定個人金鑰。
-2. 維持本機 9,569 筆加密記憶與 FAISS；先做檢索品質評估，再決定是否啟用 Graphiti，避免無篩選上傳。
+2. 維持本機 9,569 筆加密記憶與 FAISS；以版本化基準持續觀察 hit rate／MRR，再決定是否啟用 Graphiti，避免無篩選上傳。
 3. 自治 worker 已常駐；先觀察心跳、錯誤日誌與夜間維護結果，不新增無明確目的的任務。
 4. 需要雲端備援時只選一個模型，由使用者自行提供金鑰；低流量模式維持 Qwen 優先。
 5. n8n 已可用；先建立最小、可回滾的本機工作流。有跨裝置或外網需求時才補 TLS/Tailscale。

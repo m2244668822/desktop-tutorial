@@ -82,6 +82,50 @@ export PYTHONIOENCODING=utf-8
 python3 desktop_chat_app.py web --host 127.0.0.1 --port 5001 --energy-lite
 ```
 
+## macOS Git Handoff
+
+Use the active Trevor branch when cloning the current Windows work, rather than assuming `main` contains the latest runtime:
+
+```bash
+git clone --branch codex/trevor-windows-sync-20260901 \
+  https://github.com/m2244668822/desktop-tutorial.git Trevor
+cd Trevor
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+cp .env.example .env
+```
+
+The `.env` file is non-secret configuration only. Provider API keys belong in macOS Keychain under service `trevor.providers`, with accounts such as `nvidia-api-key` and `gemini-api-key`; AI Horde uses service `perob.ai-horde`, account `api-key`.
+
+Store a provider key without printing it to the terminal:
+
+```bash
+read -s -p "Provider API key: " KEY; echo
+security add-generic-password -a gemini-api-key -s trevor.providers -w "$KEY" -U
+unset KEY
+security find-generic-password -a gemini-api-key -s trevor.providers >/dev/null \
+  && echo configured || echo missing
+```
+
+After mounting or copying the shared data, regenerate the machine-local handoff manifest and run the health check:
+
+```bash
+python tools/sync_knowledge_hub.py
+python -m pytest -q
+python desktop_chat_app.py web --host 127.0.0.1 --port 5001 --energy-lite
+```
+
+Do not commit `.env`, Keychain data, `TrevorData`, or machine-specific manifests. Before pushing a reviewed change:
+
+```bash
+git status -sb
+git diff --check
+git push -u origin codex/trevor-windows-sync-20260901
+```
+
+If the branch has not been reviewed and committed, do not push the working tree directly; commit only the intended source, test, and documentation files first.
+
 If macOS uses a different mount path, regenerate the manifest after mounting the workspace:
 
 ```bash

@@ -13,6 +13,7 @@ from typing import Any, Iterable, Mapping
 class _SessionState:
     messages: list[dict[str, Any]] = field(default_factory=list)
     pending_action: str = ""
+    pending_interaction: dict[str, Any] | None = None
     updated_at: float = field(default_factory=monotonic)
 
 
@@ -118,7 +119,15 @@ class SessionConversationStore:
     def set_pending_action(self, session_id: str | None, message: str) -> None:
         with self._lock:
             state = self._state_unlocked(session_id)
-            state.pending_action = str(message or "").strip()[:12000]
+            normalized = str(message or "").strip()[:12000]
+            state.pending_action = normalized
+            state.pending_interaction = {
+                "kind": "confirmation",
+                "original_message": normalized,
+                "question": "",
+                "options": [],
+                "required_confirmation": True,
+            }
 
     def pending_action(self, session_id: str | None) -> str:
         with self._lock:
@@ -129,6 +138,7 @@ class SessionConversationStore:
             state = self._state_unlocked(session_id)
             message = state.pending_action
             state.pending_action = ""
+            state.pending_interaction = None
             state.updated_at = monotonic()
             return message
 
@@ -136,6 +146,48 @@ class SessionConversationStore:
         with self._lock:
             state = self._state_unlocked(session_id)
             state.pending_action = ""
+            state.pending_interaction = None
+
+    def set_pending_interaction(
+        self,
+        session_id: str | None,
+        *,
+        kind: str,
+        original_message: str,
+        question: str = "",
+        options: Iterable[str] | None = None,
+        required_confirmation: bool = False,
+    ) -> None:
+        normalized_options = [str(item).strip()[:500] for item in options or () if str(item).strip()]
+        interaction = {
+            "kind": str(kind or "clarification").strip()[:64],
+            "original_message": str(original_message or "").strip()[:12000],
+            "question": str(question or "").strip()[:4000],
+            "options": normalized_options[:9],
+            "required_confirmation": bool(required_confirmation),
+        }
+        with self._lock:
+            state = self._state_unlocked(session_id)
+            state.pending_interaction = interaction
+            state.pending_action = (
+                interaction["original_message"]
+                if interaction["required_confirmation"]
+                else ""
+            )
+
+    def pending_interaction(self, session_id: str | None) -> dict[str, Any] | None:
+        with self._lock:
+            state = self._state_unlocked(session_id)
+            return deepcopy(state.pending_interaction)
+
+    def take_pending_interaction(self, session_id: str | None) -> dict[str, Any] | None:
+        with self._lock:
+            state = self._state_unlocked(session_id)
+            interaction = deepcopy(state.pending_interaction)
+            state.pending_interaction = None
+            state.pending_action = ""
+            state.updated_at = monotonic()
+            return interaction
 
     def session_count(self) -> int:
         with self._lock:

@@ -38,3 +38,23 @@ def test_pending_action_is_scoped_to_its_session():
     assert store.pending_action("session-b") == ""
     assert store.take_pending_action("session-a") == "刪除舊資料"
     assert store.pending_action("session-a") == ""
+
+
+def test_pending_interaction_preserves_clarification_context():
+    store = SessionConversationStore()
+    store.set_pending_interaction(
+        "session-a",
+        kind="clarification",
+        original_message="幫我處理一下",
+        question="請告訴我要處理的目標。",
+    )
+
+    assert store.pending_interaction("session-a") == {
+        "kind": "clarification",
+        "original_message": "幫我處理一下",
+        "question": "請告訴我要處理的目標。",
+        "options": [],
+        "required_confirmation": False,
+    }
+    assert store.take_pending_interaction("session-a")["original_message"] == "幫我處理一下"
+    assert store.pending_interaction("session-a") is None

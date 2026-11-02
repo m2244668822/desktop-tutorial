@@ -604,7 +604,7 @@ class DesktopBridge:
         if AgentMemoryManager:
             try:
                 self.memory_manager = AgentMemoryManager(
-                    str(self.workspace), auto_save=True
+                    str(self.workspace), auto_save=not self.energy_lite
                 )
                 # 嘗試加載已保存的對話上下文
                 saved_context = self.memory_manager.get_conversation_history(
@@ -3155,7 +3155,9 @@ class DesktopBridge:
                 safety=safety,
                 start_ts=start_ts,
             )
+        pending_interaction = self.session_store.pending_interaction(session_id)
         pending_action = self.session_store.pending_action(session_id)
+        resumed_interaction = False
         if self.interaction_gateway.is_confirmation_message(user_message):
             if pending_action:
                 message = self.session_store.take_pending_action(session_id)
@@ -3182,9 +3184,20 @@ class DesktopBridge:
                     decision=decision,
                     safety=safety,
                 )
-        else:
-            if pending_action:
+        elif pending_interaction:
+            if pending_interaction.get("kind") == "clarification":
+                original_message = str(pending_interaction.get("original_message", "")).strip()
+                message = (
+                    f"{original_message}\n使用者補充：{user_message}"
+                    if original_message
+                    else user_message
+                )
+                self.session_store.take_pending_interaction(session_id)
+                resumed_interaction = True
+            else:
                 self.session_store.clear_pending_action(session_id)
+                message = user_message
+        else:
             message = user_message
 
         decision = self.interaction_gateway.decide(
@@ -3206,6 +3219,14 @@ class DesktopBridge:
         self._update_user_repeat_tracking(user_message)
         if decision.requires_confirmation:
             self.session_store.set_pending_action(session_id, message)
+        elif decision.route == "clarification":
+            self.session_store.set_pending_interaction(
+                session_id,
+                kind="clarification",
+                original_message=message,
+                question=decision.clarification,
+                required_confirmation=False,
+            )
         if decision.route in {"clarification", "confirmation"}:
             return self._build_interaction_gate_response(
                 user_message=user_message,
@@ -3248,6 +3269,7 @@ class DesktopBridge:
             analysis = self._fallback_message_analysis(message)
         analysis["interaction_route"] = decision.route
         analysis["intent_v2"] = decision.purpose
+        analysis["resumed_interaction"] = resumed_interaction
         self.last_message_analysis = analysis
         turn_keywords = self._derive_turn_keywords(message, analysis)
         retrieval_payload = (

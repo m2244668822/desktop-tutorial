@@ -64,12 +64,18 @@
 └─ 舊工作樹有未提交變更 → 先合併／封存，禁止批次刪除
 ```
 
-## 尚未完成的資料層
+## 後續資料層邊界
 
-1. `memory_layers` 現在只有 2 筆對話來源，尚未把 135 份文件導入三層記憶搜尋。
-2. FAISS 套件可用，但 `long_term.faiss` 尚不存在，因此語意搜尋仍未 ready。
-3. `documents.jsonl` / `chunks.jsonl` 目前是前置導入產物；需要一個明確的 promotion 階段，才能成為崔佛實際對話會查詢的記憶來源。
-4. 舊工作樹的 15 個未提交變更需先逐項比對現行 Trevor 分支，之後才能決定合併或封存；現在刪除會有資料遺失風險。
+本文件初次稽核時列出的導入與 FAISS 缺口，已在後續 Windows 系統稽核中完成：
+
+- 135 份文件已進入共用知識導入層；去重後建立 9,569 筆加密記憶索引。
+- `memory.sqlite3` 與 `long_term.faiss` 已建立，最新狀態與 metadata-only retrieval report 位於共用 `TrevorData`。
+- `documents.jsonl` / `chunks.jsonl` 仍保留作為可重建的導入證據，不再被誤判為尚未 promotion；實際查詢路徑由 SQLite／FAISS 記憶層提供。
+
+仍未完成的事項：
+
+1. Graphiti 關係記憶尚未接軌；在明確遠端資料邊界前不自動上傳私人內容。
+2. 舊工作樹的 15 個未提交變更仍需逐項比對現行 Trevor 分支，之後才能決定合併或封存；現在刪除會有資料遺失風險。
 
 ## 驗證
 

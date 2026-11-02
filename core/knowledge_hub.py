@@ -18,6 +18,53 @@ from core.data_paths import ProjectPaths
 from core.memory_layers import ThreeLayerMemory, collect_memory_sources
 
 
+def _chatgpt_source_status(paths: ProjectPaths) -> dict[str, Any]:
+    """Describe whether imported ChatGPT history is recoverable.
+
+    The raw legacy JSON is optional after a successful encrypted migration.  A
+    migration manifest with imported ChatGPT turns is durable provenance and
+    prevents health checks from reporting already-migrated history as missing.
+    """
+    raw_candidates = [
+        paths.llama_data / "local_knowledge" / "complete_chatgpt_database.json",
+        paths.llama_data / "local_knowledge" / "local_knowledge_base.json",
+    ]
+    migration_manifest = paths.data / "migrations" / "trevor_data_manifest.json"
+    migration: dict[str, Any] = {}
+    if migration_manifest.exists():
+        try:
+            import json
+
+            payload = json.loads(migration_manifest.read_text(encoding="utf-8"))
+            if isinstance(payload, dict):
+                migration = payload
+        except (OSError, ValueError):
+            migration = {}
+
+    source_counts = migration.get("source_counts", {})
+    migrated_turns = (
+        int(source_counts.get("chatgpt_database", 0) or 0)
+        if isinstance(source_counts, dict)
+        else 0
+    )
+    raw_ready = any(path.exists() for path in raw_candidates)
+    migrated_ready = (
+        migration.get("identity") == "trevor"
+        and bool(migration.get("rerunnable"))
+        and migrated_turns > 0
+    )
+    return {
+        "chatgpt_database_ready": raw_ready or migrated_ready,
+        "raw_chatgpt_database_ready": raw_ready,
+        "migrated_chatgpt_database_ready": migrated_ready,
+        "migrated_chatgpt_turns": migrated_turns,
+        "migration_manifest_path": str(migration_manifest),
+        "migration_manifest_exists": migration_manifest.exists(),
+        "chatgpt_database_path": str(raw_candidates[0]),
+        "chatgpt_local_index_path": str(raw_candidates[1]),
+    }
+
+
 class KnowledgeHub:
     def __init__(self, workspace: str | Path):
         self.workspace = Path(workspace).expanduser().resolve()
@@ -47,15 +94,10 @@ class KnowledgeHub:
         with self._lock:
             stats = self._memory.stats()
             paths = ProjectPaths(self.workspace)
+            chatgpt_source = _chatgpt_source_status(paths)
             sqlite_path = Path(str(stats.get("sqlite_path", "")))
             faiss_path = Path(str(stats.get("faiss_path", "")))
             meta_path = Path(str(stats.get("meta_path", "")))
-            chatgpt_database_path = (
-                paths.llama_data / "local_knowledge" / "complete_chatgpt_database.json"
-            )
-            chatgpt_local_index_path = (
-                paths.llama_data / "local_knowledge" / "local_knowledge_base.json"
-            )
             total_items = int(stats.get("total_items", 0) or 0)
             sqlite_ready = sqlite_path.exists() and total_items > 0
             faiss_available = bool(stats.get("faiss_available"))
@@ -74,10 +116,7 @@ class KnowledgeHub:
                 "faiss_available": faiss_available,
                 "faiss_file_exists": faiss_file_exists,
                 "faiss_ready": faiss_ready,
-                "chatgpt_database_ready": chatgpt_database_path.exists()
-                or chatgpt_local_index_path.exists(),
-                "chatgpt_database_path": str(chatgpt_database_path),
-                "chatgpt_local_index_path": str(chatgpt_local_index_path),
+                **chatgpt_source,
                 "by_source": stats.get("by_source", {}),
                 "sqlite_path": str(sqlite_path),
                 "faiss_path": str(faiss_path),

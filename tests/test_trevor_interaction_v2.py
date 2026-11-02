@@ -1,4 +1,5 @@
 from unittest import mock
+from pathlib import Path
 
 from desktop_chat_app import DesktopBridge
 
@@ -15,6 +16,30 @@ def _bridge():
     bridge._persist_training_overlay_sample = lambda **_kwargs: None
     bridge._should_attempt_live_llm_backend = lambda _backend: True
     return bridge
+
+
+def test_energy_lite_disables_memory_autosave(monkeypatch):
+    import desktop_chat_app
+
+    class MemoryManagerSpy:
+        instances = []
+
+        def __init__(self, *args, **kwargs):
+            self.auto_save = kwargs["auto_save"]
+            self.instances.append(self)
+
+        def get_conversation_history(self, **_kwargs):
+            return []
+
+        def save_ide_context(self, _context):
+            return None
+
+    monkeypatch.setattr(desktop_chat_app, "AgentMemoryManager", MemoryManagerSpy)
+    bridge = desktop_chat_app.DesktopBridge(workspace=Path.cwd(), energy_lite=True)
+    try:
+        assert MemoryManagerSpy.instances[-1].auto_save is False
+    finally:
+        bridge.stop_background_monitor()
 
 
 def test_bridge_keeps_model_context_isolated_by_session():
@@ -155,6 +180,36 @@ def test_high_risk_confirmation_replays_only_the_pending_session_action():
     assert confirmed["interaction"]["route"] == "task"
     assert confirmed["workflow_ran"] is True
     run.assert_called_once_with("刪除舊資料", workspace=str(bridge.workspace))
+
+
+def test_clarification_reply_resumes_original_target_in_same_session():
+    bridge = _bridge()
+    workflow_result = {
+        "route": "崔佛",
+        "result": "已完成檢查",
+        "verification_notes": "測試狀態已確認",
+        "task_state": {
+            "overall_status": "success",
+            "completed_steps": 1,
+            "failed_steps": 0,
+        },
+    }
+    try:
+        first = bridge.send_message("幫我處理一下", session_id="resume")
+        with mock.patch("core.langgraph_workflow.run_workflow", return_value=workflow_result) as run:
+            resumed = bridge.send_message(
+                "目前這個 repo，直接檢查測試", session_id="resume"
+            )
+    finally:
+        bridge.stop_background_monitor()
+
+    assert first["completion"]["state"] == "awaiting_clarification"
+    assert resumed["interaction"]["route"] == "task"
+    assert resumed["workflow_ran"] is True
+    run.assert_called_once_with(
+        "幫我處理一下\n使用者補充：目前這個 repo，直接檢查測試",
+        workspace=str(bridge.workspace),
+    )
 
 
 def test_explicit_backend_optimization_starts_an_isolated_background_proposal():

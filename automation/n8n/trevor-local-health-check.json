@@ -1,0 +1,48 @@
+{
+  "name": "Trevor Local Health Check",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "639d6e40-7fb9-4f5a-b178-af1c13314c75",
+      "name": "Manual only",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "url": "http://127.0.0.1:5001/health/ready",
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "aa59768c-f87d-454b-ae6a-70a75859b15e",
+      "name": "Read Trevor readiness",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [240, 0]
+    }
+  ],
+  "connections": {
+    "Manual only": {
+      "main": [
+        [
+          {
+            "node": "Read Trevor readiness",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "5fb92a97-89fd-418b-b8e4-f8ebf9c14520",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

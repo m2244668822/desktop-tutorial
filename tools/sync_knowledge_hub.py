@@ -70,6 +70,12 @@ def build_manifest(workspace: str | Path = BASE_DIR) -> dict[str, Any]:
         "data_entry_is_link_like": is_link_like(data_entry),
         "hub_dir": str(paths.data / "knowledge_hub"),
         "chatgpt_database_ready": bool(status.get("chatgpt_database_ready")),
+        "raw_chatgpt_database_ready": bool(status.get("raw_chatgpt_database_ready")),
+        "migrated_chatgpt_database_ready": bool(
+            status.get("migrated_chatgpt_database_ready")
+        ),
+        "migrated_chatgpt_turns": int(status.get("migrated_chatgpt_turns", 0) or 0),
+        "migration_manifest_path": status.get("migration_manifest_path", ""),
         "chatgpt_database_path": status.get("chatgpt_database_path", ""),
         "chatgpt_local_index_path": status.get("chatgpt_local_index_path", ""),
         "sqlite_ready": bool(status.get("sqlite_ready")),
@@ -104,7 +110,9 @@ def write_readme(manifest: dict[str, Any], hub_dir: Path) -> None:
         f"- 產生時間：{manifest.get('generated_at', '')}",
         f"- 工作區：`{manifest.get('workspace', '')}`",
         f"- 資料入口：`{manifest.get('data_root', '')}`",
-        f"- ChatGPT 長期記憶庫：{'就緒' if manifest.get('chatgpt_database_ready') else '未就緒'}",
+        f"- ChatGPT 長期記憶：{'就緒' if manifest.get('chatgpt_database_ready') else '未就緒'}",
+        f"- 原始 ChatGPT JSON：{'保留' if manifest.get('raw_chatgpt_database_ready') else '未保留／已遷移'}",
+        f"- 加密遷移：{'就緒' if manifest.get('migrated_chatgpt_database_ready') else '未就緒'}（{manifest.get('migrated_chatgpt_turns', 0)} 回合）",
         f"- SQLite：{'就緒' if manifest.get('sqlite_ready') else '未就緒'}",
         f"- FAISS：{'就緒' if manifest.get('faiss_ready') else '未就緒'}",
         f"- 索引筆數：{manifest.get('total_items', 0)}",
@@ -129,6 +137,7 @@ def write_readme(manifest: dict[str, Any], hub_dir: Path) -> None:
             "",
             "## 注意",
             "",
+            "- 原始 ChatGPT JSON 與加密遷移是兩種來源證據；成功遷移後，原始檔缺席不等於記憶遺失。",
             "- 若 manifest 缺失但 SQLite/FAISS 檔案存在，代表資料本體還在，只是交接卡要重建。",
             "- 若 Mac 端路徑不同，請先跑本腳本重新生成 manifest，不要直接沿用 Windows 絕對路徑。",
         ]
