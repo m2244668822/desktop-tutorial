@@ -1,0 +1,169 @@
+{
+  "name": "Trevor Training Evaluation (Manual)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "f9a4d5a8-7c1c-49bb-b1d0-4f5be86a5bd9",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://127.0.0.1:5001/health/ready",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "6d6ce5b7-4f36-4bd1-a19a-46e5ef2d24c4",
+      "name": "Read Trevor readiness",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [240, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "health-required-ready",
+              "leftValue": "={{ $json.required_ready }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "0a6c8d11-05a6-4eb6-b18a-2d4c4e6f9f72",
+      "name": "Health gate",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [480, 0]
+    },
+    {
+      "parameters": {
+        "command": "\"E:\\智能體\\城城城程式-Trevor\\.venv\\Scripts\\python.exe\" \"E:\\智能體\\Trevor-integration-20261102\\tools\\n8n_training_evaluation.py\" --repo-root \"E:\\智能體\\Trevor-integration-20261102\" --data-root \"E:\\智能體\\TrevorData\" --backup-root \"E:\\智能體\\TrevorBackups\" --retrieval-report \"E:\\智能體\\TrevorData\\knowledge_hub\\reports\\retrieval_eval_latest.json\" --training-report \"E:\\智能體\\TrevorData\\knowledge_hub\\reports\\training_status_latest.json\" --health-url \"http://127.0.0.1:5001/health/ready\" --python-executable \"E:\\智能體\\城城城程式-Trevor\\.venv\\Scripts\\python.exe\""
+      },
+      "id": "3d4ea2be-2cc1-41fc-a1f6-c8e3524f3c22",
+      "name": "Run fixed training evaluator",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [720, -80]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $json.stdout || '';\nlet input = $json;\ntry {\n  input = raw ? JSON.parse(raw) : $json;\n} catch (error) {\n  input = { schema_version: 1, gate_passed: false, errors: ['wrapper_output_invalid'] };\n}\nconst fields = ['schema_version', 'run_id', 'gate_passed', 'intro_zh', 'summary_zh', 'field_descriptions_zh', 'health', 'retrieval', 'training', 'artifacts', 'errors'];\nconst output = {};\nfor (const field of fields) output[field] = input[field] ?? null;\nreturn [{ json: output }];"
+      },
+      "id": "5f281a2d-7e1a-4de9-98c2-c0e1662f7a3e",
+      "name": "Sanitize result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [960, -80]
+    },
+    {
+      "parameters": {
+        "jsCode": "const h = $json || {};\nreturn [{ json: {\n  schema_version: 1,\n  run_id: `health-gate-${Date.now()}`,\n  gate_passed: false,\n  intro_zh: '中文說明：健康 gate 未通過，因此沒有執行 retrieval 或訓練報告。',\n  summary_zh: '核心服務尚未就緒，請先處理 degraded_reasons。',\n  field_descriptions_zh: { health: 'Trevor 核心服務狀態。', gate_passed: '本輪是否可交付。' },\n  health: { status: h.status || 'degraded', required_ready: false, optional_gaps: h.optional_gaps || [], degraded_reasons: h.degraded_reasons || [] },\n  retrieval: {},\n  training: {},\n  artifacts: {},\n  errors: ['health_gate_failed']\n} }];"
+      },
+      "id": "fcf5a5e5-8bba-4b82-8d4d-a1e0d7ecce5a",
+      "name": "Health gate failure",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [720, 120]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read Trevor readiness",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Trevor readiness": {
+      "main": [
+        [
+          {
+            "node": "Health gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Health gate": {
+      "main": [
+        [
+          {
+            "node": "Run fixed training evaluator",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Health gate failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run fixed training evaluator": {
+      "main": [
+        [
+          {
+            "node": "Sanitize result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Health gate failure": {
+      "main": [
+        [
+          {
+            "node": "Sanitize result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "0b9e7b19-0b55-4f5a-9344-ffdf260fbf92",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": [
+    {
+      "name": "training"
+    },
+    {
+      "name": "retrieval"
+    },
+    {
+      "name": "manual"
+    }
+  ]
+}
