@@ -29,6 +29,9 @@ class PerobMainlineHealthContractTests(unittest.TestCase):
     def test_readiness_exposes_memory_autosave_and_aeg_training(self):
         self.assertIn("memory_autosave", WEB_SERVER)
         self.assertIn("aeg_training", WEB_SERVER)
+        self.assertIn('"intro_zh"', WEB_SERVER)
+        self.assertIn('"summary_zh"', WEB_SERVER)
+        self.assertIn('"field_descriptions_zh"', WEB_SERVER)
         self.assertIn("get_memory_autosave_status", DESKTOP_APP)
         self.assertIn("get_aeg_training_status", DESKTOP_APP)
 

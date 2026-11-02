@@ -267,9 +267,25 @@ class WebServerMode:
             knowledge_status=knowledge_hub,
             provider_status=provider_payload if isinstance(provider_payload, dict) else {},
         )
+        optional_gap_text = "、".join(optional_gaps) if optional_gaps else "無"
+        summary_zh = (
+            "核心服務已就緒，可進行對話與記憶操作。"
+            if required_ready
+            else "核心服務尚未完全就緒，請先查看 degraded_reasons。"
+        )
+        if optional_gaps:
+            summary_zh += f" 可選缺口：{optional_gap_text}。"
         return {
             "ok": required_ready,
             "status": "ready" if required_ready else "degraded",
+            "intro_zh": "中文說明：這份健康檢查用來確認核心服務是否可用；optional gap 不等於核心故障。",
+            "summary_zh": summary_zh,
+            "field_descriptions_zh": {
+                "required_ready": "核心橋接與資料庫是否已達到可用門檻。",
+                "knowledge_hub": "長期記憶、SQLite 與 FAISS 的狀態。",
+                "optional_gaps": "不阻斷核心對話的可選服務缺口。",
+                "degraded_reasons": "會阻斷核心服務的必要條件問題。",
+            },
             "required_ready": required_ready,
             "bridge_ready": bridge_ready,
             "database_ready": db_ready,

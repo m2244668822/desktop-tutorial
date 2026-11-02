@@ -106,6 +106,24 @@ def collect_retrieval_status(path: Path) -> dict[str, Any]:
     }
 
 
+def _training_summary_zh(
+    readiness: dict[str, bool], retrieval: dict[str, Any], backup: dict[str, Any], git: dict[str, Any]
+) -> str:
+    labels = {
+        "data": "資料",
+        "retrieval": "檢索",
+        "backup": "備份",
+        "git": "Git",
+    }
+    missing = [labels[key] for key, ok in readiness.items() if not ok]
+    if not missing:
+        return (
+            "訓練準備狀態：可交付。資料、檢索、備份與 Git 都已通過；"
+            f"目前檢索 hit rate 為 {retrieval.get('hit_rate', 0.0):.4f}。"
+        )
+    return f"訓練準備狀態：尚未可交付；待處理層級：{'、'.join(missing)}。"
+
+
 def build_training_status_report(
     *,
     repo_root: str | Path,
@@ -132,6 +150,14 @@ def build_training_status_report(
     return {
         "schema_version": 1,
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "intro_zh": "中文說明：這份報告用來確認智能體訓練的資料、檢索、備份與版本狀態。",
+        "summary_zh": _training_summary_zh(readiness, retrieval, backup, git),
+        "field_descriptions_zh": {
+            "readiness": "四個必要層級是否通過：data、retrieval、backup、git。",
+            "retrieval": "檢索命中率、排名、引用正確性與 stale／隱私風險。",
+            "backup": "最近一次加密 snapshot 與 manifest 是否通過校驗。",
+            "git": "目前工作樹是否乾淨，以及與遠端分支的差異。",
+        },
         "readiness": readiness,
         "git": git,
         "data": data,

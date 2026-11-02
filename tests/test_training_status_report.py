@@ -50,6 +50,9 @@ def test_training_status_report_is_structured_and_secret_free(tmp_path):
     )
 
     assert report["schema_version"] == 1
+    assert report["intro_zh"]
+    assert report["summary_zh"]
+    assert "readiness" in report["field_descriptions_zh"]
     assert report["readiness"]["backup"] is True
     assert report["retrieval"]["citation_correctness"] == 0.75
     assert "must not be copied" not in json.dumps(report)
@@ -70,3 +73,4 @@ def test_training_status_report_flags_missing_or_stale_layers(tmp_path):
     assert report["readiness"]["backup"] is False
     assert report["readiness"]["retrieval"] is False
     assert report["git"]["dirty_files"] == ["secret.env"]
+    assert "尚未" in report["summary_zh"]
