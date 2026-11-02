@@ -3229,6 +3229,11 @@ class DesktopBridge:
                         markers and markers[-1].group() == "是"
                         and immediately_before_predicate.endswith("不")
                     )
+                    # An outer negation reverses the adjacent copular negation.
+                    if negated_copula and re.search(
+                        r"(?:不可能|並非)不$", immediately_before_predicate
+                    ):
+                        return True
                     if negated_copula or re.search(
                         r"(?:並沒有|沒有|未曾|不曾|不是|不會|不在|不可能|不是真的|不確定|不必|不應該|不要)$",
                         immediately_before_predicate,
