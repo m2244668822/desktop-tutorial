@@ -77,6 +77,9 @@ class RemoteAPIKeyBootstrapTests(unittest.TestCase):
     def test_privilege_dropper_never_chowns_service_controlled_paths_as_root(self):
         from tools import issue_trevor_api_key as issuer
 
+        if issuer.pwd is None:
+            self.skipTest('POSIX privilege switching is unavailable')
+
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / 'data'
             root.mkdir()
