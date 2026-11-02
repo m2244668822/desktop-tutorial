@@ -3212,16 +3212,25 @@ class DesktopBridge:
             )
             if turn.lesson_context:
                 lesson_context += f"\n\n[安全觀察]\n{turn.lesson_context}"
-            live_reply, llm_meta = self._generate_live_llm_reply(
-                message=user_message,
-                role=self._normalize_role_name(requested_role),
-                requested_backend=backend,
-                capability_mode=capability_mode,
-                deliberation="auto",
-                conversation_context=self.session_store.messages(session_id, limit=self.max_context),
-                safety_nudge=safety.nudge if safety.should_nudge else "",
-                lesson_context=lesson_context,
-            )
+            try:
+                live_reply, llm_meta = self._generate_live_llm_reply(
+                    message=user_message,
+                    role=self._normalize_role_name(requested_role),
+                    requested_backend=backend,
+                    capability_mode=capability_mode,
+                    deliberation="auto",
+                    conversation_context=self.session_store.messages(session_id, limit=self.max_context),
+                    safety_nudge=safety.nudge if safety.should_nudge else "",
+                    lesson_context=lesson_context,
+                )
+            except Exception as exc:
+                live_reply = ""
+                llm_meta = {
+                    "ok": False,
+                    "attempted": True,
+                    "provider": backend,
+                    "fallback_reason": str(exc),
+                }
             if live_reply.strip():
                 reply = live_reply.strip()
             else:
