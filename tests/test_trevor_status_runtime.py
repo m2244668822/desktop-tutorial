@@ -23,6 +23,35 @@ class TrevorStatusRuntimeTests(unittest.TestCase):
         server._tcp_up = lambda host, port: False
         return server
 
+    def test_readiness_accepts_local_memory_api_when_encrypted_manager_is_unavailable(self):
+        from core.web_server import WebServerMode
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            server = WebServerMode.__new__(WebServerMode)
+            server.workspace_path = root
+            server.bridge = SimpleNamespace(
+                is_ready=True,
+                memory_manager=None,
+                long_term_memory_api=object(),
+                _knowledge_status_summary=lambda: {
+                    "ok": True,
+                    "sqlite_ready": True,
+                    "faiss_ready": True,
+                    "total_items": 1,
+                },
+                get_memory_autosave_status=lambda: {"ok": True, "state": "clean"},
+                get_aeg_training_status=lambda: {"ok": True, "state": "ready"},
+                get_trevor_provider_status=lambda: {},
+            )
+            server.openclaw = SimpleNamespace(status=lambda: {"ok": False})
+            server._tcp_up = lambda host, port: False
+
+            payload = server.readiness_payload()
+
+        self.assertTrue(payload["required_ready"])
+        self.assertTrue(payload["database_ready"])
+
     def test_autonomy_status_uses_scheduler_and_worker_heartbeats(self):
         from core.web_server import WebServerMode
 

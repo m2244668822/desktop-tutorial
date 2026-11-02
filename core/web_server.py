@@ -229,7 +229,13 @@ class WebServerMode:
         aeg_training = self.bridge.get_aeg_training_status()
         openclaw = self.openclaw.status()
         tls_up = self._tcp_up("127.0.0.1", 5443)
-        db_ready = bool(getattr(self.bridge, "memory_manager", None))
+        # Either the encrypted AgentMemoryManager or the local memory API can
+        # serve the core conversation path.  Treating only the former as
+        # "database ready" incorrectly degraded healthy local-runtime setups.
+        db_ready = bool(
+            getattr(self.bridge, "memory_manager", None)
+            or getattr(self.bridge, "long_term_memory_api", None)
+        )
         required_ready = bool(bridge_ready and db_ready)
         degraded_reasons = []
         if not bridge_ready:
