@@ -249,6 +249,42 @@ def test_nonreligious_mental_state_word_is_not_rejected_as_faith(bridge, monkeyp
     assert result["reply"] == safe_reply
 
 
+def test_record_faith_words_do_not_opt_in_lesson_llm_reply(bridge, monkeypatch):
+    bridge.send_message("開始第一課", session_id="lesson")
+    unsafe_reply = "信仰就是你現在的答案"
+    monkeypatch.setattr(bridge, "_generate_live_llm_reply", lambda **kwargs: (
+        unsafe_reply, {"ok": True, "attempted": True, "fallback_used": False, "provider": "open_source"},
+    ))
+
+    result = bridge.send_message("我最近想起信仰和聖經", session_id="lesson")
+
+    assert bridge.session_store.lesson_state("lesson")["faith_opt_in"] is False
+    assert result["lesson"]["record"]["event"] == "我最近想起信仰和聖經"
+    assert "你感受到哪些期待或要求" in result["reply"]
+    assert unsafe_reply not in result["reply"]
+    assert result["llm_live"]["fallback_used"]
+
+
+@pytest.mark.parametrize("llm_reply, should_fallback", [
+    ("電視並沒有在對你說話", False),
+    ("電視正在對你說話", True),
+])
+def test_external_message_negation_boundary(bridge, monkeypatch, llm_reply, should_fallback):
+    bridge.send_message("開始第一課", session_id="lesson")
+    monkeypatch.setattr(bridge, "_generate_live_llm_reply", lambda **kwargs: (
+        llm_reply, {"ok": True, "attempted": True, "fallback_used": False, "provider": "open_source"},
+    ))
+
+    result = bridge.send_message("昨天家人問我工作進度", session_id="lesson")
+
+    assert result["llm_live"]["fallback_used"] is should_fallback
+    if should_fallback:
+        assert "你感受到哪些期待或要求" in result["reply"]
+        assert llm_reply not in result["reply"]
+    else:
+        assert result["reply"] == llm_reply
+
+
 def test_pending_clarification_takes_precedence_over_lesson(bridge, monkeypatch):
     bridge.send_message("開始第一課", session_id="lesson")
     bridge.session_store.set_pending_interaction(

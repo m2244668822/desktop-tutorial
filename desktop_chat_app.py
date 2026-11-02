@@ -3192,12 +3192,11 @@ class DesktopBridge:
     @staticmethod
     def _lesson_reply_crosses_boundary(reply: str, state: LessonState) -> bool:
         if not state.faith_opt_in:
-            user_words = " ".join(str(value) for value in state.to_dict()["record"].values())
-            faith_terms = re.findall(
+            faith_language = re.search(
                 r"聖經|上帝|耶穌|禱告|祈禱|信仰|宗教|菩薩|佛(?:教|法|祖)|神(?:的|給|說|要|會|愛|能|旨|諭|明)",
                 reply,
             )
-            if any(term not in user_words for term in faith_terms):
+            if faith_language:
                 return True
 
         claim = re.compile(
@@ -3216,6 +3215,11 @@ class DesktopBridge:
                     if re.search(
                         r"(?:不代表|不是|並非|不要|不必|未必|無法確認|不能證明|沒有證據|只是感覺|感覺像).{0,8}$",
                         preceding,
+                    ):
+                        continue
+                    if re.search(
+                        r"(?:並)?(?:沒有|未曾|不曾|不是|不會|不在|不可能|不是真的|不確定)",
+                        match.group(),
                     ):
                         continue
                     return True
