@@ -12,29 +12,40 @@ STDERR_FILE="$LOG_ROOT/autonomy.error.log"
 LABEL="com.trevor.autonomy"
 
 PYTHON_BIN=""
-for candidate in \
-  "$ROOT/.venv312/bin/python3" \
-  "$ROOT/.venv312/bin/python" \
-  "$(command -v python3.12 || true)" \
-  "$(command -v python3.11 || true)" \
-  "$(command -v python3 || true)"
-do
-  if [[ -n "$candidate" && -x "$candidate" ]]; then
-    PYTHON_BIN="$candidate"
-    break
-  fi
-done
-[[ -n "$PYTHON_BIN" ]] || { echo "[error] Python runtime not found" >&2; exit 1; }
 
-for credential in nvidia_api_key trevor_memory_key_b64; do
-  [[ -s "$CREDENTIAL_ROOT/$credential" ]] || {
-    echo "[error] missing private credential: $CREDENTIAL_ROOT/$credential" >&2
-    exit 1
-  }
-done
+resolve_python() {
+  local candidate
+  [[ -n "$PYTHON_BIN" ]] && return 0
+  for candidate in \
+    "$ROOT/.venv312/bin/python3" \
+    "$ROOT/.venv312/bin/python" \
+    "$(command -v python3.12 || true)" \
+    "$(command -v python3.11 || true)" \
+    "$(command -v python3 || true)"
+  do
+    if [[ -n "$candidate" && -x "$candidate" ]]; then
+      PYTHON_BIN="$candidate"
+      return 0
+    fi
+  done
+  echo "[error] Python runtime not found" >&2
+  return 1
+}
 
-mkdir -p "$DATA_ROOT/run" "$LOG_ROOT"
-chmod 700 "$DATA_ROOT" "$DATA_ROOT/run" "$LOG_ROOT" 2>/dev/null || true
+prepare_start_paths() {
+  mkdir -p "$DATA_ROOT/run" "$LOG_ROOT"
+  chmod 700 "$DATA_ROOT" "$DATA_ROOT/run" "$LOG_ROOT" 2>/dev/null || true
+}
+
+validate_start_credentials() {
+  local credential
+  for credential in nvidia_api_key trevor_memory_key_b64; do
+    [[ -s "$CREDENTIAL_ROOT/$credential" ]] || {
+      echo "[error] missing private credential: $CREDENTIAL_ROOT/$credential" >&2
+      return 1
+    }
+  done
+}
 
 current_pid() {
   [[ -f "$PID_FILE" ]] || return 1
@@ -67,6 +78,9 @@ start_service() {
     echo "[ok] autonomy already running pid=$pid"
     return 0
   fi
+  resolve_python
+  validate_start_credentials
+  prepare_start_paths
   launchctl bootout "gui/$(id -u)/${LABEL}" >/dev/null 2>&1 || true
   "$PYTHON_BIN" "$ROOT/tools/launch_detached.py" \
     --cwd "$ROOT" \
@@ -100,7 +114,13 @@ status_service() {
 case "$ACTION" in
   start) start_service ;;
   stop) stop_service; status_service || true ;;
-  restart) stop_service; start_service ;;
+  restart)
+    resolve_python
+    validate_start_credentials
+    prepare_start_paths
+    stop_service
+    start_service
+    ;;
   status) status_service ;;
   *) echo "Usage: $0 {start|stop|restart|status}" >&2; exit 2 ;;
 esac

@@ -60,6 +60,8 @@ def bootstrap_remote_admin(
         remote_credentials_directory,
         "--label",
         "mac-edge",
+        "--service-user",
+        "trevor",
         "--scope",
         "chat",
         "--scope",
