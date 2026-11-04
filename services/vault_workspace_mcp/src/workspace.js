@@ -13,6 +13,38 @@ function sha256(text) {
   return crypto.createHash("sha256").update(text, "utf8").digest("hex");
 }
 
+function isAbsoluteExecutorPath(value) {
+  return process.platform === "win32"
+    ? path.win32.isAbsolute(value)
+    : path.isAbsolute(value);
+}
+
+export function resolveExecutorCommand(command, override = "", locate = () => "", exists = fs.existsSync) {
+  const explicit = String(override || "").trim();
+  if (explicit) {
+    if (!isAbsoluteExecutorPath(explicit)) {
+      return { path: "", source: "explicit_override_invalid", reason: "path_not_absolute" };
+    }
+    if (!exists(explicit)) {
+      return { path: "", source: "explicit_override_invalid", reason: "path_missing" };
+    }
+    return { path: explicit, source: "explicit_override" };
+  }
+
+  const located = String(locate(command) || "").trim();
+  return located
+    ? { path: located, source: "path_lookup" }
+    : { path: "", source: "unavailable" };
+}
+
+function executorOverride(command, env = process.env) {
+  if (command === "codex") return env.WHITE_STUDIO_CODEX_PATH || "";
+  if (command === "agent" || command === "cursor") {
+    return env.WHITE_STUDIO_CURSOR_AGENT_PATH || "";
+  }
+  return "";
+}
+
 function unifiedDiff(filePath, before, after) {
   const a = before.split(/\r?\n/);
   const b = after.split(/\r?\n/);
@@ -227,20 +259,30 @@ export class VaultWorkspace {
     const locator = process.platform === "win32" ? "where.exe" : "which";
     const commands = ["git", "node", "python", "py", "code", "cursor", "agent", "codex"];
     const locations = {};
+    const sources = {};
     const available = {};
 
     for (const command of commands) {
-      const result = spawnSync(locator, [command], {
-        cwd: this.root,
-        encoding: "utf8",
-        timeout: 2500,
-        shell: false,
-      });
-      const located = String(result.stdout || "")
-        .split(/\r?\n/)
-        .map((item) => item.trim())
-        .find(Boolean) || "";
-      locations[command] = result.status === 0 ? located : "";
+      const resolution = resolveExecutorCommand(
+        command,
+        executorOverride(command),
+        (name) => {
+          const result = spawnSync(locator, [name], {
+            cwd: this.root,
+            encoding: "utf8",
+            timeout: 2500,
+            shell: false,
+          });
+          return result.status === 0
+            ? String(result.stdout || "")
+              .split(/\r?\n/)
+              .map((item) => item.trim())
+              .find(Boolean) || ""
+            : "";
+        },
+      );
+      locations[command] = resolution.path;
+      sources[command] = resolution.source;
       available[command] = Boolean(locations[command]);
     }
 
@@ -254,7 +296,7 @@ export class VaultWorkspace {
         process.platform === "win32" && /\.(?:cmd|bat)$/i.test(located);
       const executable = isBatchShim ? (process.env.ComSpec || "cmd.exe") : located;
       const executableArgs = isBatchShim
-        ? ["/d", "/s", "/c", command, ...args]
+        ? ["/d", "/s", "/c", located, ...args]
         : args;
       const result = spawnSync(executable, executableArgs, {
         cwd: this.root,
@@ -287,6 +329,7 @@ export class VaultWorkspace {
       workspace_root: this.root,
       commands: available,
       command_paths: locations,
+      command_sources: sources,
       executors: {
         workspace_mcp: true,
         vscode_cli: Boolean(available.code),

@@ -23,6 +23,7 @@ import {
 } from "./executor_identity.js";
 import { contractField, routeInboxTask } from "./executor_router.js";
 import { resolveProjectPath } from "./project_resolution.js";
+import { resolveToolInvocation } from "./executor_command.js";
 import {
   acquireLease,
   appendJournalTransition,
@@ -66,23 +67,31 @@ function git(cwd, args, timeout = 30000) {
 }
 
 function runTool(command, args, options = {}) {
-  if (process.platform !== "win32") return run(command, args, options);
-  const located = run("where.exe", [command], {
+  const locator = process.platform === "win32" ? "where.exe" : "which";
+  const located = run(locator, [command], {
     cwd: options.cwd || vaultRoot,
     timeout: 2500,
   });
-  const first = String(located.stdout || "")
+  const pathLookup = () => String(located.stdout || "")
     .split(/\r?\n/)
     .map((item) => item.trim())
     .find(Boolean) || "";
-  if (/\.(?:cmd|bat)$/i.test(first)) {
-    return run(
-      process.env.ComSpec || "cmd.exe",
-      ["/d", "/s", "/c", command, ...args],
-      options
-    );
+  const invocation = resolveToolInvocation(
+    command,
+    args,
+    options.env || process.env,
+    pathLookup,
+    fs.existsSync,
+  );
+  if (invocation.source === "explicit_override_invalid") {
+    return {
+      error: Object.assign(new Error(invocation.reason), { code: invocation.reason }),
+      status: null,
+      stdout: "",
+      stderr: invocation.reason,
+    };
   }
-  return run(first || command, args, options);
+  return run(invocation.executable, invocation.args, options);
 }
 
 function safeTaskName(taskId) {
