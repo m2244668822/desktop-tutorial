@@ -19,15 +19,53 @@ function parseToolResult(message, method) {
   }
 }
 
-function request(child, pending, sequence, method, params = {}) {
+function parseToolResult(message, method) {
+  if (!message?.result || message.result.isError) {
+    throw Object.assign(new Error(`mcp_${method}_failed`), { code: `mcp_${method}_failed` });
+  }
+  const text = message.result.content?.[0]?.text;
+  if (typeof text !== "string") {
+    throw Object.assign(new Error(`mcp_${method}_payload_invalid`), {
+      code: `mcp_${method}_payload_invalid`,
+    });
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw Object.assign(new Error(`mcp_${method}_payload_invalid`), {
+      code: `mcp_${method}_payload_invalid`,
+    });
+  }
+}
+
+
+function normalizeProbeError(error, fallbackCode) {
+  const code = String(error?.code || "").trim();
+  if (code.startsWith("mcp_")) {
+    return Object.assign(new Error(code), { code });
+  }
+  return Object.assign(new Error(fallbackCode), { code: fallbackCode });
+}
+
+function request(child, pending, sequence, method, params = {}, diagnostics) {
   const id = sequence.next++;
+  diagnostics.last_method = method;
+  diagnostics.stage = method;
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       pending.delete(id);
-      reject(Object.assign(new Error(`mcp_${method}_timeout`), { code: `mcp_${method}_timeout` }));
+      reject(Object.assign(new Error("mcp_" + method + "_timeout"), {
+        code: "mcp_" + method + "_timeout",
+      }));
     }, 5000);
     pending.set(id, { resolve, reject, timer });
-    child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
+    try {
+      child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
+    } catch (error) {
+      clearTimeout(timer);
+      pending.delete(id);
+      reject(normalizeProbeError(error, "mcp_transport_write_failed"));
+    }
   });
 }
 
@@ -39,20 +77,27 @@ export async function probeMcpProtocol({
   tests = [],
   env = process.env,
 } = {}) {
-  const child = spawn(process.execPath, [serverPath], {
-    cwd: workspaceRoot,
-    env: {
-      ...env,
-      VAULT_WORKSPACE_ROOT: workspaceRoot,
-      MCP_AUDIT_DIR: auditDir,
-      MCP_TRASH_DIR: trashDir,
-      MCP_AUTO_APPROVE: "0",
-      MCP_FRAMING: "newline",
-    },
-    stdio: ["pipe", "pipe", "pipe"],
-  });
   const pending = new Map();
   const sequence = { next: 1 };
+  const diagnostics = {
+    stage: "spawn",
+    last_method: "",
+    child_exit_code: null,
+    child_signal: null,
+    stdout_parse_errors: 0,
+    stderr_length: 0,
+  };
+  const evidence = {
+    initialize: { ok: false },
+    tools_list: { ok: false },
+    calls: {
+      workspace_list: { ok: false },
+      runtime_capabilities: { ok: false },
+      runtime_run_test: [],
+    },
+    diagnostic: diagnostics,
+  };
+  let child = null;
   let buffer = "";
   let stderr = "";
 
@@ -64,49 +109,73 @@ export async function probeMcpProtocol({
     pending.clear();
   };
 
-  child.stdout.on("data", (chunk) => {
-    buffer += chunk.toString("utf8");
-    const lines = buffer.split(/\r?\n/);
-    buffer = lines.pop() || "";
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      let message;
-      try {
-        message = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      if (message.id == null || !pending.has(message.id)) continue;
-      const entry = pending.get(message.id);
-      pending.delete(message.id);
-      clearTimeout(entry.timer);
-      entry.resolve(message);
-    }
-  });
-  child.stderr.on("data", (chunk) => {
-    stderr += chunk.toString("utf8");
-  });
-  child.on("error", (error) => rejectAll(error));
-  child.on("exit", (code) => {
-    if (pending.size) rejectAll(new Error(`mcp_server_exit_${code}`));
-  });
-
-  const evidence = {
-    initialize: { ok: false },
-    tools_list: { ok: false },
-    calls: {
-      workspace_list: { ok: false },
-      runtime_capabilities: { ok: false },
-      runtime_run_test: [],
-    },
-  };
-
   try {
-    const initialized = await request(child, pending, sequence, "initialize", {
-      protocolVersion: "2024-11-05",
-      capabilities: {},
-      clientInfo: { name: "rts01-agentic-probe", version: "1.0.0" },
+    child = spawn(process.execPath, [serverPath], {
+      cwd: workspaceRoot,
+      env: {
+        ...env,
+        VAULT_WORKSPACE_ROOT: workspaceRoot,
+        MCP_AUDIT_DIR: auditDir,
+        MCP_TRASH_DIR: trashDir,
+        MCP_AUTO_APPROVE: "0",
+        MCP_FRAMING: "newline",
+      },
+      stdio: ["pipe", "pipe", "pipe"],
     });
+
+    child.stdin.on("error", (error) => {
+      diagnostics.stage = "transport";
+      rejectAll(normalizeProbeError(error, "mcp_transport_write_failed"));
+    });
+    child.stdout.on("data", (chunk) => {
+      buffer += chunk.toString("utf8");
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        let message;
+        try {
+          message = JSON.parse(line);
+        } catch {
+          diagnostics.stdout_parse_errors += 1;
+          continue;
+        }
+        if (message.id == null || !pending.has(message.id)) continue;
+        const entry = pending.get(message.id);
+        pending.delete(message.id);
+        clearTimeout(entry.timer);
+        entry.resolve(message);
+      }
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString("utf8");
+      diagnostics.stderr_length = Buffer.byteLength(stderr, "utf8");
+    });
+    child.on("error", (error) => {
+      diagnostics.stage = diagnostics.last_method || "spawn";
+      rejectAll(normalizeProbeError(error, "mcp_server_spawn_failed"));
+    });
+    child.on("exit", (code, signal) => {
+      diagnostics.child_exit_code = Number.isInteger(code) ? code : null;
+      diagnostics.child_signal = signal || null;
+      if (pending.size) {
+        diagnostics.stage = diagnostics.last_method || "spawn";
+        rejectAll(normalizeProbeError(null, "mcp_server_exit"));
+      }
+    });
+
+    const initialized = await request(
+      child,
+      pending,
+      sequence,
+      "initialize",
+      {
+        protocolVersion: "2024-11-05",
+        capabilities: {},
+        clientInfo: { name: "rts01-agentic-probe", version: "1.0.0" },
+      },
+      diagnostics,
+    );
     evidence.initialize = {
       ok: initialized.result?.serverInfo?.name === "vault-workspace-mcp",
       protocol_version: String(initialized.result?.protocolVersion || ""),
@@ -122,7 +191,7 @@ export async function probeMcpProtocol({
       params: {},
     }) + "\n");
 
-    const listed = await request(child, pending, sequence, "tools/list");
+    const listed = await request(child, pending, sequence, "tools/list", {}, diagnostics);
     const names = new Set((listed.result?.tools || []).map((tool) => String(tool.name || "")));
     const required = ["workspace_list", "runtime_capabilities", "runtime_run_test"];
     evidence.tools_list = {
@@ -138,7 +207,7 @@ export async function probeMcpProtocol({
       await request(child, pending, sequence, "tools/call", {
         name: "workspace_list",
         arguments: { dir: ".", maxEntries: 200 },
-      }),
+      }, diagnostics),
       "workspace_list",
     );
     evidence.calls.workspace_list = {
@@ -156,7 +225,7 @@ export async function probeMcpProtocol({
       await request(child, pending, sequence, "tools/call", {
         name: "runtime_capabilities",
         arguments: {},
-      }),
+      }, diagnostics),
       "runtime_capabilities",
     );
     const codex = capabilities.executor_readiness?.codex || {};
@@ -180,7 +249,7 @@ export async function probeMcpProtocol({
             target: test.target,
             timeoutSec: test.timeoutSec,
           },
-        }),
+        }, diagnostics),
         "runtime_run_test",
       );
       evidence.calls.runtime_run_test.push({
@@ -205,8 +274,10 @@ export async function probeMcpProtocol({
     };
   } finally {
     rejectAll(new Error("mcp_probe_closed"));
-    child.stdin.end();
-    child.kill();
+    if (child) {
+      child.stdin.end();
+      child.kill();
+    }
   }
 }
 
