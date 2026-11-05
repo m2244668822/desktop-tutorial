@@ -36,6 +36,7 @@ import {
   stableJson,
 } from "./transaction.js";
 import { probeMcpProtocol } from "./mcp_protocol_probe.js";
+import { resolveMcpServerPath } from "./mcp_server_path.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const vaultRoot = path.resolve(
@@ -564,15 +565,11 @@ const worktreeWs = new VaultWorkspace({
 const mcpProtocolEvidence = analysisOnly
   ? { ok: true, evidence: null }
   : await probeMcpProtocol({
-      serverPath: path.join(
+      serverPath: resolveMcpServerPath({
+        sourceRepoRoot,
         worktreeRoot,
-        "runtime",
-        "desktop-tutorial",
-        "services",
-        "vault_workspace_mcp",
-        "src",
-        "server.js",
-      ),
+        runtimeRoot: process.env.WHITE_STUDIO_RUNTIME_ROOT || "",
+      }),
       workspaceRoot: agentProjectRoot,
       auditDir: path.join(worktreeStateRoot, ".mcp-protocol-audit"),
       trashDir: path.join(worktreeStateRoot, ".mcp-protocol-trash"),
