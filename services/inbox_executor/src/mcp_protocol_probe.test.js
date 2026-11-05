@@ -31,3 +31,16 @@ test("probe records MCP initialize, tools/list, scoped call, and bounded validat
   assert.equal(result.evidence.calls.runtime_run_test[0].ok, true);
 });
 
+test("probe reports the exact initialize blocker", async () => {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "rts01-mcp-invalid-"));
+  const result = await probeMcpProtocol({
+    serverPath: path.join(here, "test-fixtures", "rts01-invalid-initialize-server.js"),
+    workspaceRoot: fixture,
+    auditDir: path.join(fixture, "audit"),
+    trashDir: path.join(fixture, "trash"),
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.blocker, "mcp_initialize_invalid");
+});
+
