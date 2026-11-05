@@ -65,6 +65,8 @@ export async function probeMcpProtocol({
     last_method: "",
     child_exit_code: null,
     child_signal: null,
+    child_error_code: "",
+    child_error_syscall: "",
     stdout_parse_errors: 0,
     stderr_length: 0,
   };
@@ -138,6 +140,8 @@ export async function probeMcpProtocol({
       diagnostics.stderr_length = Buffer.byteLength(stderr, "utf8");
     });
     child.on("error", (error) => {
+      diagnostics.child_error_code = String(error?.code || "");
+      diagnostics.child_error_syscall = String(error?.syscall || "");
       diagnostics.stage = diagnostics.last_method || "spawn";
       rejectAll(normalizeProbeError(error, "mcp_server_spawn_failed"));
     });
