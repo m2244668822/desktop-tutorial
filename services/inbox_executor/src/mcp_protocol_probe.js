@@ -112,7 +112,9 @@ export async function probeMcpProtocol({
       protocol_version: String(initialized.result?.protocolVersion || ""),
       server_name: String(initialized.result?.serverInfo?.name || ""),
     };
-    if (!evidence.initialize.ok) throw new Error("mcp_initialize_invalid");
+    if (!evidence.initialize.ok) {
+      throw Object.assign(new Error("mcp_initialize_invalid"), { code: "mcp_initialize_invalid" });
+    }
 
     child.stdin.write(JSON.stringify({
       jsonrpc: "2.0",
@@ -128,7 +130,9 @@ export async function probeMcpProtocol({
       tool_count: names.size,
       required_tools_present: required.every((name) => names.has(name)),
     };
-    if (!evidence.tools_list.ok) throw new Error("mcp_tools_list_invalid");
+    if (!evidence.tools_list.ok) {
+      throw Object.assign(new Error("mcp_tools_list_invalid"), { code: "mcp_tools_list_invalid" });
+    }
 
     const listedWorkspace = parseToolResult(
       await request(child, pending, sequence, "tools/call", {
@@ -142,7 +146,11 @@ export async function probeMcpProtocol({
       scope_matches: pathEquals(listedWorkspace.workspace_root, workspaceRoot),
       entry_count: Array.isArray(listedWorkspace.entries) ? listedWorkspace.entries.length : 0,
     };
-    if (!evidence.calls.workspace_list.ok) throw new Error("mcp_workspace_scope_mismatch");
+    if (!evidence.calls.workspace_list.ok) {
+      throw Object.assign(new Error("mcp_workspace_scope_mismatch"), {
+        code: "mcp_workspace_scope_mismatch",
+      });
+    }
 
     const capabilities = parseToolResult(
       await request(child, pending, sequence, "tools/call", {
@@ -158,7 +166,9 @@ export async function probeMcpProtocol({
       codex_authenticated: codex.authenticated === true,
       codex_headless_ready: codex.headless_ready === true,
     };
-    if (!evidence.calls.runtime_capabilities.ok) throw new Error("mcp_codex_not_ready");
+    if (!evidence.calls.runtime_capabilities.ok) {
+      throw Object.assign(new Error("mcp_codex_not_ready"), { code: "mcp_codex_not_ready" });
+    }
 
     for (const test of tests) {
       const result = parseToolResult(
@@ -181,7 +191,11 @@ export async function probeMcpProtocol({
       });
     }
     const boundedOk = evidence.calls.runtime_run_test.every((test) => test.ok);
-    if (!boundedOk) throw new Error("mcp_bounded_validation_failed");
+    if (!boundedOk) {
+      throw Object.assign(new Error("mcp_bounded_validation_failed"), {
+        code: "mcp_bounded_validation_failed",
+      });
+    }
     return { ok: true, evidence };
   } catch (error) {
     return {
