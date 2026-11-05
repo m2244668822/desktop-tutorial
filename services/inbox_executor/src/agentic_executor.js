@@ -68,6 +68,24 @@ function git(cwd, args, timeout = 30000) {
   return run("git", args, { cwd, timeout });
 }
 
+function gitPush(cwd, args, timeout = 120000) {
+  const token = String(process.env.GITHUB_TOKEN || "");
+  const pushArgs = [...args];
+  if (token) {
+    const basic = Buffer.from("x-access-token:" + token, "utf8").toString("base64");
+    pushArgs.unshift("-c", "http.extraheader=AUTHORIZATION: basic " + basic);
+  }
+  return run("git", pushArgs, {
+    cwd,
+    timeout,
+    env: {
+      ...process.env,
+      GIT_TERMINAL_PROMPT: "0",
+      GCM_INTERACTIVE: "Never",
+    },
+  });
+}
+
 function runTool(command, args, options = {}) {
   const locator = process.platform === "win32" ? "where.exe" : "which";
   const located = run(locator, [command], {
@@ -707,7 +725,7 @@ if (validationOk) {
     if (commit.status === 0) {
       commitSha = String(git(worktreeRoot, ["rev-parse", "HEAD"]).stdout || "").trim();
       branchName = branchNameCandidate;
-      const pushed = git(
+      const pushed = gitPush(
         worktreeRoot,
         ["push", "origin", `HEAD:refs/heads/${branchName}`],
         120000
@@ -715,7 +733,7 @@ if (validationOk) {
       publishOk = pushed.status === 0;
       publishError = publishOk
         ? ""
-        : String(pushed.stderr || pushed.stdout || "").slice(-1200);
+        : String(pushed.error?.message || pushed.stderr || pushed.stdout || "git_push_failed").slice(-1200);
     } else {
       publishError = String(commit.stderr || commit.stdout || "").slice(-1200);
     }
