@@ -35,6 +35,7 @@ import {
   sha256,
   stableJson,
 } from "./transaction.js";
+import { probeMcpProtocol } from "./mcp_protocol_probe.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const vaultRoot = path.resolve(
@@ -559,6 +560,31 @@ const worktreeWs = new VaultWorkspace({
   trashDir: path.join(worktreeStateRoot, ".mcp-trash"),
   autoApprove: false,
 });
+
+const mcpProtocolEvidence = analysisOnly
+  ? { ok: true, evidence: null }
+  : await probeMcpProtocol({
+      serverPath: path.join(
+        worktreeRoot,
+        "runtime",
+        "desktop-tutorial",
+        "services",
+        "vault_workspace_mcp",
+        "src",
+        "server.js",
+      ),
+      workspaceRoot: agentProjectRoot,
+      auditDir: path.join(worktreeStateRoot, ".mcp-protocol-audit"),
+      trashDir: path.join(worktreeStateRoot, ".mcp-protocol-trash"),
+      tests: testProfile.tests.map((test) => ({
+        runner: test.runner,
+        target: test.target,
+        projectDir: ".",
+        timeoutSec: test.timeoutSec,
+      })),
+      env: process.env,
+    });
+
 const tests = [];
 if (agentOk) {
   for (const test of testProfile.tests) {
@@ -584,6 +610,7 @@ const testsOk =
   agentOk &&
   tests.length === testProfile.tests.length &&
   tests.every((item) => item.ok);
+const mcpProtocolOk = analysisOnly || mcpProtocolEvidence.ok;
 
 let add = { status: 0, stdout: "", stderr: "" };
 let diffCheck = { status: 0, stdout: "", stderr: "" };
@@ -640,6 +667,7 @@ if (analysisOnly) {
 
 const validationOk =
   testsOk &&
+  mcpProtocolOk &&
   add.status === 0 &&
   diffCheck.status === 0 &&
   (analysisOnly || stagedState.status === 0 || stagedState.status === 1) &&
@@ -717,15 +745,17 @@ const code = !agentOk
   ? "agent_execution_failed"
   : !testsOk
     ? "validation_failed"
-    : readOnlyViolation
-      ? "read_only_violation"
-      : diffCheck.status !== 0
-        ? "diff_check_failed"
-        : !publishOk
-          ? "publish_failed"
-          : !identityValidation.ok
-            ? identityValidation.code
-            : "done";
+    : !mcpProtocolOk
+      ? mcpProtocolEvidence.blocker || "mcp_protocol_probe_failed"
+      : readOnlyViolation
+        ? "read_only_violation"
+        : diffCheck.status !== 0
+          ? "diff_check_failed"
+          : !publishOk
+            ? "publish_failed"
+            : !identityValidation.ok
+              ? identityValidation.code
+              : "done";
 
 assertLeaseFence({ storePath: leasePath, lease: executionLease });
 appendJournalTransition(journalPath, {
@@ -762,6 +792,13 @@ writeTerminalResult({
     `- commit：\`${commitSha || ""}\``,
     `- code：\`${code}\``,
     `- agent_exit_code：${Number.isInteger(agentRun.status) ? agentRun.status : "null"}`,
+    `- mcp_protocol_probe：\`${mcpProtocolOk ? "PASS" : "BLOCKED"}\``,
+    `- mcp_initialize：\`${mcpProtocolEvidence.evidence?.initialize?.ok ? "PASS" : "NOT_VERIFIED"}\``,
+    `- mcp_tools_list：\`${mcpProtocolEvidence.evidence?.tools_list?.ok ? "PASS" : "NOT_VERIFIED"}\``,
+    `- mcp_scoped_workspace_list：\`${mcpProtocolEvidence.evidence?.calls?.workspace_list?.ok ? "PASS" : "NOT_VERIFIED"}\``,
+    `- mcp_runtime_capabilities：\`${mcpProtocolEvidence.evidence?.calls?.runtime_capabilities?.ok ? "PASS" : "NOT_VERIFIED"}\``,
+    `- mcp_bounded_validation：\`${mcpProtocolEvidence.evidence?.calls?.runtime_run_test?.length && mcpProtocolEvidence.evidence.calls.runtime_run_test.every((item) => item.ok) ? "PASS" : "NOT_VERIFIED"}\``,
+    mcpProtocolEvidence.blocker ? `- mcp_blocker：\`${mcpProtocolEvidence.blocker}\`` : "- mcp_blocker：",
     `- agent_output_sha256：\`${agentOutputHash}\``,
     agentOutput
       ? `- agent_output：\n\n${agentOutput.split(/\\r?\\n/).map((line) => "    " + line).join("\\n")}`
