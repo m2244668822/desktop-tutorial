@@ -30,7 +30,7 @@ test("MCP probe records the exact protocol stage for an invalid initialize respo
   assert.equal(result.evidence.diagnostic.stage, "initialize");
 });
 
-test("MCP probe normalizes a server startup failure without leaking process details", async () => {
+test("MCP probe normalizes a missing server path without leaking process details", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "rts01-mcp-probe-start-"));
   const result = await probeMcpProtocol({
     serverPath: path.join(root, "missing-server.mjs"),
@@ -40,8 +40,7 @@ test("MCP probe normalizes a server startup failure without leaking process deta
   });
 
   assert.equal(result.ok, false);
-  assert.equal(result.blocker, "mcp_server_exit");
-  assert.equal(result.evidence.diagnostic.child_exit_code, 1);
+  assert.equal(result.blocker, "mcp_server_spawn_failed");
   assert.equal(result.evidence.diagnostic.stage, "spawn");
   assert.equal(result.evidence.diagnostic.stderr_length, 0);
 });
