@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import fs from "node:fs";
 
 function parseToolResult(message, method) {
   if (!message?.result || message.result.isError) {
@@ -88,6 +89,11 @@ export async function probeMcpProtocol({
     }
     pending.clear();
   };
+
+  if (typeof serverPath !== "string" || !fs.existsSync(serverPath)) {
+    diagnostics.stage = "spawn";
+    return { ok: false, blocker: "mcp_server_spawn_failed", evidence };
+  }
 
   try {
     child = spawn(process.execPath, [serverPath], {
