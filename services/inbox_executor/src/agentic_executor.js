@@ -37,6 +37,7 @@ import {
 } from "./transaction.js";
 import { probeMcpProtocol } from "./mcp_protocol_probe.js";
 import { resolveMcpServerPath } from "./mcp_server_path.js";
+import { sanitizeSensitiveOutput } from "./output_redaction.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const vaultRoot = path.resolve(
@@ -54,6 +55,10 @@ let remoteTaskRevision = "";
 let executionRunId = "";
 let leaseHeartbeatError = null;
 let leaseHeartbeatWorker = null;
+
+function writeSafeStderr(value) {
+  process.stderr.write(sanitizeSensitiveOutput(value));
+}
 
 function run(command, args, options = {}) {
   return spawnSync(command, args, {
@@ -222,7 +227,7 @@ function buildIdentity(selected, capabilities, now) {
 }
 
 function writeTerminalResult({ text, marker, status, taskId, identity, validation, details }) {
-  const resultMarkdown = [
+  const resultMarkdown = sanitizeSensitiveOutput([
     `- task_id：\`${taskId}\``,
     `- 結果：${status}`,
     executorIdentityMarkdown(identity, validation),
@@ -236,7 +241,7 @@ function writeTerminalResult({ text, marker, status, taskId, identity, validatio
         ]
       : []),
     ...details,
-  ].join("\n");
+  ].join("\n"));
   let next = setStatus(text, status === "done" ? "done" : "blocked");
   next = upsertNamedResult(next, marker, resultMarkdown);
   // Keep Result files compatible with git diff --check. A single trailing
@@ -282,7 +287,7 @@ function installFailClosedHandlers(taskId, identity, selected) {
     if (handling) return;
     handling = true;
     const code = error?.code || "orchestration_exception";
-    const message = String(error?.stack || error?.message || error)
+    const message = sanitizeSensitiveOutput(String(error?.stack || error?.message || error))
       .replace(/\r?\n/g, " ")
       .slice(0, 1600);
     try {
@@ -303,18 +308,19 @@ function installFailClosedHandlers(taskId, identity, selected) {
           ],
         });
       } else {
-        process.stderr.write(
+        writeSafeStderr(
           `agentic-executor: exception result not written because current task ownership changed: ${current.code}\n`
         );
       }
     } catch (persistError) {
-      process.stderr.write(
-        `agentic-executor: failed to persist terminal exception result: ${String(
-          persistError?.stack || persistError
-        )}\n`
+      const persistMessage = sanitizeSensitiveOutput(
+        String(persistError?.stack || persistError)
+      ).replace(/\r?\n/g, " ").slice(0, 1600);
+      writeSafeStderr(
+        `agentic-executor: failed to persist terminal exception result: ${persistMessage}\n`
       );
     }
-    process.stderr.write(`agentic-executor: ${code}: ${message}\n`);
+    writeSafeStderr(`agentic-executor: ${code}: ${message}\n`);
     process.exit(5);
   };
   process.on("uncaughtException", handler);
@@ -322,13 +328,13 @@ function installFailClosedHandlers(taskId, identity, selected) {
 }
 
 if (!fs.existsSync(inboxPath)) {
-  process.stderr.write(`agentic-executor: missing inbox ${inboxPath}\n`);
+  writeSafeStderr(`agentic-executor: missing inbox ${inboxPath}\n`);
   process.exit(2);
 }
 
 const initial = readInbox(inboxPath);
 if (initial.status !== "queued") {
-  process.stderr.write(`agentic-executor: inbox status=${initial.status}, nothing to do\n`);
+  writeSafeStderr(`agentic-executor: inbox status=${initial.status}, nothing to do\n`);
   process.exit(0);
 }
 
@@ -351,7 +357,7 @@ const controlWs = new VaultWorkspace({
 const capabilities = controlWs.runtimeCapabilities();
 const decision = routeInboxTask(initial.text, capabilities, process.env);
 if (!decision.ok || decision.route !== "agentic") {
-  process.stderr.write(`agentic-executor: route rejected ${JSON.stringify(decision)}\n`);
+  writeSafeStderr(`agentic-executor: route rejected ${JSON.stringify(decision)}\n`);
   process.exit(4);
 }
 
@@ -696,7 +702,7 @@ let publishError = "";
 if (validationOk) {
   const beforePublish = currentClaimState(taskId, identity);
   if (!beforePublish.ok) {
-    process.stderr.write(
+    writeSafeStderr(
       `agentic-executor: publication cancelled because task ownership changed: ${beforePublish.code}\n`
     );
     process.exit(6);
@@ -748,7 +754,7 @@ if (validationOk) {
 
 const currentBeforeResult = currentClaimState(taskId, identity);
 if (!currentBeforeResult.ok) {
-  process.stderr.write(
+  writeSafeStderr(
     `agentic-executor: Result writeback cancelled because task ownership changed: ${currentBeforeResult.code}\n`
   );
   process.exit(6);

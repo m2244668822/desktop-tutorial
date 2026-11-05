@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { sanitizeSensitiveOutput } from "./output_redaction.js";
 
 const STATUS_RE = /^status:\s*(\w+)\s*$/m;
 
@@ -267,7 +268,7 @@ export function upsertNamedResult(text, marker, resultMarkdown) {
   if (!/^## Result/.test(safeMarker)) {
     throw Object.assign(new Error("result_marker_invalid"), { code: "result_marker_invalid" });
   }
-  const block = `${safeMarker}\n\n${resultMarkdown.trim()}\n`;
+  const block = `${safeMarker}\n\n${sanitizeSensitiveOutput(resultMarkdown).trim()}\n`;
   const sections = topLevelSections(next);
   const ranges = sections.filter((section) => section.heading === safeMarker);
   if (ranges.length > 0) {

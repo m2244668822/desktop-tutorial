@@ -11,6 +11,7 @@ import {
   upsertNamedResult,
 } from "./inbox.js";
 import { routeInboxTask } from "./executor_router.js";
+import { sanitizeSensitiveOutput } from "./output_redaction.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const vaultRoot = path.resolve(
@@ -22,16 +23,20 @@ function writeOutputs(decision) {
   if (!process.env.GITHUB_OUTPUT) return;
   fs.appendFileSync(
     process.env.GITHUB_OUTPUT,
-    [
+    sanitizeSensitiveOutput([
       `ok=${decision.ok ? "true" : "false"}`,
       `route=${decision.route || ""}`,
       `requested_executor=${decision.requested_executor || ""}`,
       `selected_executor=${decision.selected_executor || ""}`,
       `code=${decision.code || ""}`,
       `requires_ui=${decision.requires_ui ? "true" : "false"}`,
-    ].join("\n") + "\n",
+    ].join("\n") + "\n"),
     "utf8"
   );
+}
+
+function writeSafeStderr(value) {
+  process.stderr.write(sanitizeSensitiveOutput(value));
 }
 
 function persistBlocked(text, decision, message = "") {
@@ -62,7 +67,7 @@ if (!fs.existsSync(inboxPath)) {
     requires_ui: false,
   };
   writeOutputs(decision);
-  process.stderr.write(`router: missing inbox ${inboxPath}\n`);
+  writeSafeStderr(`router: missing inbox ${inboxPath}\n`);
   process.exit(0);
 }
 
@@ -78,7 +83,7 @@ if (status !== "queued") {
     requires_ui: false,
   };
   writeOutputs(decision);
-  process.stdout.write(JSON.stringify(decision));
+  process.stdout.write(sanitizeSensitiveOutput(JSON.stringify(decision)));
   process.exit(0);
 }
 
@@ -97,7 +102,7 @@ try {
   }
 
   writeOutputs(decision);
-  process.stdout.write(JSON.stringify({ ...decision, capabilities }, null, 2));
+  process.stdout.write(sanitizeSensitiveOutput(JSON.stringify({ ...decision, capabilities }, null, 2)));
   process.exit(0);
 } catch (error) {
   const decision = {
@@ -110,19 +115,19 @@ try {
     headless: true,
     requires_ui: false,
   };
-  const message = String(error?.stack || error?.message || error)
+  const message = sanitizeSensitiveOutput(String(error?.stack || error?.message || error))
     .replace(/\r?\n/g, " ")
     .slice(0, 1500);
   try {
     persistBlocked(text, decision, message);
   } catch (persistError) {
-    process.stderr.write(
+    writeSafeStderr(
       `router: failed to persist exception result: ${String(
         persistError?.stack || persistError
       )}\n`
     );
   }
   writeOutputs(decision);
-  process.stderr.write(`router_exception: ${message}\n`);
+  writeSafeStderr(`router_exception: ${message}\n`);
   process.exit(0);
 }

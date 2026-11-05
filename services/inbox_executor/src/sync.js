@@ -19,6 +19,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readInbox, resolveInboxPath, contractHash, taskIdFromText } from "./inbox.js";
+import { sanitizeSensitiveOutput } from "./output_redaction.js";
 import { lookupAttempt, patchAttempt } from "./attempts.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -33,7 +34,9 @@ const doPull = process.env.INBOX_SYNC_PULL !== "0";
 const doPush = process.env.INBOX_SYNC_PUSH === "1";
 
 function log(msg) {
-  process.stderr.write(`[inbox-sync] ${new Date().toISOString()} ${msg}\n`);
+  process.stderr.write(
+    sanitizeSensitiveOutput(`[inbox-sync] ${new Date().toISOString()} ${msg}\n`)
+  );
 }
 
 function git(args, opts = {}) {
@@ -172,7 +175,7 @@ if (doPull) {
     env,
     encoding: "utf8",
   });
-  if (r.stderr) process.stderr.write(r.stderr);
+  if (r.stderr) process.stderr.write(sanitizeSensitiveOutput(r.stderr));
   if (r.status !== 0) {
     log(`executor_exit=${r.status}`);
     process.exit(r.status || 4);

@@ -10,6 +10,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { sanitizeSensitiveOutput } from "./output_redaction.js";
 import {
   VaultWorkspace,
   dispatch,
@@ -77,7 +78,9 @@ const ALLOWED = new Set([
 let busy = false;
 
 function log(msg) {
-  process.stderr.write(`[inbox-executor] ${new Date().toISOString()} ${msg}\n`);
+  process.stderr.write(
+    sanitizeSensitiveOutput(`[inbox-executor] ${new Date().toISOString()} ${msg}\n`)
+  );
 }
 
 function failureClass(code, message, toolsFinished) {
