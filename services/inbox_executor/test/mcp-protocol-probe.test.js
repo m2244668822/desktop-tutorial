@@ -76,3 +76,23 @@ test("MCP server path resolution prefers the explicit runtime mirror", async () 
     server,
   );
 });
+
+
+test("MCP probe records a normalized child spawn errno", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "rts01-mcp-probe-errno-"));
+  const server = path.join(root, "server.mjs");
+  await fs.writeFile(server, "process.stdin.resume();", "utf8");
+  const missingWorkspace = path.join(root, "missing-workspace");
+
+  const result = await probeMcpProtocol({
+    serverPath: server,
+    workspaceRoot: missingWorkspace,
+    auditDir: path.join(root, "audit"),
+    trashDir: path.join(root, "trash"),
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.blocker, "mcp_server_spawn_failed");
+  assert.equal(result.evidence.diagnostic.child_error_code, "ENOENT");
+  assert.equal(result.evidence.diagnostic.stage, "initialize");
+});
