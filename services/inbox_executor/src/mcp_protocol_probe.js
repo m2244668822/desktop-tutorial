@@ -19,26 +19,6 @@ function parseToolResult(message, method) {
   }
 }
 
-function parseToolResult(message, method) {
-  if (!message?.result || message.result.isError) {
-    throw Object.assign(new Error(`mcp_${method}_failed`), { code: `mcp_${method}_failed` });
-  }
-  const text = message.result.content?.[0]?.text;
-  if (typeof text !== "string") {
-    throw Object.assign(new Error(`mcp_${method}_payload_invalid`), {
-      code: `mcp_${method}_payload_invalid`,
-    });
-  }
-  try {
-    return JSON.parse(text);
-  } catch {
-    throw Object.assign(new Error(`mcp_${method}_payload_invalid`), {
-      code: `mcp_${method}_payload_invalid`,
-    });
-  }
-}
-
-
 function normalizeProbeError(error, fallbackCode) {
   const code = String(error?.code || "").trim();
   if (code.startsWith("mcp_")) {
