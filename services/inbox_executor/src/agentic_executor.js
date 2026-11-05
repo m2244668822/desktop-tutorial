@@ -568,7 +568,7 @@ const mcpProtocolEvidence = analysisOnly
       serverPath: resolveMcpServerPath({
         sourceRepoRoot,
         worktreeRoot,
-        runtimeRoot: process.env.WHITE_STUDIO_RUNTIME_ROOT || "",
+        runtimeRoot: process.env.WHITE_STUDIO_RUNTIME_ROOT || path.join(vaultRoot, "runtime", "desktop-tutorial"),
       }),
       workspaceRoot: agentProjectRoot,
       auditDir: path.join(worktreeStateRoot, ".mcp-protocol-audit"),
@@ -796,6 +796,7 @@ writeTerminalResult({
     `- mcp_runtime_capabilities：\`${mcpProtocolEvidence.evidence?.calls?.runtime_capabilities?.ok ? "PASS" : "NOT_VERIFIED"}\``,
     `- mcp_bounded_validation：\`${mcpProtocolEvidence.evidence?.calls?.runtime_run_test?.length && mcpProtocolEvidence.evidence.calls.runtime_run_test.every((item) => item.ok) ? "PASS" : "NOT_VERIFIED"}\``,
     mcpProtocolEvidence.blocker ? `- mcp_blocker：\`${mcpProtocolEvidence.blocker}\`` : "- mcp_blocker：",
+    `- mcp_diagnostic: ${JSON.stringify(mcpProtocolEvidence.evidence?.diagnostic || {})}`,
     `- agent_output_sha256：\`${agentOutputHash}\``,
     agentOutput
       ? `- agent_output：\n\n${agentOutput.split(/\\r?\\n/).map((line) => "    " + line).join("\\n")}`
