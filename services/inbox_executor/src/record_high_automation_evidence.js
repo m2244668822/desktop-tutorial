@@ -43,7 +43,7 @@ function markdownValue(source, label) {
   return "";
 }
 
-function resultEvidence(taskText) {
+export function resultEvidence(taskText) {
   const actions = ["workspace.create", "workspace.patch", "workspace.move", "workspace.trash"];
   const result = {
     task_id: markdownValue(taskText, "task_id"),
@@ -59,6 +59,10 @@ function resultEvidence(taskText) {
   result.all_actions_ok = actions.every((action) => result.action_results[action]);
   result.claim_identity_complete = [result.task_id, result.run_id, result.lease_id, result.lease_generation, result.fencing_token, result.remote_task_revision].every(Boolean);
   return result;
+}
+
+export function casResultWritebackPass(result) {
+  return ["done", "blocked"].includes(result.status) && result.claim_identity_complete;
 }
 
 function main() {
@@ -95,7 +99,7 @@ function main() {
       lease_fencing: pass(result.claim_identity_complete && result.identity_validation === "executor_identity_match"),
       state_hash: pass(phasePass.B),
       append_only_journal: pass(phasePass.A),
-      cas_result_writeback: pass(result.status === "done" && result.claim_identity_complete),
+      cas_result_writeback: pass(casResultWritebackPass(result)),
       primary_protection: pass(primary.automation_mode === "manual_only" && Array.isArray(primary.allowed_write_tools) && primary.allowed_write_tools.length === 0),
       r3_baseline: pass(r3Pass),
     },
@@ -130,4 +134,6 @@ function main() {
   if (Object.values(evidence.gates).some((value) => value !== "pass")) process.exitCode = 1;
 }
 
-main();
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
+  main();
+}

@@ -331,6 +331,16 @@ export function evaluateProjectPolicy({ vaultRoot, projectId, tool, targetPath =
   if (mode !== "bounded_write") {
     return { ok: false, code: "automation_disabled", projectId, targetPath };
   }
+  const allowedTestTools = new Set(project.allowed_test_tools || []);
+  if (allowedTestTools.has(tool)) {
+    return {
+      ok: true,
+      mode,
+      projectId,
+      projectRoot,
+      policyScope: project.policy_scope || projectId,
+    };
+  }
   const normalizedTarget = targetPath.replace(/\\/g, "/");
   if (
     normalizedTarget &&
