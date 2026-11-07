@@ -65,6 +65,7 @@ test("collects passing evidence for all eight fixed registered projects", () => 
     assert.deepEqual(packet.registered_projects.map((item) => item.project_id), REGISTERED_PROJECT_IDS);
     assert.ok(packet.registered_projects.every((item) => item.root_exists && item.status === "pass"));
     assert.ok(packet.registered_projects.every((item) => item.source_scope === "runtime/test-profiles.json" && item.profile_sha256.length === 64));
+    assert.equal(new Set(packet.registered_projects.map((item) => item.profile_sha256)).size, REGISTERED_PROJECT_IDS.length);
     assert.equal(packet.arbitrary_commands, false);
     assert.equal(packet.writes_forbidden, true);
     assert.deepEqual(JSON.parse(fs.readFileSync(fixture.outputPath, "utf8")), packet);

@@ -23,8 +23,8 @@ export const REGISTERED_PROJECT_IDS = [
 
 const MAX_TIMEOUT_SEC = 120;
 
-function sha256File(filePath) {
-  return crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+function sha256Text(value) {
+  return crypto.createHash("sha256").update(value, "utf8").digest("hex");
 }
 
 function relativePath(root, target) {
@@ -101,7 +101,6 @@ export function collectRegisteredProjectsEvidence({
   if (!absoluteRepoRoot || !fs.existsSync(absoluteRepoRoot)) throw new Error("registered_projects_repo_missing");
   if (!sourceSnapshotSha) throw new Error("source_snapshot_sha_missing");
   const profiles = JSON.parse(fs.readFileSync(profilesPath, "utf8"));
-  const profileHash = sha256File(profilesPath);
   const profilePath = relativePath(absoluteRepoRoot, path.resolve(profilesPath));
   const workspace = workspaceFactory(absoluteRepoRoot);
   const reasons = [];
@@ -112,7 +111,7 @@ export function collectRegisteredProjectsEvidence({
     const record = {
       project_id: projectId,
       root: String(profile?.root || ""),
-      profile_sha256: profileHash,
+      profile_sha256: profile ? sha256Text(JSON.stringify(profile)) : sha256Text("missing-profile"),
       source_scope: profilePath,
       root_exists: false,
       fixed_tests: [],

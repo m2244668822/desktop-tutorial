@@ -113,6 +113,13 @@ export function validateRegisteredProjectsEvidence(packet, { expectedProjectIds 
       if (typeof fixedTest.ok !== "boolean" || typeof fixedTest.timed_out !== "boolean") fail("registered_project_test_result_invalid");
     }
   }
+  const allProjectsPass = packet.registered_projects.every((project) =>
+    project.status === "pass" &&
+    project.root_exists === true &&
+    project.fixed_tests.every((fixedTest) => fixedTest.status === "pass" && fixedTest.ok === true && fixedTest.timed_out === false)
+  );
+  if (packet.status === "pass" && !allProjectsPass) fail("registered_projects_status_inconsistent");
+  if (packet.status === "fail" && allProjectsPass) fail("registered_projects_status_inconsistent");
   return packet;
 }
 
@@ -140,11 +147,17 @@ export function validateLongTermReplayEvidence(packet, { expectedSourceSnapshotS
     if (typeof observation.result_commit !== "string" || !observation.result_commit) fail("replay_result_commit_missing");
   }
 
-  if (packet.status === "pass") {
-    if (packet.observations.length < packet.required_runs) fail("replay_observation_count_below_threshold");
+  const thresholdReasons = [];
+  if (packet.observations.length < packet.required_runs) {
+    thresholdReasons.push("replay_observation_count_below_threshold");
+  } else {
     const times = packet.observations.map((item) => Date.parse(item.observed_at));
     const span = Math.max(...times) - Math.min(...times);
-    if (span < packet.min_span_ms) fail("replay_observation_span_below_threshold");
+    if (span < packet.min_span_ms) thresholdReasons.push("replay_observation_span_below_threshold");
+  }
+  if (packet.status === "pass" && thresholdReasons.length) fail(thresholdReasons[0]);
+  if (packet.status === "not_ready" && !thresholdReasons.some((reason) => packet.reasons.includes(reason))) {
+    fail("replay_not_ready_reason_missing");
   }
   return packet;
 }

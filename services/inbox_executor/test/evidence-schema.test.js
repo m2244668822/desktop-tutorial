@@ -118,3 +118,26 @@ test("long-term replay rejects three observations before the seven-day span", ()
     /replay_observation_span_below_threshold/,
   );
 });
+
+test("registered-project evidence rejects pass status when a project test failed", () => {
+  const packet = registeredPacket();
+  packet.registered_projects[0].status = "fail";
+  packet.registered_projects[0].fixed_tests[0].status = "fail";
+  assert.throws(
+    () => validateRegisteredProjectsEvidence(packet, { expectedProjectIds: registeredProjectIds }),
+    /registered_projects_status_inconsistent/,
+  );
+});
+
+test("replay evidence rejects not-ready status without an exact threshold reason", () => {
+  const packet = replayPacket([
+    observation(1, "2026-11-07T00:00:00.000Z"),
+    observation(2, "2026-11-10T00:00:00.000Z"),
+  ]);
+  packet.status = "not_ready";
+  packet.reasons = [];
+  assert.throws(
+    () => validateLongTermReplayEvidence(packet, { expectedSourceSnapshotSha: sourceSnapshotSha }),
+    /replay_not_ready_reason_missing/,
+  );
+});
