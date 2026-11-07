@@ -86,12 +86,27 @@ export function executorIdentityFromEnvironment(env = process.env, now = new Dat
   });
 }
 
-export function upsertExecutorClaim(text, taskId, identity, remoteTaskRevision = "") {
+export function upsertExecutorClaim(
+  text,
+  taskId,
+  identity,
+  remoteTaskRevision = "",
+  execution = {}
+) {
   const normalized = normalizeExecutorIdentity(identity);
-  const revisionLine = remoteTaskRevision
-    ? `- remote_task_revision：\`${remoteTaskRevision}\`\n`
-    : "";
-  const block = `${CLAIM_MARKER}\n\n- task_id：\`${taskId}\`\n- status：\`running\`\n${revisionLine}\n\`\`\`json\n${JSON.stringify(normalized, null, 2)}\n\`\`\`\n`;
+  const executionLines = [
+    ["run_id", execution.run_id],
+    ["operation_id", execution.operation_id],
+    ["lease_id", execution.lease_id],
+    ["lease_generation", execution.lease_generation],
+    ["fencing_token", execution.fencing_token],
+    ["remote_task_revision", remoteTaskRevision],
+  ]
+    .filter(([, value]) => value !== undefined && value !== null && String(value) !== "")
+    .map(([field, value]) => `- ${field}：\`${value}\``)
+    .join("\n");
+  const executionBlock = executionLines ? `${executionLines}\n` : "";
+  const block = `${CLAIM_MARKER}\n\n- task_id：\`${taskId}\`\n- status：\`running\`\n${executionBlock}\n\`\`\`json\n${JSON.stringify(normalized, null, 2)}\n\`\`\`\n`;
   const sections = topLevelSections(text);
   const claimSection = sections.find((section) =>
     /^## Executor Claim(?:（[^）]+）)?[ \t]*$/.test(section.heading)

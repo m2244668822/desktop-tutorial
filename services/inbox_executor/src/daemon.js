@@ -174,13 +174,23 @@ async function runContract() {
     path.relative(vaultRoot, inboxPath),
     hash
   );
+  const found = classifyMechanicalActions(text);
+  const mechanical = found.ok ? found.parsed : null;
+  const firstTool = mechanical?.actions?.[0]?.tool || "";
+  const firstOperationId = firstTool
+    ? `op-${sha256(`${taskId}:${hash}:0:${firstTool}`).slice(0, 24)}`
+    : "";
   log(`detected queued → running executor_id=${executorIdentity.executor_id}`);
   let next = setStatus(text, "running");
-  next = upsertExecutorClaim(next, taskId, executorIdentity);
+  next = upsertExecutorClaim(next, taskId, executorIdentity, remoteTaskRevision, {
+    run_id: runId,
+    operation_id: firstOperationId,
+    lease_id: lease.lease_id,
+    lease_generation: lease.lease_generation,
+    fencing_token: lease.fencing_token,
+  });
   fs.writeFileSync(inboxPath, next, "utf8");
 
-  const found = classifyMechanicalActions(next);
-  const mechanical = found.ok ? found.parsed : null;
   const traceId = crypto.randomUUID();
   log(`trace_id=${traceId} task_id=${taskId} parse=${found.code}`);
 
@@ -221,10 +231,16 @@ async function runContract() {
   });
 
   const results = [];
+  let currentOperationId = firstOperationId;
   try {
     for (const [index, step] of mechanical.actions.entries()) {
       const tool = step.tool;
       const args = step.args || {};
+      const operationRequest = { task_id: taskId, tool, args };
+      const requestHash = sha256(stableJson(operationRequest));
+      const idempotencyKey = sha256(`${taskId}:${hash}:${index}:${tool}`);
+      const operationId = `op-${idempotencyKey.slice(0, 24)}`;
+      currentOperationId = operationId;
       if (!ALLOWED.has(tool)) {
         throw Object.assign(new Error(`tool_not_allowed:${tool}`), {
           code: "tool_not_allowed",
@@ -241,10 +257,6 @@ async function runContract() {
       if (!policy.ok) {
         throw Object.assign(new Error(policy.code), { code: policy.code });
       }
-      const operationRequest = { task_id: taskId, tool, args };
-      const requestHash = sha256(stableJson(operationRequest));
-      const idempotencyKey = sha256(`${taskId}:${hash}:${index}:${tool}`);
-      const operationId = `op-${idempotencyKey.slice(0, 24)}`;
       const stateBefore = captureWorkspaceState({
         projectRoot: vaultRoot,
         projectId,
@@ -443,7 +455,7 @@ async function runContract() {
     const identityValidation =
       err.identityValidation ||
       validateClaimResult(fs.readFileSync(inboxPath, "utf8"), taskId, executorIdentity);
-    const resultMarkdown = `- trace_id：\`${traceId}\`\n- task_id：\`${taskId}\`\n- run_id：\`${runId}\`\n- lease_id：\`${lease.lease_id}\`\n- lease_generation：${lease.lease_generation}\n- fencing_token：\`${lease.fencing_token}\`\n- remote_task_revision：\`${remoteTaskRevision}\`\n- 時間：${new Date().toISOString()}\n- 結果：blocked\n${executorIdentityMarkdown(executorIdentity, identityValidation)}\n- code：\`${code}\`\n- failure_class：\`${policy.klass}\`\n- auto_retry：${policy.auto_retry}\n- message：${err.message}${extra}`;
+    const resultMarkdown = `- trace_id：\`${traceId}\`\n- task_id：\`${taskId}\`\n- run_id：\`${runId}\`\n- operation_id：\`${currentOperationId || "unknown"}\`\n- lease_id：\`${lease.lease_id}\`\n- lease_generation：${lease.lease_generation}\n- fencing_token：\`${lease.fencing_token}\`\n- remote_task_revision：\`${remoteTaskRevision}\`\n- 時間：${new Date().toISOString()}\n- 結果：blocked\n${executorIdentityMarkdown(executorIdentity, identityValidation)}\n- code：\`${code}\`\n- failure_class：\`${policy.klass}\`\n- auto_retry：${policy.auto_retry}\n- message：${err.message}${extra}`;
     next = upsertDaemonResult(next, resultMarkdown);
     fs.writeFileSync(inboxPath, next, "utf8");
     recordAttempt(vaultRoot, taskId, {
