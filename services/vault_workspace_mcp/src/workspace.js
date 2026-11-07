@@ -448,6 +448,10 @@ export class VaultWorkspace {
     let args = [];
     let normalizedTarget = String(target || "").trim().replace(/\\/g, "/");
 
+    if (safeRunner === "python_script" || safeRunner === "pytest") {
+      testEnv.PYTHONPATH = [projectRoot, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter);
+    }
+
     if (safeRunner === "static_smoke") {
       normalizedTarget = normalizedTarget || "index.html";
       const entryPath = path.resolve(projectRoot, normalizedTarget);
@@ -520,7 +524,22 @@ export class VaultWorkspace {
       };
     }
 
-    if (safeRunner === "pytest") {
+    if (safeRunner === "python_script") {
+      if (!/^tests\/[A-Za-z0-9_.-]+\.py$/.test(normalizedTarget)) {
+        throw Object.assign(new Error("python_script_target_denied"), { code: "python_script_target_denied" });
+      }
+      const targetPath = path.resolve(projectRoot, normalizedTarget);
+      if (!fs.existsSync(targetPath)) {
+        throw Object.assign(new Error("test_target_missing"), { code: "test_target_missing" });
+      }
+      const targetInfo = assertRealInProject(targetPath, "python_script_target_outside_tests");
+      command = this._findCommand(["python", "py", "python3"]);
+      if (!command) {
+        throw Object.assign(new Error("python_unavailable"), { code: "python_unavailable" });
+      }
+      args = [targetInfo.rel];
+      normalizedTarget = targetInfo.rel;
+    } else if (safeRunner === "pytest") {
       normalizedTarget = normalizedTarget || "tests";
       const targetPath = path.resolve(projectRoot, normalizedTarget);
       if (!fs.existsSync(targetPath)) {
@@ -822,7 +841,7 @@ export const TOOL_DEFS = [
     inputSchema: {
       type: "object",
       properties: {
-        runner: { type: "string", enum: ["pytest", "node_e2e", "node_test", "static_smoke"] },
+        runner: { type: "string", enum: ["pytest", "python_script", "node_e2e", "node_test", "static_smoke"] },
         target: { type: "string" },
         projectDir: { type: "string" },
         timeoutSec: { type: "number" },
