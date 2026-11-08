@@ -38,6 +38,7 @@ TREVOR_UNITS=(
 )
 CUTOVER_STARTED=0
 PREVIOUS_APP_SAVED=0
+NEW_APP_ACTIVATED=0
 ACTIVE_SERVICES=()
 READINESS_ATTEMPTS=180
 READINESS_STABLE_PROBES=5
@@ -53,17 +54,18 @@ ensure_host_tools() {
     && command -v g++ >/dev/null 2>&1 \
     && command -v git >/dev/null 2>&1 \
     && command -v make >/dev/null 2>&1 \
-    && command -v rsync >/dev/null 2>&1; then
+    && command -v rsync >/dev/null 2>&1 \
+    && [ -x /usr/bin/python3 ]; then
     return
   fi
   if command -v dnf >/dev/null 2>&1; then
-    dnf install -y ca-certificates curl gcc gcc-c++ git make rsync
+    dnf install -y ca-certificates curl gcc gcc-c++ git make python3 rsync
   elif command -v apt-get >/dev/null 2>&1; then
     apt-get update
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
-      build-essential ca-certificates curl git rsync
+      build-essential ca-certificates curl git python3 rsync
   else
-    echo "supported package manager not found; install C/C++, curl, git, make, and rsync" >&2
+    echo "supported package manager not found; install C/C++, curl, git, make, Python 3, and rsync" >&2
     exit 1
   fi
 }
@@ -159,6 +161,106 @@ cleanup_staging_artifacts() {
   rm -rf -- "$BUILD_ROOT" "$UNIT_BACKUP_ROOT"
 }
 
+migrate_legacy_service_data() {
+  /usr/bin/python3 - "$DATA_ROOT" trevor <<'PY_MIGRATE_TREVOR_DATA'
+import os
+import pwd
+import stat
+import sys
+
+
+data_root = os.path.abspath(sys.argv[1])
+account = pwd.getpwnam(sys.argv[2])
+target_uid = account.pw_uid
+target_gid = account.pw_gid
+directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+file_flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK
+
+
+def require_expected_owner(metadata):
+    if metadata.st_uid not in (0, target_uid):
+        raise RuntimeError("unexpected_service_data_owner")
+
+
+def open_directory(parent_fd, name, create=False):
+    try:
+        descriptor = os.open(name, directory_flags, dir_fd=parent_fd)
+    except FileNotFoundError:
+        if not create:
+            raise
+        try:
+            os.mkdir(name, mode=0o700, dir_fd=parent_fd)
+        except FileExistsError:
+            pass
+        descriptor = os.open(name, directory_flags, dir_fd=parent_fd)
+    metadata = os.fstat(descriptor)
+    if not stat.S_ISDIR(metadata.st_mode):
+        os.close(descriptor)
+        raise RuntimeError("service_data_directory_required")
+    require_expected_owner(metadata)
+    os.fchown(descriptor, target_uid, target_gid)
+    os.fchmod(descriptor, 0o700)
+    return descriptor
+
+
+def migrate_regular_file(parent_fd, name):
+    try:
+        descriptor = os.open(name, file_flags, dir_fd=parent_fd)
+    except FileNotFoundError:
+        return
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise RuntimeError("service_data_regular_file_required")
+        if metadata.st_nlink != 1:
+            raise RuntimeError("service_data_hardlink_rejected")
+        require_expected_owner(metadata)
+        os.fchown(descriptor, target_uid, target_gid)
+        os.fchmod(descriptor, 0o600)
+    finally:
+        os.close(descriptor)
+
+
+parent_path, root_name = os.path.split(data_root.rstrip(os.sep))
+if not parent_path or not root_name:
+    raise RuntimeError("invalid_service_data_root")
+parent_fd = os.open(parent_path, directory_flags)
+try:
+    root_fd = open_directory(parent_fd, root_name, create=True)
+finally:
+    os.close(parent_fd)
+try:
+    for directory_name, file_name in (
+        ("auth", "api_keys.json"),
+        ("audit", "events.jsonl"),
+    ):
+        directory_fd = open_directory(root_fd, directory_name, create=True)
+        try:
+            migrate_regular_file(directory_fd, file_name)
+        finally:
+            os.close(directory_fd)
+finally:
+    os.close(root_fd)
+PY_MIGRATE_TREVOR_DATA
+}
+
+json_health_ready() {
+  local url="$1"
+  local required_field="${2:--}"
+  curl --fail --silent --show-error --max-time 5 "$url" \
+    | runuser -u trevor -- "$APP_ROOT/.venv/bin/python" -c '
+import json
+import sys
+
+payload = json.load(sys.stdin)
+required_field = sys.argv[1]
+ready = isinstance(payload, dict) and payload.get("ok") is True
+if required_field != "-":
+    ready = ready and payload.get(required_field) is True
+raise SystemExit(0 if ready else 1)
+' "$required_field" 2>/dev/null
+}
+
 wait_for_service_readiness() {
   local attempt service stable_probes=0
   for ((attempt = 1; attempt <= READINESS_ATTEMPTS; attempt += 1)); do
@@ -168,10 +270,9 @@ wait_for_service_readiness() {
         return 1
       fi
     done
-    if curl --fail --silent --show-error --max-time 5 \
-      http://127.0.0.1:5001/health/ready >/dev/null \
-      && curl --fail --silent --show-error --max-time 5 \
-        http://127.0.0.1:8091/health >/dev/null; then
+    if json_health_ready \
+      http://127.0.0.1:5001/health/ready required_ready \
+      && json_health_ready http://127.0.0.1:8091/health; then
       stable_probes=$((stable_probes + 1))
       if [ "$stable_probes" -ge "$READINESS_STABLE_PROBES" ]; then
         return 0
@@ -191,7 +292,7 @@ rollback_cutover() {
     return
   fi
   systemctl stop "${TREVOR_SERVICES[@]}" 2>/dev/null || true
-  if [ -e "$APP_ROOT" ]; then
+  if [ "$NEW_APP_ACTIVATED" -eq 1 ] && [ -e "$APP_ROOT" ]; then
     mv "$APP_ROOT" "$FAILED_APP_ROOT" || true
   fi
   if [ "$PREVIOUS_APP_SAVED" -eq 1 ]; then
@@ -224,8 +325,6 @@ deployment_exit() {
   exit "$exit_code"
 }
 
-trap deployment_exit EXIT
-
 ensure_host_tools
 ensure_uv
 
@@ -235,6 +334,8 @@ fi
 
 install -d -o trevor -g trevor -m 0700 \
   "$DATA_ROOT" "$UV_CACHE_ROOT" "$FALKORDB_MODULE_CACHE_ROOT"
+migrate_legacy_service_data
+trap deployment_exit EXIT
 install -d -o root -g root -m 0755 \
   /opt/trevor "$RELEASE_ROOT" "$CONFIG_ROOT"
 install -d -o trevor -g trevor -m 0755 "$PYTHON_ROOT" "$BUILD_ROOT"
@@ -339,11 +440,19 @@ done
 
 CUTOVER_STARTED=1
 systemctl stop "${TREVOR_SERVICES[@]}" 2>/dev/null || true
+for service in "${TREVOR_SERVICES[@]}"; do
+  if systemctl is-active --quiet "$service"; then
+    echo "Trevor service could not be stopped safely: $service" >&2
+    exit 1
+  fi
+done
+migrate_legacy_service_data
 if [ -e "$APP_ROOT" ]; then
   mv "$APP_ROOT" "$PREVIOUS_APP_ROOT"
   PREVIOUS_APP_SAVED=1
 fi
 mv "$BUILD_ROOT" "$APP_ROOT"
+NEW_APP_ACTIVATED=1
 if command -v restorecon >/dev/null 2>&1; then
   restorecon -RF "$APP_ROOT"
 fi

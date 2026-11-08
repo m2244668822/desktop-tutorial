@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import inspect
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
 from core.audit_chain import HashChainAuditLog
+from core.autonomy import ClaimLostError
 from core.git_worktree import TrevorWorktreeManager
 from core.secret_scanner import SecretScanner
 from core.workflow_runtime import run_task_plan
@@ -49,23 +51,55 @@ class TrevorTaskExecutor:
             'failed_steps': int(state.get('failed_steps', 0) or 0),
         }
 
+    @staticmethod
+    def _claim_lost_event(task: dict[str, Any]) -> Any:
+        event = task.get('_claim_lost')
+        return event if callable(getattr(event, 'is_set', None)) else None
+
+    @staticmethod
+    def _check_claim(task: dict[str, Any]) -> None:
+        event = TrevorTaskExecutor._claim_lost_event(task)
+        if event is not None and event.is_set():
+            raise ClaimLostError('task_claim_lost')
+
     def _run_workflow(self, workspace: Path, task: dict[str, Any]) -> dict[str, Any]:
-        result = self.workflow(
+        self._check_claim(task)
+        arguments = (
             workspace,
             str(task.get('capability_mode', 'general') or 'general'),
             str(task.get('input', '') or ''),
         )
+        parameters = inspect.signature(self.workflow).parameters
+        if 'cancellation_event' in parameters or any(
+            parameter.kind == inspect.Parameter.VAR_KEYWORD
+            for parameter in parameters.values()
+        ):
+            result = self.workflow(
+                *arguments,
+                cancellation_event=self._claim_lost_event(task),
+            )
+        else:
+            result = self.workflow(*arguments)
+        self._check_claim(task)
         summary = self._workflow_summary(result)
         if summary['overall_status'].lower() != 'success' or summary['failed_steps']:
             raise RuntimeError('workflow_failed')
         return summary
 
-    def _validate(self, worktree_path: Path) -> dict[str, Any]:
+    def _validate(
+        self, worktree_path: Path, claim_lost: Any = None
+    ) -> dict[str, Any]:
+        if claim_lost is not None and claim_lost.is_set():
+            raise ClaimLostError('task_claim_lost')
         scan = SecretScanner(worktree_path).scan_repository()
+        if claim_lost is not None and claim_lost.is_set():
+            raise ClaimLostError('task_claim_lost')
         if not scan['ok']:
             return {'ok': False, 'reason': 'secret_scan_failed', 'findings': scan['findings']}
         checks = []
         for command in self.test_commands:
+            if claim_lost is not None and claim_lost.is_set():
+                raise ClaimLostError('task_claim_lost')
             process = subprocess.run(
                 list(command),
                 cwd=worktree_path,
@@ -74,11 +108,14 @@ class TrevorTaskExecutor:
                 text=True,
             )
             checks.append({'command': list(command), 'returncode': process.returncode})
+            if claim_lost is not None and claim_lost.is_set():
+                raise ClaimLostError('task_claim_lost')
             if process.returncode != 0:
                 return {'ok': False, 'reason': 'tests_failed', 'checks': checks}
         return {'ok': True, 'checks': checks, 'secret_scan': {'scanned_files': scan['scanned_files']}}
 
     def _execute_code_task(self, task: dict[str, Any]) -> dict[str, Any]:
+        self._check_claim(task)
         created = self.worktrees.create(
             str(task.get('id', '') or 'task'),
             str(task.get('input', '') or 'task'),
@@ -89,10 +126,11 @@ class TrevorTaskExecutor:
             {'task_id': task.get('id', ''), 'branch': created['branch']},
         )
         workflow = self._run_workflow(worktree_path, task)
+        self._check_claim(task)
         git_result = self.worktrees.finalize(
             created,
             commit_message=f"trevor: task {str(task.get('id', '') or 'unknown')[:80]}",
-            validator=self._validate,
+            validator=lambda path: self._validate(path, self._claim_lost_event(task)),
         )
         self._audit(
             'autonomy_task_merged',
@@ -101,6 +139,7 @@ class TrevorTaskExecutor:
         return {'status': 'completed', 'workflow': workflow, 'git': git_result}
 
     def _execute_non_code_task(self, task: dict[str, Any]) -> dict[str, Any]:
+        self._check_claim(task)
         before = subprocess.run(
             ['git', 'status', '--porcelain'],
             cwd=self.repository_root,
@@ -109,6 +148,7 @@ class TrevorTaskExecutor:
             text=True,
         ).stdout
         workflow = self._run_workflow(self.repository_root, task)
+        self._check_claim(task)
         after = subprocess.run(
             ['git', 'status', '--porcelain'],
             cwd=self.repository_root,
@@ -125,6 +165,7 @@ class TrevorTaskExecutor:
         return {'status': 'completed', 'workflow': workflow, 'git': {'status': 'not_required'}}
 
     def __call__(self, task: dict[str, Any]) -> dict[str, Any]:
+        self._check_claim(task)
         category = str(task.get('category', 'maintenance') or 'maintenance').lower()
         self._audit(
             'autonomy_task_started',

@@ -1,5 +1,6 @@
 import subprocess
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -96,6 +97,38 @@ class AutonomyExecutorTests(unittest.TestCase):
             self.assertEqual(root.resolve(), called[0][0])
             self.assertEqual('completed', result['status'])
             self.assertFalse((Path(tmp) / 'data' / 'worktrees').exists())
+
+    def test_executor_propagates_claim_loss_to_cancellable_workflow(self):
+        from core.autonomy import ClaimLostError
+        from core.autonomy_executor import TrevorTaskExecutor
+
+        claim_lost = threading.Event()
+        claim_lost.set()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._repository(tmp)
+
+            def workflow(workspace, capability_mode, instruction, *, cancellation_event=None):
+                self.assertIs(claim_lost, cancellation_event)
+                raise ClaimLostError('task_claim_lost')
+
+            executor = TrevorTaskExecutor(
+                root,
+                Path(tmp) / 'data',
+                workflow=workflow,
+                test_commands=(),
+            )
+
+            with self.assertRaises(ClaimLostError):
+                executor(
+                    {
+                        'id': 'trevor-task-3',
+                        'category': 'content',
+                        'capability_mode': 'content',
+                        'input': '整理內容',
+                        '_claim_lost': claim_lost,
+                    }
+                )
 
 
 if __name__ == '__main__':
