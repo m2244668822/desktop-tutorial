@@ -821,7 +821,7 @@ writeTerminalResult({
     `- code：\`${code}\``,
     `- agent_exit_code：${Number.isInteger(agentRun.status) ? agentRun.status : "null"}`,
     `- mcp_protocol_probe：\`${mcpProtocolOk ? "PASS" : "BLOCKED"}\``,
-    `- mcp_agent_call：\`${mcpAgentCallOk ? "PASS" : "NOT_VERIFIED"}\`,
+    `- mcp_agent_call：\`${mcpAgentCallOk ? "PASS" : "NOT_VERIFIED"}\``,
     `- mcp_initialize：\`${mcpProtocolEvidence.evidence?.initialize?.ok ? "PASS" : "NOT_VERIFIED"}\``,
     `- mcp_tools_list：\`${mcpProtocolEvidence.evidence?.tools_list?.ok ? "PASS" : "NOT_VERIFIED"}\``,
     `- mcp_scoped_workspace_list：\`${mcpProtocolEvidence.evidence?.calls?.workspace_list?.ok ? "PASS" : "NOT_VERIFIED"}\``,
