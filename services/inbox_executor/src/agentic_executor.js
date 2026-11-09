@@ -616,6 +616,9 @@ if (agentOk) {
       exit_code: result.exit_code,
       timed_out: result.timed_out,
       duration_ms: result.duration_ms,
+      error: String(result.error || "").slice(0, 300),
+      stdout_length: Buffer.byteLength(String(result.stdout || ""), "utf8"),
+      stderr_length: Buffer.byteLength(String(result.stderr || ""), "utf8"),
     });
     if (!result.ok) break;
   }
