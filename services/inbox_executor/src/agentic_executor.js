@@ -818,6 +818,8 @@ writeTerminalResult({
     `- mcp_bounded_validation：\`${mcpProtocolEvidence.evidence?.calls?.runtime_run_test?.length && mcpProtocolEvidence.evidence.calls.runtime_run_test.every((item) => item.ok) ? "PASS" : "NOT_VERIFIED"}\``,
     mcpProtocolEvidence.blocker ? `- mcp_blocker：\`${mcpProtocolEvidence.blocker}\`` : "- mcp_blocker：",
     `- mcp_diagnostic: ${JSON.stringify(mcpProtocolEvidence.evidence?.diagnostic || {})}`,
+    `- mcp_bounded_test_details: ${JSON.stringify(mcpProtocolEvidence.evidence?.calls?.runtime_run_test || [])}`,
+    `- bounded_test_details: ${JSON.stringify(tests)}`,
     `- agent_output_sha256：\`${agentOutputHash}\``,
     agentOutput
       ? `- agent_output：\n\n${agentOutput.split(/\\r?\\n/).map((line) => "    " + line).join("\\n")}`
