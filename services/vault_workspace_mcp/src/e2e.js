@@ -13,7 +13,9 @@ import { VaultWorkspace, TOOL_DEFS, dispatch } from "./workspace.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const vaultRoot = path.resolve(__dirname, "..", "..", "..", "..");
-const scratchRoot = path.join(vaultRoot, "runtime", ".mcp-e2e-scratch");
+const scratchRoot =
+  process.env.MCP_E2E_SCRATCH_ROOT ||
+  path.join(vaultRoot, "runtime", (".mcp-e2e-scratch-" + process.pid));
 const auditDir = path.join(scratchRoot, ".mcp-audit");
 const trashDir = path.join(scratchRoot, ".mcp-trash");
 
