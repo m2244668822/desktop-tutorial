@@ -555,6 +555,7 @@ const agentMcpAuditRoot = path.join(
 const agentEnv = {
   ...process.env,
   VAULT_WORKSPACE_ROOT: agentProjectRoot,
+  WHITE_STUDIO_RUNTIME_ROOT: path.join(worktreeRoot, "runtime", "desktop-tutorial"),
   MCP_AUTO_APPROVE: "0",
   MCP_AUDIT_DIR: path.join(agentMcpAuditRoot, "audit"),
   MCP_TRASH_DIR: path.join(agentMcpAuditRoot, "trash"),
@@ -565,8 +566,9 @@ const prompt = [
   "You are the selected White Studio headless executor.",
   `Executor: ${selected}`,
   `Task ID: ${taskId}`,
-  `Assigned project root: ${agentProjectRoot}`,
+  `Repository root for instructions: ${path.join(worktreeRoot, "AGENTS.md")}`,
   `Output kind: ${outputKind || "implementation"}`,
+  `- Read ${path.join(worktreeRoot, "AGENTS.md")} if present; do not treat a missing file inside the assigned project as a blocker.`,
   "",
   "Rules:",
   "- Read AGENTS.md at the repository root if present.",
