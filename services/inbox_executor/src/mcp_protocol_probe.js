@@ -242,11 +242,18 @@ export async function probeMcpProtocol({
         }, diagnostics),
         "runtime_run_test",
       );
+      const stdout = String(result.stdout || "");
+      const stderr = String(result.stderr || "");
       evidence.calls.runtime_run_test.push({
         runner: String(result.runner || test.runner),
         target: String(result.target || test.target),
         ok: result.ok === true && result.exit_code === 0,
         exit_code: Number.isInteger(result.exit_code) ? result.exit_code : null,
+        timed_out: result.timed_out === true,
+        duration_ms: Number.isFinite(result.duration_ms) ? result.duration_ms : null,
+        error: String(result.error || "").slice(0, 300),
+        stdout_length: Buffer.byteLength(stdout, "utf8"),
+        stderr_length: Buffer.byteLength(stderr, "utf8"),
       });
     }
     const boundedOk = evidence.calls.runtime_run_test.every((test) => test.ok);
