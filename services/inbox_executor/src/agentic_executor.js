@@ -826,7 +826,7 @@ writeTerminalResult({
     `- mcp_tools_list：\`${mcpProtocolEvidence.evidence?.tools_list?.ok ? "PASS" : "NOT_VERIFIED"}\``,
     `- mcp_scoped_workspace_list：\`${mcpProtocolEvidence.evidence?.calls?.workspace_list?.ok ? "PASS" : "NOT_VERIFIED"}\``,
     `- mcp_runtime_capabilities：\`${mcpProtocolEvidence.evidence?.calls?.runtime_capabilities?.ok ? "PASS" : "NOT_VERIFIED"}\``,
-    `- mcp_bounded_validation：\`${mcpProtocolEvidence.evidence?.calls?.runtime_run_test?.length && mcpProtocolEvidence.evidence.calls.runtime_run_test.every((item) => item.ok) ? "PASS" : "NOT_VERIFIED"}\``,
+    `- mcp_bounded_validation：\`${mcpProtocolEvidence.evidence?.calls?.runtime_run_test?.length === testProfile.tests.length && mcpProtocolEvidence.evidence.calls.runtime_run_test.every((item) => item.ok) ? "PASS" : "NOT_VERIFIED"}\``,
     mcpProtocolEvidence.blocker ? `- mcp_blocker：\`${mcpProtocolEvidence.blocker}\`` : "- mcp_blocker：",
     `- mcp_diagnostic: ${JSON.stringify(mcpProtocolEvidence.evidence?.diagnostic || {})}`,
     `- mcp_bounded_test_details: ${JSON.stringify(mcpProtocolEvidence.evidence?.calls?.runtime_run_test || [])}`,
