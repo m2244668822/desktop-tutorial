@@ -568,10 +568,9 @@ const prompt = [
   `Task ID: ${taskId}`,
   `Repository root for instructions: ${path.join(worktreeRoot, "AGENTS.md")}`,
   `Output kind: ${outputKind || "implementation"}`,
-  `- Read ${path.join(worktreeRoot, "AGENTS.md")} if present; do not treat a missing file inside the assigned project as a blocker.`,
   "",
   "Rules:",
-  "- Read AGENTS.md at the repository root if present.",
+  `- Read ${path.join(worktreeRoot, "AGENTS.md")} if present; do not treat a missing file inside the assigned project as a blocker.`,
   "- Work only inside the assigned repository/worktree.",
   "- Do not commit, push, merge, deploy, reset --hard, clean, force push, or modify secrets.",
   analysisOnly
