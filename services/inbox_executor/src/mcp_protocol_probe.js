@@ -1,6 +1,12 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 
+function redactDiagnostic(value) {
+  return String(value || "")
+    .replace(/(api[_-]?key|token|password|secret)(\s*[=:]\s*)\S+/gi, "$1$2[REDACTED]")
+    .slice(-2000);
+}
+
 function parseToolResult(message, method) {
   if (!message?.result || message.result.isError) {
     throw Object.assign(new Error(`mcp_${method}_failed`), { code: `mcp_${method}_failed` });
@@ -254,6 +260,7 @@ export async function probeMcpProtocol({
         error: String(result.error || "").slice(0, 300),
         stdout_length: Buffer.byteLength(stdout, "utf8"),
         stderr_length: Buffer.byteLength(stderr, "utf8"),
+        stderr_tail: redactDiagnostic(stderr),
       });
     }
     const boundedOk = evidence.calls.runtime_run_test.every((test) => test.ok);
