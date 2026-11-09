@@ -32,3 +32,9 @@ test("R19 accepts structured MCP evidence while keeping root consistency fail-cl
   assert.match(source, /agentWorkspaceRootOk/);
   assert.match(source, /agent_did_not_call_mcp/);
 });
+
+
+test("R20 fails closed on an agent self-reporting blocked", () => {
+  assert.match(source, /agentSelfReportBlocked/);
+  assert.match(source, /agent_self_report_blocked/);
+});
