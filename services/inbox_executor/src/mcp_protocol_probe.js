@@ -34,7 +34,7 @@ function normalizeProbeError(error, fallbackCode) {
   return Object.assign(new Error(fallbackCode), { code: fallbackCode });
 }
 
-function request(child, pending, sequence, method, params = {}, diagnostics) {
+function request(child, pending, sequence, method, params = {}, diagnostics, timeoutMs = 5000) {
   const id = sequence.next++;
   diagnostics.last_method = method;
   diagnostics.stage = method;
@@ -44,7 +44,7 @@ function request(child, pending, sequence, method, params = {}, diagnostics) {
       reject(Object.assign(new Error("mcp_" + method + "_timeout"), {
         code: "mcp_" + method + "_timeout",
       }));
-    }, 5000);
+    }, timeoutMs);
     pending.set(id, { resolve, reject, timer });
     try {
       child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
@@ -245,7 +245,7 @@ export async function probeMcpProtocol({
             target: test.target,
             timeoutSec: test.timeoutSec,
           },
-        }, diagnostics),
+        }, diagnostics, Math.max(5000, (test.timeoutSec + 5) * 1000)),
         "runtime_run_test",
       );
       const stdout = String(result.stdout || "");
@@ -263,7 +263,7 @@ export async function probeMcpProtocol({
         stderr_tail: redactDiagnostic(stderr),
       });
     }
-    const boundedOk = evidence.calls.runtime_run_test.every((test) => test.ok);
+    const boundedOk = evidence.calls.runtime_run_test.length === tests.length && evidence.calls.runtime_run_test.every((test) => test.ok);
     if (!boundedOk) {
       throw Object.assign(new Error("mcp_bounded_validation_failed"), {
         code: "mcp_bounded_validation_failed",
