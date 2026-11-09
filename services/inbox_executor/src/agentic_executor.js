@@ -586,9 +586,7 @@ const worktreeWs = new VaultWorkspace({
   autoApprove: false,
 });
 
-const mcpProtocolEvidence = analysisOnly
-  ? { ok: true, evidence: null }
-  : await probeMcpProtocol({
+const mcpProtocolEvidence = await probeMcpProtocol({
       serverPath: resolveMcpServerPath({
         sourceRepoRoot,
         worktreeRoot,
@@ -635,7 +633,9 @@ const testsOk =
   agentOk &&
   tests.length === testProfile.tests.length &&
   tests.every((item) => item.ok);
-const mcpProtocolOk = analysisOnly || mcpProtocolEvidence.ok;
+const mcpProtocolOk = mcpProtocolEvidence.ok;
+const mcpAgentCallOk =
+  /(?:Actual MCP call|runtime\.capabilities|runtime_capabilities)/i.test(agentOutput);
 
 let add = { status: 0, stdout: "", stderr: "" };
 let diffCheck = { status: 0, stdout: "", stderr: "" };
@@ -693,6 +693,7 @@ if (analysisOnly) {
 const validationOk =
   testsOk &&
   mcpProtocolOk &&
+  mcpAgentCallOk &&
   add.status === 0 &&
   diffCheck.status === 0 &&
   (analysisOnly || stagedState.status === 0 || stagedState.status === 1) &&
@@ -772,7 +773,9 @@ const code = !agentOk
     ? "validation_failed"
     : !mcpProtocolOk
       ? mcpProtocolEvidence.blocker || "mcp_protocol_probe_failed"
-      : readOnlyViolation
+      : !mcpAgentCallOk
+        ? "agent_did_not_call_mcp"
+        : readOnlyViolation
         ? "read_only_violation"
         : diffCheck.status !== 0
           ? "diff_check_failed"
@@ -818,6 +821,7 @@ writeTerminalResult({
     `- code：\`${code}\``,
     `- agent_exit_code：${Number.isInteger(agentRun.status) ? agentRun.status : "null"}`,
     `- mcp_protocol_probe：\`${mcpProtocolOk ? "PASS" : "BLOCKED"}\``,
+    `- mcp_agent_call：\`${mcpAgentCallOk ? "PASS" : "NOT_VERIFIED"}\`,
     `- mcp_initialize：\`${mcpProtocolEvidence.evidence?.initialize?.ok ? "PASS" : "NOT_VERIFIED"}\``,
     `- mcp_tools_list：\`${mcpProtocolEvidence.evidence?.tools_list?.ok ? "PASS" : "NOT_VERIFIED"}\``,
     `- mcp_scoped_workspace_list：\`${mcpProtocolEvidence.evidence?.calls?.workspace_list?.ok ? "PASS" : "NOT_VERIFIED"}\``,
