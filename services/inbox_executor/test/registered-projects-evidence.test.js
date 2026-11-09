@@ -117,7 +117,7 @@ test("a fixed profile test timeout is recorded as a failure", () => {
   }
 });
 
-test("collector executes the fixed python_script profile runner", () => {
+test("collector forwards a fixed python_script profile to runtime.run_test", () => {
   const fixture = makeRepo();
   try {
     const desktop = REGISTERED_PROJECT_IDS[0];
@@ -128,10 +128,26 @@ test("collector executes the fixed python_script profile runner", () => {
     profiles.projects[desktop].tests = [{ runner: "python_script", target: "tests/profile_check.py", timeoutSec: 30 }];
     fs.writeFileSync(fixture.profilesPath, JSON.stringify(profiles, null, 2) + "\n", "utf8");
 
-    const packet = collectRegisteredProjectsEvidence({ ...fixture, sourceSnapshotSha });
+    const calls = [];
+    const packet = collectRegisteredProjectsEvidence({
+      ...fixture,
+      sourceSnapshotSha,
+      workspaceFactory: () => ({
+        runTest(args) {
+          calls.push(args);
+          return { ok: true, timed_out: false, exit_code: 0 };
+        },
+      }),
+    });
     const project = packet.registered_projects.find((item) => item.project_id === desktop);
     assert.equal(project.status, "pass");
     assert.equal(project.fixed_tests[0].runner, "python_script");
+    assert.deepEqual(calls[0], {
+      runner: "python_script",
+      target: "tests/profile_check.py",
+      projectDir: path.join("projects", desktop),
+      timeoutSec: 30,
+    });
   } finally {
     cleanup(fixture.repoRoot);
   }
