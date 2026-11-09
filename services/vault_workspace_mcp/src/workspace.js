@@ -367,6 +367,13 @@ export class VaultWorkspace {
       risk: "L0",
       platform: payload.platform,
       executors: payload.executors,
+      codex_probe: {
+        path: payload.executor_readiness.codex.path,
+        version: payload.executor_readiness.codex.version,
+        authenticated: payload.executor_readiness.codex.authenticated,
+        headless_ready: payload.executor_readiness.codex.headless_ready,
+        output: codexAuth.output,
+      },
       readiness: {
         codex: payload.executor_readiness.codex.headless_ready,
         cursor: payload.executor_readiness.cursor.headless_ready,
