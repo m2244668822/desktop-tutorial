@@ -20,6 +20,34 @@ function normalizeHostId(value) {
   return raw;
 }
 
+export function resolveCommandLocation(
+  command,
+  { platform = process.platform, env = process.env } = {},
+) {
+  if (platform !== "win32") return "";
+  const pathKey = Object.keys(env).find((key) => key.toLowerCase() === "path");
+  const pathValue = pathKey ? String(env[pathKey] || "") : "";
+  const extensions = path.extname(command)
+    ? [""]
+    : String(env.PATHEXT || ".COM;.EXE;.BAT;.CMD")
+      .split(";")
+      .filter(Boolean)
+      .map((extension) => extension.toLowerCase());
+  for (const entry of pathValue.split(path.delimiter)) {
+    const directory = entry.trim().replace(/^"|"$/g, "");
+    if (!directory) continue;
+    for (const extension of extensions) {
+      const candidate = path.join(directory, `${command}${extension}`);
+      try {
+        if (fs.statSync(candidate).isFile()) return candidate;
+      } catch {
+        // Continue searching the remaining PATH entries.
+      }
+    }
+  }
+  return "";
+}
+
 function unifiedDiff(filePath, before, after) {
   const a = before.split(/\r?\n/);
   const b = after.split(/\r?\n/);
@@ -240,17 +268,21 @@ export class VaultWorkspace {
     const available = {};
 
     for (const command of commands) {
-      const result = spawnSync(locator, [command], {
-        cwd: this.root,
-        encoding: "utf8",
-        timeout: 2500,
-        shell: false,
-      });
-      const located = String(result.stdout || "")
-        .split(/\r?\n/)
-        .map((item) => item.trim())
-        .find(Boolean) || "";
-      locations[command] = result.status === 0 ? located : "";
+      if (process.platform === "win32") {
+        locations[command] = resolveCommandLocation(command);
+      } else {
+        const result = spawnSync(locator, [command], {
+          cwd: this.root,
+          encoding: "utf8",
+          timeout: 2500,
+          shell: false,
+        });
+        const located = String(result.stdout || "")
+          .split(/\r?\n/)
+          .map((item) => item.trim())
+          .find(Boolean) || "";
+        locations[command] = result.status === 0 ? located : "";
+      }
       available[command] = Boolean(locations[command]);
     }
 
