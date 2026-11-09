@@ -391,6 +391,18 @@ export class VaultWorkspace {
   }
 
   _findWorkingPython() {
+    const explicit = String(process.env.WHITE_STUDIO_PYTHON_PATH || "").trim();
+    if (explicit && path.isAbsolute(explicit) && fs.existsSync(explicit)) {
+      const probe = spawnSync(explicit, ["--version"], {
+        cwd: this.root,
+        encoding: "utf8",
+        timeout: 5000,
+        shell: false,
+        env: process.env,
+        maxBuffer: 256 * 1024,
+      });
+      if (!probe.error && probe.status === 0) return explicit;
+    }
     const locator = process.platform === "win32" ? "where.exe" : "which";
     for (const candidate of ["python", "py", "python3"]) {
       const located = spawnSync(locator, [candidate], {
@@ -463,6 +475,7 @@ export class VaultWorkspace {
       "CODEX_HOME",
       "WHITE_STUDIO_CODEX_PATH",
       "WHITE_STUDIO_CURSOR_AGENT_PATH",
+      "WHITE_STUDIO_PYTHON_PATH",
       "LOCALAPPDATA",
       "APPDATA",
       "ProgramFiles",
@@ -471,6 +484,8 @@ export class VaultWorkspace {
     ]) {
       if (process.env[key]) testEnv[key] = process.env[key];
     }
+    const resolvedPython = this._findWorkingPython();
+    if (resolvedPython) testEnv.WHITE_STUDIO_PYTHON_PATH = resolvedPython;
     testEnv.CI = "1";
     testEnv.PYTHONUNBUFFERED = "1";
 
