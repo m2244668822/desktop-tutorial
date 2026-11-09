@@ -38,3 +38,10 @@ test("R20 fails closed on an agent self-reporting blocked", () => {
   assert.match(source, /agentSelfReportBlocked/);
   assert.match(source, /agent_self_report_blocked/);
 });
+
+test("R21 excludes MCP audit and trash evidence from product staging", () => {
+  assert.match(source, /\:\(exclude\)\$\{projectRelInRepo\}\/runtime\/\.mcp-audit\/\*\*/);
+  assert.match(source, /\:\(exclude\)\$\{projectRelInRepo\}\/runtime\/\.mcp-trash\/\*\*/);
+  assert.match(source, /\:\(exclude\)runtime\/\.mcp-audit\/\*\*/);
+  assert.match(source, /\:\(exclude\)runtime\/\.mcp-trash\/\*\*/);
+});
