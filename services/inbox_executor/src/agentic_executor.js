@@ -207,6 +207,41 @@ function redactDiagnostic(value) {
     .slice(-2000);
 }
 
+function strictAuthEvidence(text) {
+  const authMode = String(contractField(text, "auth_mode") || "").trim().toLowerCase();
+  const required = authMode === "chatgpt";
+  const authClass = String(process.env.RTS01_AUTH_CLASS || "NOT_VERIFIED").trim().toLowerCase();
+  const loginStatusExit = String(process.env.RTS01_LOGIN_STATUS_EXIT || "NOT_VERIFIED").trim();
+  const apiKeyFallback = String(process.env.RTS01_API_KEY_FALLBACK || "NOT_VERIFIED").trim().toLowerCase();
+  const headlessReady = String(process.env.RTS01_HEADLESS_READY || "NOT_VERIFIED").trim().toLowerCase();
+  const ok = !required || (
+    authClass === "chatgpt" &&
+    loginStatusExit === "0" &&
+    apiKeyFallback === "false" &&
+    headlessReady === "true"
+  );
+  return {
+    required,
+    ok,
+    auth_class: authClass,
+    login_status_exit: loginStatusExit,
+    api_key_fallback: apiKeyFallback,
+    headless_ready: headlessReady,
+  };
+}
+
+function assertMcpWorkspaceRoot(expectedRoot, actualRoot) {
+  const expected = path.resolve(String(expectedRoot || ""));
+  const actual = path.resolve(String(actualRoot || ""));
+  if (!expected || !actual || expected !== actual) {
+    throw Object.assign(new Error("MCP_WORKSPACE_ROOT_MISMATCH"), {
+      code: "MCP_WORKSPACE_ROOT_MISMATCH",
+      expected,
+      actual,
+    });
+  }
+}
+
 function buildIdentity(selected, capabilities, now) {
   const readiness = capabilities?.executor_readiness?.[selected] || {};
   return {
@@ -362,6 +397,7 @@ if (!decision.ok || decision.route !== "agentic") {
 }
 
 const selected = decision.selected_executor;
+const authEvidence = strictAuthEvidence(initial.text);
 const identity = buildIdentity(selected, capabilities, new Date());
 let running = setStatus(initial.text, "running");
 // The publisher performs CAS against the original remote task blob. Keep that
@@ -511,6 +547,20 @@ if (!analysisOnly) {
 const agentProjectRoot = projectRelInRepo
   ? path.join(worktreeRoot, projectRelInRepo)
   : worktreeRoot;
+const agentMcpAuditRoot = path.join(
+  process.env.RUNNER_TEMP || os.tmpdir(),
+  "white-studio-agent-mcp",
+  safeName
+);
+const agentEnv = {
+  ...process.env,
+  VAULT_WORKSPACE_ROOT: agentProjectRoot,
+  MCP_AUTO_APPROVE: "0",
+  MCP_AUDIT_DIR: path.join(agentMcpAuditRoot, "audit"),
+  MCP_TRASH_DIR: path.join(agentMcpAuditRoot, "trash"),
+};
+assertMcpWorkspaceRoot(agentProjectRoot, agentEnv.VAULT_WORKSPACE_ROOT);
+
 const prompt = [
   "You are the selected White Studio headless executor.",
   `Executor: ${selected}`,
@@ -545,7 +595,7 @@ if (selected === "codex") {
       cwd: agentProjectRoot,
       input: prompt,
       timeout: maxAgentSeconds * 1000,
-      env: process.env,
+      env: agentEnv,
     }
   );
 } else if (selected === "cursor") {
@@ -561,7 +611,7 @@ if (selected === "codex") {
       "enabled",
       prompt,
     ],
-    { cwd: agentProjectRoot, timeout: maxAgentSeconds * 1000, env: process.env }
+    { cwd: agentProjectRoot, timeout: maxAgentSeconds * 1000, env: agentEnv }
   );
 } else {
   throw Object.assign(new Error("executor_not_supported"), { code: "executor_not_supported" });
@@ -691,6 +741,7 @@ if (analysisOnly) {
 }
 
 const validationOk =
+  authEvidence.ok &&
   testsOk &&
   mcpProtocolOk &&
   mcpAgentCallOk &&
@@ -767,7 +818,9 @@ if (!currentBeforeResult.ok) {
 const persisted = currentBeforeResult.text;
 const identityValidation = currentBeforeResult.validation;
 const done = validationOk && publishOk && identityValidation.ok;
-const code = !agentOk
+const code = !authEvidence.ok
+  ? "strict_agentic_auth_gate_failed"
+  : !agentOk
   ? "agent_execution_failed"
   : !testsOk
     ? "validation_failed"
@@ -814,8 +867,14 @@ writeTerminalResult({
     `- route：\`${decision.route}\``,
     `- requested_executor：\`${decision.requested_executor}\``,
     `- selected_executor：\`${selected}\``,
-    `- project：\`${project.name}\``,
-    `- base_sha：\`${baseSha}\``,
+    `- project：\`${project.name}\`,
+    `- RTS01_AUTH_CLASS：\`${authEvidence.auth_class}\`,
+    `- RTS01_LOGIN_STATUS_EXIT：\`${authEvidence.login_status_exit}\`,
+    `- RTS01_API_KEY_FALLBACK：\`${authEvidence.api_key_fallback}\`,
+    `- RTS01_HEADLESS_READY：\`${authEvidence.headless_ready}\`,
+    `- strict_auth_gate：\`${authEvidence.ok ? "PASS" : "BLOCKED"}\`,
+    `- mcp_workspace_root：\`${agentProjectRoot}\`,
+    `- base_sha：\`${baseSha}\`,
     `- branch：\`${branchName || "(no-change)"}\``,
     `- commit：\`${commitSha || ""}\``,
     `- code：\`${code}\``,
