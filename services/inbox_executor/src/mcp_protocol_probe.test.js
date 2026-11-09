@@ -23,3 +23,10 @@ test("probe gives bounded calls enough time and requires complete evidence", () 
     /const boundedOk =\s*evidence\.calls\.runtime_run_test\.length === tests\.length\s*&&/,
   );
 });
+test("Result reports MCP bounded validation only when the requested count is complete", () => {
+  const executorSource = fs.readFileSync(path.join(here, "agentic_executor.js"), "utf8");
+  assert.match(
+    executorSource,
+    /runtime_run_test\?\.length === testProfile\.tests\.length[\s\S]*runtime_run_test\.every/,
+  );
+});
