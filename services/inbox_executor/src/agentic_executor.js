@@ -576,6 +576,7 @@ const prompt = [
   `Output kind: ${outputKind || "implementation"}`,
   "",
   "Rules:",
+  "- Claim, lease, CAS Result writeback, and remote readback are orchestrator-owned; do not mark this Agent run blocked because those tools are not exposed to you.",
   `- Read ${path.join(worktreeRoot, "AGENTS.md")} if present; do not treat a missing file inside the assigned project as a blocker.`,
   "- Work only inside the assigned repository/worktree.",
   "- Do not commit, push, merge, deploy, reset --hard, clean, force push, or modify secrets.",
@@ -699,6 +700,9 @@ const agentWorkspaceRoot = extractAgentWorkspaceRoot(agentOutput);
 const agentWorkspaceRootOk = Boolean(agentWorkspaceRoot) &&
   path.resolve(agentWorkspaceRoot) === path.resolve(agentProjectRoot);
 
+const agentSelfReportBlocked =
+  /"status"\s*:\s*"blocked"/i.test(agentOutput) ||
+  /\bstatus\s*=\s*blocked\b/i.test(agentOutput);
 let add = { status: 0, stdout: "", stderr: "" };
 let diffCheck = { status: 0, stdout: "", stderr: "" };
 let stagedState = { status: 0, stdout: "", stderr: "" };
@@ -758,6 +762,7 @@ const validationOk =
   mcpProtocolOk &&
   mcpAgentCallOk &&
   agentWorkspaceRootOk &&
+  !agentSelfReportBlocked &&
   add.status === 0 &&
   diffCheck.status === 0 &&
   (analysisOnly || stagedState.status === 0 || stagedState.status === 1) &&
@@ -843,6 +848,8 @@ const code = !authEvidence.ok
         ? "agent_did_not_call_mcp"
         : !agentWorkspaceRootOk
           ? "MCP_WORKSPACE_ROOT_MISMATCH"
+        : agentSelfReportBlocked
+          ? "agent_self_report_blocked"
         : readOnlyViolation
         ? "read_only_violation"
         : diffCheck.status !== 0
@@ -891,6 +898,7 @@ writeTerminalResult({
     "- mcp_workspace_root: " + agentProjectRoot,
 "- mcp_agent_workspace_root: " + (agentWorkspaceRoot || "(missing)"),
 "- mcp_workspace_root_consistency: " + (agentWorkspaceRootOk ? "PASS" : "BLOCKED"),
+    "- agent_self_report_blocked: " + (agentSelfReportBlocked ? "true" : "false"),
     `- base_sha：\`${baseSha}\``,
     `- branch：\`${branchName || "(no-change)"}\``,
     `- commit：\`${commitSha || ""}\``,
