@@ -201,6 +201,12 @@ function extractAgentOutput(stdout) {
   return useful ? useful.slice(-24000) : "";
 }
 
+function redactDiagnostic(value) {
+  return String(value || "")
+    .replace(/(api[_-]?key|token|password|secret)(\s*[=:]\s*)\S+/gi, "$1$2[REDACTED]")
+    .slice(-2000);
+}
+
 function buildIdentity(selected, capabilities, now) {
   const readiness = capabilities?.executor_readiness?.[selected] || {};
   return {
@@ -619,6 +625,7 @@ if (agentOk) {
       error: String(result.error || "").slice(0, 300),
       stdout_length: Buffer.byteLength(String(result.stdout || ""), "utf8"),
       stderr_length: Buffer.byteLength(String(result.stderr || ""), "utf8"),
+      stderr_tail: redactDiagnostic(result.stderr),
     });
     if (!result.ok) break;
   }
