@@ -481,11 +481,14 @@ export class VaultWorkspace {
       "ProgramFiles",
       "ProgramFiles(x86)",
       "NODE_PATH",
+      "PYTHONPATH",
     ]) {
       if (process.env[key]) testEnv[key] = process.env[key];
     }
     const resolvedPython = this._findWorkingPython();
     if (resolvedPython) testEnv.WHITE_STUDIO_PYTHON_PATH = resolvedPython;
+    const inheritedPythonPath = String(process.env.PYTHONPATH || "").trim();
+    testEnv.PYTHONPATH = [projectRoot, inheritedPythonPath].filter(Boolean).join(path.delimiter);
     testEnv.CI = "1";
     testEnv.PYTHONUNBUFFERED = "1";
 
