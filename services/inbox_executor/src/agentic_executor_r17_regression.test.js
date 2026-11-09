@@ -25,3 +25,10 @@ test("R17 persists strict auth evidence in the orchestrator Result", () => {
 test("R17 rejects a conflicting MCP workspace root before success", () => {
   assert.match(source, /MCP_WORKSPACE_ROOT_MISMATCH/);
 });
+
+
+test("R19 accepts structured MCP evidence while keeping root consistency fail-closed", () => {
+  assert.match(source, /executor_readiness/);
+  assert.match(source, /agentWorkspaceRootOk/);
+  assert.match(source, /agent_did_not_call_mcp/);
+});
