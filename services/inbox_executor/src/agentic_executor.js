@@ -734,9 +734,24 @@ if (analysisOnly) {
     readOnlyViolation = unexpected.length > 0;
   }
 } else {
+  // MCP audit/trash are runtime evidence stores, not product changes.
+  // Exclude them from the agent branch so a read-only/no-op validation cannot
+  // trigger a workflow-permission push or pollute files_changed.
   const addArgs = projectRelInRepo
-    ? ["add", "--", projectRelInRepo]
-    : ["add", "--", "."];
+    ? [
+        "add",
+        "--",
+        projectRelInRepo,
+        `:(exclude)${projectRelInRepo}/runtime/.mcp-audit/**`,
+        `:(exclude)${projectRelInRepo}/runtime/.mcp-trash/**`,
+      ]
+    : [
+        "add",
+        "--",
+        ".",
+        ":(exclude)runtime/.mcp-audit/**",
+        ":(exclude)runtime/.mcp-trash/**",
+      ];
   add = git(worktreeRoot, addArgs);
   if (add.status === 0) {
     diffCheck = git(worktreeRoot, ["diff", "--cached", "--check"]);
