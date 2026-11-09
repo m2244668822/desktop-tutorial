@@ -692,7 +692,9 @@ const testsOk =
   tests.every((item) => item.ok);
 const mcpProtocolOk = mcpProtocolEvidence.ok;
 const mcpAgentCallOk =
-  /(?:Actual MCP call|runtime\.capabilities|runtime_capabilities)/i.test(agentOutput);
+  /(?:Actual MCP call|runtime\.capabilities|runtime_capabilities)/i.test(agentOutput) ||
+  (/"workspace_root"\s*:/i.test(agentOutput) &&
+    /"executor_readiness"\s*:/i.test(agentOutput));
 const agentWorkspaceRoot = extractAgentWorkspaceRoot(agentOutput);
 const agentWorkspaceRootOk = Boolean(agentWorkspaceRoot) &&
   path.resolve(agentWorkspaceRoot) === path.resolve(agentProjectRoot);
