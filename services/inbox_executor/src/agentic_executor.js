@@ -242,6 +242,12 @@ function assertMcpWorkspaceRoot(expectedRoot, actualRoot) {
   }
 }
 
+function extractAgentWorkspaceRoot(text) {
+  const match = String(text || "").match(/"workspace_root"\s*:\s*"([^"]+)"/i);
+  if (!match) return "";
+  return match[1].replace(/\\\\/g, "\\");
+}
+
 function buildIdentity(selected, capabilities, now) {
   const readiness = capabilities?.executor_readiness?.[selected] || {};
   return {
@@ -687,6 +693,9 @@ const testsOk =
 const mcpProtocolOk = mcpProtocolEvidence.ok;
 const mcpAgentCallOk =
   /(?:Actual MCP call|runtime\.capabilities|runtime_capabilities)/i.test(agentOutput);
+const agentWorkspaceRoot = extractAgentWorkspaceRoot(agentOutput);
+const agentWorkspaceRootOk = Boolean(agentWorkspaceRoot) &&
+  path.resolve(agentWorkspaceRoot) === path.resolve(agentProjectRoot);
 
 let add = { status: 0, stdout: "", stderr: "" };
 let diffCheck = { status: 0, stdout: "", stderr: "" };
@@ -746,6 +755,7 @@ const validationOk =
   testsOk &&
   mcpProtocolOk &&
   mcpAgentCallOk &&
+  agentWorkspaceRootOk &&
   add.status === 0 &&
   diffCheck.status === 0 &&
   (analysisOnly || stagedState.status === 0 || stagedState.status === 1) &&
@@ -829,6 +839,8 @@ const code = !authEvidence.ok
       ? mcpProtocolEvidence.blocker || "mcp_protocol_probe_failed"
       : !mcpAgentCallOk
         ? "agent_did_not_call_mcp"
+        : !agentWorkspaceRootOk
+          ? "MCP_WORKSPACE_ROOT_MISMATCH"
         : readOnlyViolation
         ? "read_only_violation"
         : diffCheck.status !== 0
@@ -875,6 +887,8 @@ writeTerminalResult({
     "- RTS01_HEADLESS_READY: " + authEvidence.headless_ready,
     "- strict_auth_gate: " + (authEvidence.ok ? "PASS" : "BLOCKED"),
     "- mcp_workspace_root: " + agentProjectRoot,
+"- mcp_agent_workspace_root: " + (agentWorkspaceRoot || "(missing)"),
+"- mcp_workspace_root_consistency: " + (agentWorkspaceRootOk ? "PASS" : "BLOCKED"),
     `- base_sha：\`${baseSha}\``,
     `- branch：\`${branchName || "(no-change)"}\``,
     `- commit：\`${commitSha || ""}\``,
