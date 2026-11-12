@@ -3,7 +3,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { VaultWorkspace } from "../../vault_workspace_mcp/src/workspace.js";
-import { readInbox, resolveInboxPath, taskIdFromText } from "./inbox.js";
+import {
+  readInbox,
+  resolveInboxPath,
+  taskIdFromText,
+  terminalResultForTask,
+} from "./inbox.js";
 import { contractField, routeInboxTask } from "./executor_router.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -87,6 +92,24 @@ for (const entry of queuedFiles()) {
   if (current.status !== "queued") continue;
   const taskId = taskIdFromText(current.text);
   if (!taskId) continue;
+  const terminal = terminalResultForTask(current.text, taskId);
+  if (terminal) {
+    candidates.push({
+      ...entry,
+      taskId,
+      text: current.text,
+      decision: {
+        ok: true,
+        route: "terminal",
+        reason: "terminal_result_present",
+        terminal_status: terminal.status,
+        terminal_heading: terminal.heading,
+      },
+      priority: priorityOf(current.text),
+      created: createdOf(current.text, entry.abs),
+    });
+    continue;
+  }
   const decision = routeInboxTask(current.text, capabilities, process.env);
   candidates.push({
     ...entry,
@@ -182,6 +205,8 @@ writeOutput("requested_executor", selected.decision.requested_executor || "");
 writeOutput("selected_executor", selected.decision.selected_executor || "");
 writeOutput("source", selected.source);
 writeOutput("queued_count", candidates.length);
+writeOutput("terminal_status", selected.decision.terminal_status || "");
+writeOutput("terminal_heading", selected.decision.terminal_heading || "");
 
 process.stdout.write(JSON.stringify({
   ok: true,
@@ -193,6 +218,8 @@ process.stdout.write(JSON.stringify({
   requested_executor: selected.decision.requested_executor,
   selected_executor: selected.decision.selected_executor,
   reason: selected.decision.reason,
+  terminal_status: selected.decision.terminal_status,
+  terminal_heading: selected.decision.terminal_heading,
   scheduler: selected.decision.scheduler || { policy: "readiness-order-v1" },
   queued_count: candidates.length,
 }, null, 2) + "\n");
