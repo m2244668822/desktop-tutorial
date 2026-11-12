@@ -213,7 +213,8 @@ test("Result writeback requires lease ownership and the unchanged remote revisio
 });
 
 test("policy denies Primary Vault and allows only registered bounded projects", () => {
-  const vaultRoot = path.resolve(import.meta.dirname, "../../../../..");
+  const vaultRoot = process.env.VAULT_WORKSPACE_ROOT ||
+    path.resolve(import.meta.dirname, "../../../../..");
   const primary = evaluateProjectPolicy({
     vaultRoot,
     projectId: "obsidian-vault-refactor-2026-09-08",

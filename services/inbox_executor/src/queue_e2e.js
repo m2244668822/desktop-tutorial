@@ -84,6 +84,41 @@ try {
   const second = runQueue();
   assert.equal(second.outputs.ok, "true");
   assert.equal(second.outputs.task_id, "queue-low");
+
+  const lowPath = path.join(tasks, "low.md");
+  fs.writeFileSync(
+    lowPath,
+    fs.readFileSync(lowPath, "utf8").replace("status: queued", "status: done"),
+    "utf8"
+  );
+
+  const terminalPath = path.join(tasks, "terminal.md");
+  fs.writeFileSync(
+    terminalPath,
+    `${task("queue-terminal", "urgent", "high.md")}\n## Result（previous executor 回寫）\n\n- task_id：\`queue-terminal\`\n- 結果：blocked\n`,
+    "utf8"
+  );
+  const terminal = runQueue();
+  assert.equal(terminal.outputs.ok, "true");
+  assert.equal(terminal.outputs.route, "terminal");
+  assert.equal(terminal.outputs.task_id, "queue-terminal");
+  assert.equal(terminal.outputs.terminal_status, "blocked");
+
+  const terminalRun = spawnSync(process.execPath, [path.join(__dirname, "persist_queue_block.js")], {
+    cwd: root,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      INBOX_PATH: terminalPath,
+      BLOCKED_TASK_ID: "queue-terminal",
+      BLOCKED_CODE: "terminal_result_present",
+      BLOCKED_REASON_B64: Buffer.from("terminal Result already exists", "utf8").toString("base64"),
+    },
+  });
+  assert.equal(terminalRun.status, 0, terminalRun.stderr);
+  const terminalText = fs.readFileSync(terminalPath, "utf8");
+  assert.match(terminalText, /^status: blocked$/m);
+  assert.match(terminalText, /terminal_result_present/);
   console.log("QUEUE_E2E_PASS");
 } finally {
   // Windows runners can briefly retain a fixture handle after the child
