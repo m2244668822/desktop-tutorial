@@ -35,7 +35,7 @@ Done          action succeeds
 `;
 }
 
-function runQueue() {
+function runQueue(inboxPath = "") {
   const out = path.join(root, "github-output.txt");
   fs.writeFileSync(out, "", "utf8");
   const run = spawnSync(process.execPath, [queueCli], {
@@ -45,6 +45,7 @@ function runQueue() {
       ...process.env,
       VAULT_WORKSPACE_ROOT: root,
       GITHUB_OUTPUT: out,
+      ...(inboxPath ? { INBOX_PATH: inboxPath } : {}),
     },
   });
   assert.equal(run.status, 0, run.stderr);
@@ -68,14 +69,10 @@ try {
   fs.writeFileSync(path.join(tasks, "low.md"), task("queue-low", "low", "low.md"), "utf8");
   fs.writeFileSync(path.join(tasks, "high.md"), task("queue-high", "high", "high.md"), "utf8");
 
-  const first = runQueue();
-  assert.equal(first.outputs.ok, "true");
-  assert.equal(first.outputs.task_id, "queue-high");
-  assert.equal(first.outputs.route, "mechanical");
-  assert.equal(
-    Buffer.from(first.outputs.task_path_b64, "base64").toString("utf8").replace(/\\/g, "/"),
-    "智能體/tasks/high.md"
-  );
+  const first = runQueue(path.join(root, "?\u7a7a\u8def\u5f91", "chatgpt-inbox.md"));
+  assert.equal(first.outputs.ok, "false");
+  assert.equal(first.outputs.code, "multiple_queued_tasks");
+  assert.equal(first.outputs.queued_count, "2");
 
   const highPath = path.join(tasks, "high.md");
   fs.writeFileSync(
@@ -85,6 +82,7 @@ try {
   );
 
   const second = runQueue();
+  assert.equal(second.outputs.ok, "true");
   assert.equal(second.outputs.task_id, "queue-low");
   console.log("QUEUE_E2E_PASS");
 } finally {
