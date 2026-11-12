@@ -14,8 +14,14 @@ const queueDir = path.resolve(
   vaultRoot,
   process.env.WHITE_STUDIO_TASK_QUEUE_DIR || path.join("智能體", "tasks")
 );
-const legacyInbox = process.env.INBOX_PATH
+// Windows PowerShell 5.1 can corrupt non-ASCII environment values before
+// Node receives them. Prefer the configured path only when it exists; otherwise
+// resolve the canonical Inbox path from the validated Vault root.
+const configuredInbox = process.env.INBOX_PATH
   ? path.resolve(process.env.INBOX_PATH)
+  : "";
+const legacyInbox = configuredInbox && fs.existsSync(configuredInbox)
+  ? configuredInbox
   : resolveInboxPath(vaultRoot);
 
 const PRIORITY = new Map([
@@ -99,6 +105,30 @@ const runnable = candidates
     (a.created - b.created) ||
     a.taskId.localeCompare(b.taskId)
   );
+
+// One Runner invocation must have one unambiguous owner. Do not execute one
+// task from a mixed legacy/queue set: that can claim the wrong contract and
+// make later CAS publication look like a Result failure.
+if (runnable.length > 1) {
+  const summary = {
+    ok: false,
+    code: "multiple_queued_tasks",
+    queued_count: candidates.length,
+    runnable_count: runnable.length,
+    candidates: runnable.map((item) => ({
+      task_id: item.taskId,
+      task_path: path.relative(vaultRoot, item.abs).replace(/\\/g, "/"),
+      source: item.source,
+      priority: item.priority,
+    })),
+  };
+  writeOutput("ok", "false");
+  writeOutput("code", summary.code);
+  writeOutput("queued_count", candidates.length);
+  writeOutput("runnable_count", runnable.length);
+  process.stdout.write(JSON.stringify(summary, null, 2) + "\n");
+  process.exit(0);
+}
 
 if (runnable.length === 0) {
   const blocked = [...candidates].sort((a, b) =>
