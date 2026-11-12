@@ -31,10 +31,30 @@ const INTERNAL_TOOL_NAME_BY_HOST = Object.freeze(
 );
 
 function hostToolDefs() {
-  return TOOL_DEFS.map((tool) => ({
-    ...tool,
-    name: HOST_TOOL_NAME_BY_INTERNAL[tool.name] || tool.name.replace(/[^a-z0-9_-]/gi, "_"),
-  }));
+  const readOnlyTools = new Set([
+    "workspace.list",
+    "workspace.search",
+    "workspace.read",
+    "workspace.propose_patch",
+    "runtime.capabilities",
+  ]);
+  return TOOL_DEFS.map((tool) => {
+    const name = HOST_TOOL_NAME_BY_INTERNAL[tool.name] || tool.name.replace(/[^a-z0-9_-]/gi, "_");
+    return {
+      ...tool,
+      name,
+      ...(readOnlyTools.has(tool.name)
+        ? {
+            annotations: {
+              readOnlyHint: true,
+              destructiveHint: false,
+              idempotentHint: true,
+              openWorldHint: false,
+            },
+          }
+        : {}),
+    };
+  });
 }
 
 function internalToolName(name) {

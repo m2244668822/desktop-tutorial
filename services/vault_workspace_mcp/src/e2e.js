@@ -416,6 +416,9 @@ async function stdioHandshake() {
     ]) {
       assert(names.has(expected), `stdio tools/list missing ${expected}`);
     }
+    const readTool = listedTools.find((tool) => tool.name === "workspace_read");
+    assert(readTool?.annotations?.readOnlyHint === true, "workspace_read must be marked read-only");
+    assert(readTool?.annotations?.destructiveHint === false, "workspace_read must be non-destructive");
     for (const tool of listedTools) {
       assert(
         /^[a-z0-9_-]+$/i.test(String(tool.name || "")),
