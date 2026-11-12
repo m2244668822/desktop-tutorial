@@ -458,6 +458,15 @@ if (!analysisOnly) {
 const agentProjectRoot = projectRelInRepo
   ? path.join(worktreeRoot, projectRelInRepo)
   : worktreeRoot;
+const agentEnvironment = {
+  ...process.env,
+  // Bind the agent's MCP subprocesses to the exact workspace used by the
+  // agent. In write mode this is the detached worktree, not the source
+  // checkout. Without this explicit value the MCP server can inherit the
+  // runner checkout and report an unverified workspace root.
+  VAULT_WORKSPACE_ROOT: agentProjectRoot,
+  MCP_HOST_ID: "github-actions-agentic",
+};
 const prompt = [
   "You are the selected White Studio headless executor.",
   `Executor: ${selected}`,
@@ -489,7 +498,7 @@ if (selected === "codex") {
       cwd: agentProjectRoot,
       input: prompt,
       timeout: maxAgentSeconds * 1000,
-      env: process.env,
+      env: agentEnvironment,
     }
   );
 } else if (selected === "cursor") {
@@ -505,7 +514,7 @@ if (selected === "codex") {
       "enabled",
       prompt,
     ],
-    { cwd: agentProjectRoot, timeout: maxAgentSeconds * 1000, env: process.env }
+    { cwd: agentProjectRoot, timeout: maxAgentSeconds * 1000, env: agentEnvironment }
   );
 } else {
   throw Object.assign(new Error("executor_not_supported"), { code: "executor_not_supported" });

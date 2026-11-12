@@ -34,6 +34,22 @@ export function taskIdFromText(text) {
   return currentTaskEnvelope(text).match(/task_id\s+([^\s\n]+)/)?.[1] ?? "unknown";
 }
 
+export function terminalResultForTask(text, taskId) {
+  const expected = String(taskId || "").trim();
+  if (!expected || expected === "unknown") return null;
+  const results = topLevelSections(text).filter((section) =>
+    section.heading.startsWith("## Result")
+  );
+  for (let index = results.length - 1; index >= 0; index -= 1) {
+    const section = results[index];
+    const sectionTaskId = section.text.match(/^-\s*task_id：`([^`]+)`/m)?.[1] || "";
+    if (sectionTaskId !== expected) continue;
+    const status = section.text.match(/^-\s*結果：\s*(done|blocked|failed)\s*$/mi)?.[1];
+    if (status) return { status: status.toLowerCase(), heading: section.heading };
+  }
+  return null;
+}
+
 /**
  * JSON object slice that ignores braces and backticks inside strings.
  * Contract fence ``` inside a string must not end the contract.
