@@ -6,6 +6,7 @@
  */
 
 import readline from "node:readline";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { VaultWorkspace, TOOL_DEFS, dispatch } from "./workspace.js";
@@ -66,6 +67,20 @@ const trashDir =
   process.env.MCP_TRASH_DIR ||
   path.join(workspaceRoot, "runtime", ".mcp-trash");
 const autoApprove = process.env.MCP_AUTO_APPROVE === "1";
+const protocolAuditPath = path.join(auditDir, "mcp-audit.jsonl");
+
+function auditProtocol(protocolMethod, outcome) {
+  const event = {
+    ts: new Date().toISOString(),
+    kind: "mcp_protocol",
+    host_id: String(process.env.MCP_HOST_ID || "unknown"),
+    session_id: ws.sessionId,
+    protocol_method: protocolMethod,
+    outcome,
+  };
+  fs.mkdirSync(auditDir, { recursive: true });
+  fs.appendFileSync(protocolAuditPath, JSON.stringify(event) + "\n", "utf8");
+}
 
 const ws = new VaultWorkspace({
   workspaceRoot,
@@ -93,6 +108,7 @@ function send(msg) {
 async function handle(msg) {
   const { id, method, params } = msg;
   if (method === "initialize") {
+    auditProtocol(method, "success");
     return {
       jsonrpc: "2.0",
       id,
@@ -107,6 +123,7 @@ async function handle(msg) {
     return null;
   }
   if (method === "tools/list") {
+    auditProtocol(method, "success");
     return {
       jsonrpc: "2.0",
       id,
@@ -119,6 +136,7 @@ async function handle(msg) {
     const args = params?.arguments || {};
     try {
       const result = await dispatch(ws, name, args);
+      auditProtocol(method, result?.isError ? "error" : "success");
       return {
         jsonrpc: "2.0",
         id,
@@ -127,6 +145,7 @@ async function handle(msg) {
         },
       };
     } catch (err) {
+      auditProtocol(method, "error");
       return {
         jsonrpc: "2.0",
         id,
