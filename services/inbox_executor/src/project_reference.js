@@ -9,6 +9,9 @@ export function normalizeProjectReference(project, workspaceName) {
   if (reference === "desktop-tutorial") {
     return { name: "desktop-tutorial", vaultRelative: "runtime/desktop-tutorial" };
   }
+  if (reference === "automation-fixture") {
+    return { name: "automation-fixture", vaultRelative: "runtime/.mcp-automation-fixture" };
+  }
   if (reference === "." || reference === workspaceName) {
     return { name: workspaceName, vaultRelative: "." };
   }

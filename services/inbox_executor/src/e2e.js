@@ -63,6 +63,10 @@ assert.deepEqual(
   { name: "obsidian-vault-refactor-2026-09-08", vaultRelative: "." }
 );
 assert.deepEqual(
+  normalizeProjectReference("automation-fixture", "obsidian-vault-refactor-2026-09-08"),
+  { name: "automation-fixture", vaultRelative: "runtime/.mcp-automation-fixture" }
+);
+assert.deepEqual(
   routeInboxTask(agenticAuto, readyCaps, { WHITE_STUDIO_EXECUTOR_ORDER: "codex,cursor" }),
   {
     ok: true,
