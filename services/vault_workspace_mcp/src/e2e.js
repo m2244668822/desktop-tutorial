@@ -377,7 +377,7 @@ async function stdioHandshake() {
             `stdio MCP timeout method=${method} stdout=${stdoutBuffer} stderr=${stderrBuffer}`,
           ),
         );
-      }, 5000);
+      }, 20000); // Windows runner startup can spend several seconds resolving the agent shim.
       pending.set(id, { resolve, reject, timer });
       child.stdin.write(
         JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n",
