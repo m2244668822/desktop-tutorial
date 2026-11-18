@@ -5,6 +5,8 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
+import { cleanupTempRoot } from "./temp_cleanup.js";
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const queueCli = path.join(__dirname, "queue_cli.js");
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "white-studio-queue-e2e-"));
@@ -88,5 +90,17 @@ try {
   assert.equal(second.outputs.task_id, "queue-low");
   console.log("QUEUE_E2E_PASS");
 } finally {
-  fs.rmSync(root, { recursive: true, force: true });
+  try {
+    const cleanup = cleanupTempRoot(root);
+    if (cleanup.status === "quarantined") {
+      console.warn(
+        `QUEUE_E2E_CLEANUP_QUARANTINED source=${cleanup.source} path=${cleanup.path} error=${cleanup.error_code}`
+      );
+    } else {
+      console.log(`QUEUE_E2E_CLEANUP_PASS path=${cleanup.path} attempts=${cleanup.attempts}`);
+    }
+  } catch (error) {
+    console.error(`QUEUE_E2E_CLEANUP_FAILED ${error.message}`);
+    process.exitCode = 1;
+  }
 }
