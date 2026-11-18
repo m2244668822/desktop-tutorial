@@ -94,7 +94,11 @@ try {
     const cleanup = cleanupTempRoot(root);
     if (cleanup.status === "quarantined") {
       console.warn(
-        `QUEUE_E2E_CLEANUP_QUARANTINED source=${cleanup.source} path=${cleanup.path} error=${cleanup.error_code}`
+        `QUEUE_E2E_CLEANUP_QUARANTINED source=${cleanup.source} path=${cleanup.path} error=${cleanup.error_code} attempts=${cleanup.rename_attempts}`
+      );
+    } else if (cleanup.status === "deferred") {
+      console.warn(
+        `QUEUE_E2E_CLEANUP_DEFERRED source=${cleanup.source} error=${cleanup.error_code}/${cleanup.quarantine_error_code} pid=${cleanup.cleanup_pid}`
       );
     } else {
       console.log(`QUEUE_E2E_CLEANUP_PASS path=${cleanup.path} attempts=${cleanup.attempts}`);
