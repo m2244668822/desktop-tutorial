@@ -5,6 +5,8 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
+import { cleanupTempRoot } from "./temp_cleanup.js";
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const queueCli = path.join(__dirname, "queue_cli.js");
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "white-studio-queue-e2e-"));
@@ -89,12 +91,16 @@ try {
   console.log("QUEUE_E2E_PASS");
 } finally {
   try {
-    // Windows Defender and the runner indexer can briefly retain a file after
-    // the child queue process exits. Cleanup is hygiene, not the queue
-    // contract, so retry transient locks and do not turn a passing E2E into a
-    // false negative when the final removal remains deferred.
-    fs.rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+    const cleanup = cleanupTempRoot(root);
+    if (cleanup.status === "quarantined") {
+      console.warn(
+        `QUEUE_E2E_CLEANUP_QUARANTINED source=${cleanup.source} path=${cleanup.path} error=${cleanup.error_code}`
+      );
+    } else {
+      console.log(`QUEUE_E2E_CLEANUP_PASS path=${cleanup.path} attempts=${cleanup.attempts}`);
+    }
   } catch (error) {
-    console.warn(`QUEUE_E2E_CLEANUP_DEFERRED path=${root} code=${error?.code ?? "unknown"}`);
+    console.error(`QUEUE_E2E_CLEANUP_FAILED ${error.message}`);
+    process.exitCode = 1;
   }
 }
