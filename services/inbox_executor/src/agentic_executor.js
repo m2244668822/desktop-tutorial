@@ -21,6 +21,7 @@ import {
 } from "./executor_identity.js";
 import { contractField, routeInboxTask } from "./executor_router.js";
 import { normalizeProjectReference } from "./project_reference.js";
+import { createRtsFixtureWorktree } from "./rts_fixture_worktree.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const vaultRoot = path.resolve(
@@ -274,6 +275,7 @@ function installFailClosedHandlers(taskId, identity, selected, evidence = []) {
           validation: current.validation,
           details: [
             ...evidence,
+            ...(error?.worktreeEvidence ? [`- worktree_failure：\`${JSON.stringify(error.worktreeEvidence)}\``] : []),
             `- code：\`${code}\``,
             "- route：`agentic`",
             `- message：${message}`,
@@ -441,21 +443,27 @@ if (!analysisOnly) {
     worktreeName
   );
   fs.mkdirSync(path.dirname(worktreeRoot), { recursive: true });
-  git(sourceRepoRoot, ["worktree", "remove", "--force", worktreeRoot], 60000);
-  git(sourceRepoRoot, ["worktree", "prune"], 30000);
-  if (fs.existsSync(worktreeRoot)) {
-    fs.rmSync(worktreeRoot, { recursive: true, force: true });
-  }
-  const worktreeAdd = git(
-    sourceRepoRoot,
-    ["-c", "core.longpaths=true", "worktree", "add", "--detach", worktreeRoot, baseSha],
-    180000
-  );
-  if (worktreeAdd.status !== 0) {
-    throw Object.assign(new Error("worktree_create_failed"), {
-      code: "worktree_create_failed",
-      detail: String(worktreeAdd.stderr || worktreeAdd.stdout || "").slice(-1600),
-    });
+  if (strictAuth) {
+    const worktreeEvidence = createRtsFixtureWorktree(sourceRepoRoot, worktreeRoot, baseSha);
+    strictFields.push(`- worktree_evidence：\`${JSON.stringify(worktreeEvidence)}\``);
+    console.log("RTS01_WORKTREE_PASS " + JSON.stringify(worktreeEvidence));
+  } else {
+    git(sourceRepoRoot, ["worktree", "remove", "--force", worktreeRoot], 60000);
+    git(sourceRepoRoot, ["worktree", "prune"], 30000);
+    if (fs.existsSync(worktreeRoot)) {
+      fs.rmSync(worktreeRoot, { recursive: true, force: true });
+    }
+    const worktreeAdd = git(
+      sourceRepoRoot,
+      ["-c", "core.longpaths=true", "worktree", "add", "--detach", worktreeRoot, baseSha],
+      180000
+    );
+    if (worktreeAdd.status !== 0) {
+      throw Object.assign(new Error("worktree_create_failed"), {
+        code: "worktree_create_failed",
+        detail: String(worktreeAdd.stderr || worktreeAdd.stdout || "").slice(-1600),
+      });
+    }
   }
 }
 
@@ -490,7 +498,7 @@ const prompt = [
     "- Call workspace_list, runtime_capabilities, workspace_read on tests/fixture.test.js, and runtime_run_test with runner=node_test,target=tests.",
     "- Return one JSON object with status done or blocked and workspace_root equal to the assigned project root. Never claim CAS or remote publication.",
   ] : []),
-  "- Read AGENTS.md at the repository root if present.",
+  ...(strictAuth ? [] : ["- Read AGENTS.md at the repository root if present."]),
   "- Work only inside the assigned repository/worktree.",
   "- Do not commit, push, merge, deploy, reset --hard, clean, force push, or modify secrets.",
   analysisOnly
