@@ -22,7 +22,7 @@ import {
 import { contractField, routeInboxTask } from "./executor_router.js";
 import { normalizeProjectReference } from "./project_reference.js";
 import { createRtsFixtureWorktree } from "./rts_fixture_worktree.js";
-import { inspectRtsAgentEvents } from "./rts_agent_evidence.js";
+import { classifyRtsReport, fixtureServer, fixtureTools, inspectRtsAgentEvents } from "./rts_agent_evidence.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const vaultRoot = path.resolve(
@@ -314,6 +314,7 @@ if (initial.status !== "queued") {
 }
 
 const taskId = taskIdFromText(initial.text);
+const legacyRtsProbe = process.env.RTS01_MCP_PROBE_BASELINE === "1" && /^rts01-mcp-probe-\d+-baseline$/.test(taskId);
 const strictAuth = contractField(initial.text, "auth_mode")?.trim().toLowerCase() === "chatgpt";
 const runId = process.env.GITHUB_RUN_ID || "";
 const traceId = strictAuth ? crypto.randomUUID() : "";
@@ -475,10 +476,29 @@ const evidenceDir = strictAuth
   ? fs.mkdtempSync(path.join(process.env.RUNNER_TEMP || os.tmpdir(), "rts01-"))
   : "";
 const mcpEvidencePath = path.join(evidenceDir, "mcp.jsonl");
+const schemaPath = path.join(evidenceDir, "final.schema.json");
+if (strictAuth) {
+  fs.writeFileSync(schemaPath, JSON.stringify({
+    type: "object",
+    properties: {
+      status: { type: "string", enum: ["done", "blocked"] },
+      workspace_root: { type: "string" },
+    },
+    required: ["status", "workspace_root"],
+    additionalProperties: false,
+  }), "utf8");
+}
+const selectedFixtureServer = legacyRtsProbe ? "vault-workspace" : fixtureServer;
+const mcpConfig = "mcp_servers." + selectedFixtureServer;
 const mcpOverrides = strictAuth ? [
-  "mcp_servers.vault-workspace.command=" + JSON.stringify(process.execPath),
-  "mcp_servers.vault-workspace.args=" + JSON.stringify([path.resolve(__dirname, "../../vault_workspace_mcp/src/server.js")]),
-  "mcp_servers.vault-workspace.env={ " + Object.entries({
+  mcpConfig + ".command=" + JSON.stringify(process.execPath),
+  mcpConfig + ".args=" + JSON.stringify([path.resolve(__dirname, "../../vault_workspace_mcp/src/server.js")]),
+  ...(legacyRtsProbe ? [] : [
+    mcpConfig + ".required=true",
+    mcpConfig + ".enabled_tools=" + JSON.stringify(fixtureTools),
+    ...fixtureTools.map(tool => mcpConfig + ".tools." + tool + '.approval_mode="approve"'),
+  ]),
+  mcpConfig + ".env={ " + Object.entries({
     RTS01_MCP_EVIDENCE: mcpEvidencePath,
     VAULT_WORKSPACE_ROOT: agentProjectRoot,
     MCP_AUDIT_DIR: path.join(evidenceDir, "audit"),
@@ -495,9 +515,11 @@ const prompt = [
   "",
   "Rules:",
   ...(strictAuth ? [
-    "- Do not write any files or run shell commands. Use only the supplied vault-workspace MCP tools.",
+    `- Do not write files or run shell commands. Use only the ${selectedFixtureServer} MCP server.`,
     "- Call workspace_list, runtime_capabilities, workspace_read on tests/fixture.test.js, and runtime_run_test with runner=node_test,target=tests.",
-    "- Return one JSON object with status done or blocked and workspace_root equal to the assigned project root. Never claim CAS or remote publication.",
+    legacyRtsProbe
+      ? "- Return one JSON object with status done or blocked and workspace_root equal to the assigned project root. Never claim CAS or remote publication."
+      : "- Set workspace_root to the exact absolute workspace_root reported by runtime_capabilities. If any required call fails, report status blocked. Never claim CAS or remote publication.",
   ] : []),
   ...(strictAuth ? [] : ["- Read AGENTS.md at the repository root if present."]),
   "- Work only inside the assigned repository/worktree.",
@@ -517,7 +539,8 @@ let agentRun;
 if (selected === "codex") {
   agentRun = runTool(
     "codex",
-    [...mcpOverrides.flatMap(override => ["-c", override]), ...codexExecArgs(strictAuth || analysisOnly)],
+    [...mcpOverrides.flatMap(override => ["-c", override]), ...codexExecArgs(strictAuth || analysisOnly),
+      ...(strictAuth && !legacyRtsProbe ? ["--output-schema", schemaPath, "-"] : [])],
     {
       cwd: agentProjectRoot,
       input: prompt,
@@ -596,23 +619,17 @@ const observedMcp = strictAuth && fs.existsSync(mcpEvidencePath)
   : [];
 const requiredMcp = ["initialize", "tools/list", "workspace.list", "runtime.capabilities", "workspace.read", "runtime.run_test"];
 const observedMethods = new Set(observedMcp.filter(row => row.root === agentProjectRoot && row.outcome === "ok").map(row => row.method));
-const report = agentOutput.match(/\{[^{}]*"workspace_root"[^{}]*\}/g)?.at(-1);
-let reportOk = false;
-try {
-  const parsed = JSON.parse(report || "null");
-  reportOk = parsed?.status === "done" && typeof parsed.workspace_root === "string" &&
-    path.resolve(parsed.workspace_root) === agentProjectRoot;
-} catch {
-  // Missing or malformed evidence fails closed.
-}
-const strictEvidenceMissing = strictAuth && (!reportOk || !requiredMcp.every(method => observedMethods.has(method)) ||
-  /"status"\s*:\s*"blocked"|status\s*=\s*blocked/i.test(agentOutput));
+const { final, ...agentDiagnostics } = strictAuth ? inspectRtsAgentEvents(agentRun.stdout, agentRun.stderr) : {};
+const report = strictAuth ? classifyRtsReport(final, agentProjectRoot, path) : null;
+const reportOk = report?.root === "match";
+const strictEvidenceMissing = strictAuth && (!reportOk || report.status !== "done" ||
+  !requiredMcp.every(method => observedMethods.has(method)));
 if (strictAuth) {
-  const { final, ...agentDiagnostics } = inspectRtsAgentEvents(agentRun.stdout, agentRun.stderr);
   const diagnostics = {
     ...agentDiagnostics,
     final_kind: !final ? "missing" : /^\s*(?:`{3}json\s*)?\{/.test(final) ? "json_like" : "text",
     report_root_verified: reportOk,
+    report,
     server_events: observedMcp.map(({ method, outcome }) => ({ method, outcome })),
   };
   strictFields.push(`- rts_diagnostics：\`${JSON.stringify(diagnostics)}\``);

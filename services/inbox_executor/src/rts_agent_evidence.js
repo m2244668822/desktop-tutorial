@@ -8,7 +8,8 @@ function classifyError(value) {
   return "none";
 }
 
-const fixtureTools = ["workspace_list", "runtime_capabilities", "workspace_read", "runtime_run_test"];
+export const fixtureTools = ["workspace_list", "runtime_capabilities", "workspace_read", "runtime_run_test"];
+export const fixtureServer = "rts01-fixture";
 
 export function inspectRtsAgentEvents(stdout, stderr) {
   const calls = [];
@@ -27,7 +28,7 @@ export function inspectRtsAgentEvents(stdout, stderr) {
     }
     if (item.type !== "mcp_tool_call" || !["item.started", "item.completed"].includes(event.type)) continue;
     calls.push({
-      server: item.server === "vault-workspace" ? "vault-workspace" : "other",
+      server: [fixtureServer, "vault-workspace"].includes(item.server) ? item.server : "other",
       tool: fixtureTools.includes(item.tool) ? item.tool : "other",
       stage: event.type === "item.started" ? "attempt" : item.status === "completed" && !item.error ? "completed" : "failed",
       error: classifyError(item.error?.message),
@@ -36,4 +37,21 @@ export function inspectRtsAgentEvents(stdout, stderr) {
   errors.add(classifyError(stderr));
   errors.delete("none");
   return { final, calls, errors: [...errors], final_hint: classifyError(final) };
+}
+
+export function classifyRtsReport(final, expectedRoot, pathApi) {
+  let report;
+  try { report = JSON.parse(final); } catch {
+    return { status: "unverified", root: final ? "invalid_report_json" : "missing_report" };
+  }
+  const status = ["done", "blocked"].includes(report?.status) ? report.status : "unverified";
+  if (typeof report?.workspace_root !== "string" || !report.workspace_root.trim()) {
+    return { status, root: "missing_root" };
+  }
+  if (!pathApi.isAbsolute(report.workspace_root)) return { status, root: "relative_root" };
+  const normalize = root => {
+    const resolved = pathApi.resolve(root);
+    return pathApi.sep === "\\" ? resolved.toLowerCase() : resolved;
+  };
+  return { status, root: normalize(report.workspace_root) === normalize(expectedRoot) ? "match" : "mismatch" };
 }

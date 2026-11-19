@@ -132,6 +132,8 @@ async function handle(msg) {
     try {
       recordRts(evidenceName, "attempt");
       if (rtsEvidence && (!rtsTools.has(name) ||
+          (name === "workspace.read" && args.path !== "tests/fixture.test.js") ||
+          (name === "workspace.list" && args.dir && args.dir !== ".") ||
           (name === "runtime.run_test" && (args.runner !== "node_test" || args.target !== "tests" || args.projectDir)))) {
         throw Object.assign(new Error("Tool or arguments outside the RTS fixture profile"), { code: "rts01_tool_denied" });
       }

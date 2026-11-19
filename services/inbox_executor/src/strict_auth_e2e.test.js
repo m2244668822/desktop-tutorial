@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { classifyRtsReport, inspectRtsAgentEvents } from "./rts_agent_evidence.js";
 
 test("strict acceptance blocks an unverifiable run before writing a Claim", () => {
   const fixture = mkdtempSync(path.join(os.tmpdir(), "rts01-auth-test-"));
@@ -46,6 +47,7 @@ test("strict MCP records the fixture path and only permits the bounded test", ()
       ["tools/call", { name: "workspace_read", arguments: { path: "tests/fixture.test.js" } }],
       ["tools/call", { name: "runtime_run_test", arguments: { runner: "node_test", target: "tests" } }],
       ["tools/call", { name: "runtime_run_test", arguments: { runner: "pytest", target: "tests" } }],
+      ["tools/call", { name: "workspace_read", arguments: { path: "../other.md" } }],
     ];
     const input = calls.map(([method, params], id) => JSON.stringify({ jsonrpc: "2.0", id, method, params })).join("\n") + "\n";
     const server = fileURLToPath(new URL("../../vault_workspace_mcp/src/server.js", import.meta.url));
@@ -57,6 +59,7 @@ test("strict MCP records the fixture path and only permits the bounded test", ()
     assert.equal(result.status, 0, result.stderr);
     const responses = result.stdout.trim().split(/\r?\n/).map(line => JSON.parse(line));
     assert.equal(responses.find(row => row.id === 5)?.result?.isError, true);
+    assert.equal(responses.find(row => row.id === 6)?.result?.isError, true);
     const rows = readFileSync(evidence, "utf8").trim().split(/\r?\n/).map(line => JSON.parse(line));
     assert.deepEqual(rows.filter(row => row.outcome === "ok").map(row => row.method).sort(),
       ["initialize", "runtime.run_test", "tools/list", "workspace.list", "workspace.read"]);
@@ -65,4 +68,21 @@ test("strict MCP records the fixture path and only permits the bounded test", ()
   } finally {
     rmSync(fixture, { recursive: true, force: true, maxRetries: 12, retryDelay: 150 });
   }
+});
+
+test("root validation uses the final agent item and is independent from blocked status", () => {
+  const event = item => JSON.stringify({ type: "item.completed", item });
+  const root = "C:/runner/fixture";
+  const output = [
+    event({ type: "mcp_tool_call", server: "rts01-fixture", tool: "workspace_read", status: "failed",
+      error: { message: "requires approval" } }),
+    event({ type: "agent_message", text: JSON.stringify({ status: "blocked", workspace_root: "c:/RUNNER/fixture" }) }),
+  ].join("\n");
+  const evidence = inspectRtsAgentEvents(output, "");
+  assert.equal(evidence.calls[0].error, "approval_or_trust");
+  assert.deepEqual(classifyRtsReport(evidence.final, root, path.win32), { status: "blocked", root: "match" });
+  assert.deepEqual(classifyRtsReport('{"status":"done","workspace_root":"."}', root, path.win32),
+    { status: "done", root: "relative_root" });
+  assert.deepEqual(classifyRtsReport('{"status":"done","workspace_root":"C:/different"}', root, path.win32),
+    { status: "done", root: "mismatch" });
 });
