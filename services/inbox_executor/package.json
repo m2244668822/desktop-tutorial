@@ -12,7 +12,11 @@
     "route": "node ./src/router_cli.js",
     "agentic": "node ./src/agentic_executor.js",
     "queue": "node ./src/queue_cli.js",
-    "queue-e2e": "node ./src/queue_e2e.js"
+    "queue-e2e": "node ./src/queue_e2e.js",
+    "phase-acceptance": "node ./src/phase_acceptance.js",
+    "registered-projects-evidence": "node ./src/registered_projects_evidence.js",
+    "record-high-automation-evidence": "node ./src/record_high_automation_evidence.js",
+    "high-automation-gate": "node ./src/high_automation_gate.js"
   },
   "engines": {
     "node": ">=18"

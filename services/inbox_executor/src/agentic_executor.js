@@ -221,6 +221,7 @@ function buildIdentity(selected, capabilities, now) {
 
 function writeTerminalResult({ text, marker, status, taskId, identity, validation, details }) {
   const resultMarkdown = [
+    "- trace_id：\x60" + crypto.randomUUID() + "\x60",
     `- task_id：\`${taskId}\``,
     `- 結果：${status}`,
     executorIdentityMarkdown(identity, validation),

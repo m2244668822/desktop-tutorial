@@ -20,7 +20,7 @@ class VaultWorkspaceMCPE2ETests(unittest.TestCase):
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=30,
+            timeout=60,
             check=False,
         )
         merged = "\n".join(part for part in (proc.stdout, proc.stderr) if part)

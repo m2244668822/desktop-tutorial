@@ -543,6 +543,9 @@ export class VaultWorkspace {
       if (!command) {
         throw Object.assign(new Error("python_unavailable"), { code: "python_unavailable" });
       }
+      // A script under tests/ starts with that directory on sys.path.
+      // Expose only the selected project root for its project imports.
+      testEnv.PYTHONPATH = projectRoot;
       args = [targetInfo.rel];
       normalizedTarget = targetInfo.rel;
     } else if (safeRunner === "node_e2e") {

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * L1/L2 E2E: read → propose patch → approved patch → verify → safe scratch restore
- * Isolated git repo under runtime/.mcp-e2e-scratch (does not commit the vault).
+ * Private temporary repository for each test run.
  */
 
 import fs from "node:fs";
@@ -12,13 +12,21 @@ import { spawn, spawnSync } from "node:child_process";
 import { VaultWorkspace, TOOL_DEFS, dispatch } from "./workspace.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const vaultRoot = path.resolve(__dirname, "..", "..", "..", "..");
-const scratchRoot = path.join(vaultRoot, "runtime", ".mcp-e2e-scratch");
+const scratchRoot = fs.mkdtempSync(path.join(os.tmpdir(), "vault-mcp-e2e-"));
 const auditDir = path.join(scratchRoot, ".mcp-audit");
 const trashDir = path.join(scratchRoot, ".mcp-trash");
 
-fs.rmSync(scratchRoot, { recursive: true, force: true });
-fs.mkdirSync(scratchRoot, { recursive: true });
+process.on("exit", (code) => {
+  if (code !== 0) {
+    console.warn("MCP_E2E_SCRATCH_RETAINED", scratchRoot);
+    return;
+  }
+  try {
+    fs.rmSync(scratchRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
+  } catch {
+    console.warn("MCP_E2E_SCRATCH_RETAINED", scratchRoot);
+  }
+});
 
 function git(args) {
   const r = spawnSync("git", args, { cwd: scratchRoot, encoding: "utf8" });
@@ -72,7 +80,7 @@ fs.writeFileSync(
   "utf8",
 );
 
-git(["add", "-A"]);
+git(["add", "--", relFile, "projects", "services"]);
 git(["commit", "-m", "e2e-seed"]);
 
 const ws = new VaultWorkspace({
@@ -131,9 +139,10 @@ assert(nodeTest.exit_code === 0, "node_test exit code mismatch");
 
 const pythonSmokeRoot = path.join(scratchRoot, "projects", "python-smoke", "tests");
 fs.mkdirSync(pythonSmokeRoot, { recursive: true });
+fs.writeFileSync(path.join(pythonSmokeRoot, "..", "project_helper.py"), "MARKER = 'PYTHON_SCRIPT_OK'\n", "utf8");
 fs.writeFileSync(
   path.join(pythonSmokeRoot, "test_smoke.py"),
-  "import sys\nassert sys.version_info >= (3, 8)\nprint('PYTHON_SCRIPT_OK')\n",
+  "import sys\nfrom project_helper import MARKER\nassert sys.version_info >= (3, 8)\nprint(MARKER)\n",
   "utf8",
 );
 const pythonScript = await dispatch(ws, "runtime.run_test", {
