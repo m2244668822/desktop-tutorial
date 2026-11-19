@@ -58,8 +58,9 @@ test("strict MCP records the fixture path and only permits the bounded test", ()
     const responses = result.stdout.trim().split(/\r?\n/).map(line => JSON.parse(line));
     assert.equal(responses.find(row => row.id === 5)?.result?.isError, true);
     const rows = readFileSync(evidence, "utf8").trim().split(/\r?\n/).map(line => JSON.parse(line));
-    assert.deepEqual(rows.map(row => row.method).sort(),
+    assert.deepEqual(rows.filter(row => row.outcome === "ok").map(row => row.method).sort(),
       ["initialize", "runtime.run_test", "tools/list", "workspace.list", "workspace.read"]);
+    assert.ok(rows.some(row => row.method === "runtime.run_test" && row.outcome === "denied"));
     assert.ok(rows.every(row => row.root === root));
   } finally {
     rmSync(fixture, { recursive: true, force: true, maxRetries: 12, retryDelay: 150 });

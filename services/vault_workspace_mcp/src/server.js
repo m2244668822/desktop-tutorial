@@ -70,9 +70,9 @@ const autoApprove = process.env.MCP_AUTO_APPROVE === "1";
 const rtsEvidence = process.env.RTS01_MCP_EVIDENCE;
 const rtsTools = new Set(["workspace.list", "workspace.read", "runtime.capabilities", "runtime.run_test"]);
 
-function recordRts(method) {
+function recordRts(method, outcome = "ok") {
   if (rtsEvidence) {
-    fs.appendFileSync(rtsEvidence, JSON.stringify({ method, root: path.resolve(workspaceRoot) }) + "\n");
+    fs.appendFileSync(rtsEvidence, JSON.stringify({ method, outcome, root: path.resolve(workspaceRoot) }) + "\n");
   }
 }
 
@@ -127,8 +127,10 @@ async function handle(msg) {
   if (method === "tools/call") {
     const requestedName = params?.name;
     const name = internalToolName(requestedName);
+    const evidenceName = rtsTools.has(name) ? name : "other_tool";
     const args = params?.arguments || {};
     try {
+      recordRts(evidenceName, "attempt");
       if (rtsEvidence && (!rtsTools.has(name) ||
           (name === "runtime.run_test" && (args.runner !== "node_test" || args.target !== "tests" || args.projectDir)))) {
         throw Object.assign(new Error("Tool or arguments outside the RTS fixture profile"), { code: "rts01_tool_denied" });
@@ -136,7 +138,7 @@ async function handle(msg) {
       const result = await dispatch(ws, name, rtsEvidence && name === "runtime.run_test"
         ? { runner: "node_test", target: "tests", timeoutSec: 60 }
         : args);
-      if (name !== "runtime.run_test" || (result.ok && result.exit_code === 0)) recordRts(name);
+      recordRts(evidenceName, name !== "runtime.run_test" || (result.ok && result.exit_code === 0) ? "ok" : "test_failed");
       return {
         jsonrpc: "2.0",
         id,
@@ -145,6 +147,7 @@ async function handle(msg) {
         },
       };
     } catch (err) {
+      recordRts(evidenceName, err.code === "rts01_tool_denied" ? "denied" : "dispatch_error");
       return {
         jsonrpc: "2.0",
         id,

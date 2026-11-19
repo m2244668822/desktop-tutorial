@@ -22,6 +22,7 @@ import {
 import { contractField, routeInboxTask } from "./executor_router.js";
 import { normalizeProjectReference } from "./project_reference.js";
 import { createRtsFixtureWorktree } from "./rts_fixture_worktree.js";
+import { inspectRtsAgentEvents } from "./rts_agent_evidence.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const vaultRoot = path.resolve(
@@ -594,7 +595,7 @@ const observedMcp = strictAuth && fs.existsSync(mcpEvidencePath)
   ? fs.readFileSync(mcpEvidencePath, "utf8").trim().split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line))
   : [];
 const requiredMcp = ["initialize", "tools/list", "workspace.list", "runtime.capabilities", "workspace.read", "runtime.run_test"];
-const observedMethods = new Set(observedMcp.filter(row => row.root === agentProjectRoot).map(row => row.method));
+const observedMethods = new Set(observedMcp.filter(row => row.root === agentProjectRoot && row.outcome === "ok").map(row => row.method));
 const report = agentOutput.match(/\{[^{}]*"workspace_root"[^{}]*\}/g)?.at(-1);
 let reportOk = false;
 try {
@@ -607,6 +608,15 @@ try {
 const strictEvidenceMissing = strictAuth && (!reportOk || !requiredMcp.every(method => observedMethods.has(method)) ||
   /"status"\s*:\s*"blocked"|status\s*=\s*blocked/i.test(agentOutput));
 if (strictAuth) {
+  const { final, ...agentDiagnostics } = inspectRtsAgentEvents(agentRun.stdout, agentRun.stderr);
+  const diagnostics = {
+    ...agentDiagnostics,
+    final_kind: !final ? "missing" : /^\s*(?:`{3}json\s*)?\{/.test(final) ? "json_like" : "text",
+    report_root_verified: reportOk,
+    server_events: observedMcp.map(({ method, outcome }) => ({ method, outcome })),
+  };
+  strictFields.push(`- rts_diagnostics：\`${JSON.stringify(diagnostics)}\``);
+  console.log("RTS01_AGENT_DIAGNOSTICS " + JSON.stringify(diagnostics));
   strictFields.push(
     `- mcp_workspace_root：\`${agentProjectRoot}\``,
     `- mcp_methods：\`${[...observedMethods].join(" | ")}\``,
