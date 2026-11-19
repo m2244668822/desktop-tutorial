@@ -6,6 +6,7 @@
  */
 
 import readline from "node:readline";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { VaultWorkspace, TOOL_DEFS, dispatch } from "./workspace.js";
@@ -66,6 +67,14 @@ const trashDir =
   process.env.MCP_TRASH_DIR ||
   path.join(workspaceRoot, "runtime", ".mcp-trash");
 const autoApprove = process.env.MCP_AUTO_APPROVE === "1";
+const rtsEvidence = process.env.RTS01_MCP_EVIDENCE;
+const rtsTools = new Set(["workspace.list", "workspace.read", "runtime.capabilities", "runtime.run_test"]);
+
+function recordRts(method) {
+  if (rtsEvidence) {
+    fs.appendFileSync(rtsEvidence, JSON.stringify({ method, root: path.resolve(workspaceRoot) }) + "\n");
+  }
+}
 
 const ws = new VaultWorkspace({
   workspaceRoot,
@@ -93,6 +102,7 @@ function send(msg) {
 async function handle(msg) {
   const { id, method, params } = msg;
   if (method === "initialize") {
+    recordRts(method);
     return {
       jsonrpc: "2.0",
       id,
@@ -107,10 +117,11 @@ async function handle(msg) {
     return null;
   }
   if (method === "tools/list") {
+    recordRts(method);
     return {
       jsonrpc: "2.0",
       id,
-      result: { tools: hostToolDefs() },
+      result: { tools: hostToolDefs().filter(tool => !rtsEvidence || rtsTools.has(internalToolName(tool.name))) },
     };
   }
   if (method === "tools/call") {
@@ -118,7 +129,14 @@ async function handle(msg) {
     const name = internalToolName(requestedName);
     const args = params?.arguments || {};
     try {
-      const result = await dispatch(ws, name, args);
+      if (rtsEvidence && (!rtsTools.has(name) ||
+          (name === "runtime.run_test" && (args.runner !== "node_test" || args.target !== "tests" || args.projectDir)))) {
+        throw Object.assign(new Error("Tool or arguments outside the RTS fixture profile"), { code: "rts01_tool_denied" });
+      }
+      const result = await dispatch(ws, name, rtsEvidence && name === "runtime.run_test"
+        ? { runner: "node_test", target: "tests", timeoutSec: 60 }
+        : args);
+      if (name !== "runtime.run_test" || (result.ok && result.exit_code === 0)) recordRts(name);
       return {
         jsonrpc: "2.0",
         id,
@@ -210,7 +228,6 @@ process.stdin.on("data", (chunk) => {
   }
 });
 
-process.stdin.on("end", () => process.exit(0));
 
 process.stderr.write(
   `[vault-workspace-mcp] root=${workspaceRoot} autoApprove=${autoApprove}\n`

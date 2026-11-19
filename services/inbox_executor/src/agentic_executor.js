@@ -249,13 +249,13 @@ function currentClaimState(taskId, identity) {
   return { ok: true, code: validation.code, text, validation };
 }
 
-function installFailClosedHandlers(taskId, identity, selected) {
+function installFailClosedHandlers(taskId, identity, selected, evidence = []) {
   let handling = false;
   const handler = (error) => {
     if (handling) return;
     handling = true;
     const code = error?.code || "orchestration_exception";
-    const message = String(error?.stack || error?.message || error)
+    const message = evidence.length ? code : String(error?.stack || error?.message || error)
       .replace(/\r?\n/g, " ")
       .slice(0, 1600);
     try {
@@ -269,6 +269,7 @@ function installFailClosedHandlers(taskId, identity, selected) {
           identity,
           validation: current.validation,
           details: [
+            ...evidence,
             `- code：\`${code}\``,
             "- route：`agentic`",
             `- message：${message}`,
@@ -306,6 +307,10 @@ if (initial.status !== "queued") {
 }
 
 const taskId = taskIdFromText(initial.text);
+const strictAuth = contractField(initial.text, "auth_mode")?.trim().toLowerCase() === "chatgpt";
+const runId = process.env.GITHUB_RUN_ID || "";
+const traceId = strictAuth ? crypto.randomUUID() : "";
+const leaseId = strictAuth ? crypto.randomUUID() : "";
 const outputKind = String(contractField(initial.text, "Output") || "").trim().toLowerCase();
 const analysisOnly = new Set(["analysis", "summary", "checklist", "proposal", "reading-layer"]).has(outputKind);
 
@@ -317,6 +322,36 @@ const controlWs = new VaultWorkspace({
 });
 const capabilities = controlWs.runtimeCapabilities();
 const decision = routeInboxTask(initial.text, capabilities, process.env);
+let strictFields = [];
+if (strictAuth) {
+  const runtimeRevision = String(git(__dirname, ["rev-parse", "HEAD"]).stdout || "").trim();
+  const apiKeyFallback = Object.keys(process.env).some(key => /^(?:CODEX|OPENAI)_API_KEY$/i.test(key));
+  const login = !apiKeyFallback && /^\d+$/.test(runId)
+    ? runTool("codex", ["login", "status"], { cwd: vaultRoot, timeout: 12000 })
+    : {};
+  const loginText = (String(login.stdout || "") + "\n" + String(login.stderr || ""))
+    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "");
+  const authClass = /^\s*Logged in using ChatGPT\s*$/im.test(loginText) ? "chatgpt" : "unverified";
+  const headlessReady = capabilities.executor_readiness?.codex?.headless_ready === true;
+  strictFields = [
+    `- run_id：\`${runId}\``,
+    `- trace_id：\`${traceId}\``,
+    `- runtime_revision：\`${runtimeRevision}\``,
+    `- RTS01_AUTH_CLASS：\`${authClass}\``,
+    `- RTS01_LOGIN_STATUS_EXIT：\`${login.status ?? "unavailable"}\``,
+    `- RTS01_API_KEY_FALLBACK：\`${apiKeyFallback}\``,
+    `- RTS01_HEADLESS_READY：\`${headlessReady}\``,
+  ];
+  if (authClass !== "chatgpt" || login.status !== 0 || apiKeyFallback || !headlessReady ||
+      decision.selected_executor !== "codex" || !/^\d+$/.test(runId) || !/^[0-9a-f]{40}$/.test(runtimeRevision)) {
+    const result = [`- task_id：\`${taskId}\``, ...strictFields, "- code: strict_agentic_auth_gate_failed"].join("\n");
+    const blocked = upsertNamedResult(setStatus(initial.text, "blocked"), "## Result（codex-executor 回寫）", result);
+    fs.writeFileSync(inboxPath, blocked.replace(/\r?\n+$/, "\n"), "utf8");
+    process.stderr.write("RTS01_STRICT_AUTH_GATE_BLOCKED before_claim=true\n");
+    process.exit(4);
+  }
+  process.stdout.write(`RTS01_STRICT_AUTH_GATE_PASS task_id=${taskId} run_id=${runId} trace_id=${traceId}\n`);
+}
 if (!decision.ok || decision.route !== "agentic") {
   process.stderr.write(`agentic-executor: route rejected ${JSON.stringify(decision)}\n`);
   process.exit(4);
@@ -326,11 +361,25 @@ const selected = decision.selected_executor;
 const identity = buildIdentity(selected, capabilities, new Date());
 let running = setStatus(initial.text, "running");
 running = upsertExecutorClaim(running, taskId, identity);
+if (strictAuth) {
+  const leaseExpires = new Date(Date.now() + (maxAgentSeconds + 540) * 1000).toISOString();
+  strictFields.push(`- lease_id：\`${leaseId}\``, `- lease_expires_at：\`${leaseExpires}\``);
+  running = running.replace(
+    /(^## Executor Claim[^\r\n]*\r?\n)/m,
+    `$1\n- run_id：\`${runId}\`\n- trace_id：\`${traceId}\`\n- lease_id：\`${leaseId}\`\n- lease_expires_at：\`${leaseExpires}\`\n`
+  );
+}
 fs.writeFileSync(inboxPath, running, "utf8");
-installFailClosedHandlers(taskId, identity, selected);
+if (strictAuth) process.stdout.write(`RTS01_CLAIM_PERSISTED task_id=${taskId} run_id=${runId} trace_id=${traceId} lease_id=${leaseId}\n`);
+installFailClosedHandlers(taskId, identity, selected, strictFields);
 
 const project = resolveAssignedProject(contractField(initial.text, "project"));
 const testProfile = loadTestProfile(project.name, { allowEmpty: analysisOnly });
+if (strictAuth && (project.name !== "automation-fixture" || analysisOnly ||
+    testProfile.tests.length !== 1 || testProfile.tests[0].runner !== "node_test" ||
+    testProfile.tests[0].target !== "tests" || testProfile.tests[0].timeoutSec !== 60)) {
+  throw Object.assign(new Error("RTS fixture profile mismatch"), { code: "rts01_fixture_profile_mismatch" });
+}
 
 const repoRootResult = git(project.abs, ["rev-parse", "--show-toplevel"]);
 if (repoRootResult.status !== 0) {
@@ -366,7 +415,7 @@ if (conflictingLines.length > 0) {
 }
 
 const safeName = safeTaskName(taskId);
-const worktreeName = shortWorktreeName(taskId);
+const worktreeName = shortWorktreeName(strictAuth ? taskId + ":" + traceId : taskId);
 const branchNameCandidate = "runner/" + safeName;
 const refCheck = git(sourceRepoRoot, ["check-ref-format", "--branch", branchNameCandidate]);
 if (refCheck.status !== 0) {
@@ -395,7 +444,7 @@ if (!analysisOnly) {
   }
   const worktreeAdd = git(
     sourceRepoRoot,
-    ["worktree", "add", "--detach", worktreeRoot, baseSha],
+    ["-c", "core.longpaths=true", "worktree", "add", "--detach", worktreeRoot, baseSha],
     180000
   );
   if (worktreeAdd.status !== 0) {
@@ -409,6 +458,21 @@ if (!analysisOnly) {
 const agentProjectRoot = projectRelInRepo
   ? path.join(worktreeRoot, projectRelInRepo)
   : worktreeRoot;
+const evidenceDir = strictAuth
+  ? fs.mkdtempSync(path.join(process.env.RUNNER_TEMP || os.tmpdir(), "rts01-"))
+  : "";
+const mcpEvidencePath = path.join(evidenceDir, "mcp.jsonl");
+const mcpOverrides = strictAuth ? [
+  "mcp_servers.vault-workspace.command=" + JSON.stringify(process.execPath),
+  "mcp_servers.vault-workspace.args=" + JSON.stringify([path.resolve(__dirname, "../../vault_workspace_mcp/src/server.js")]),
+  "mcp_servers.vault-workspace.env={ " + Object.entries({
+    RTS01_MCP_EVIDENCE: mcpEvidencePath,
+    VAULT_WORKSPACE_ROOT: agentProjectRoot,
+    MCP_AUDIT_DIR: path.join(evidenceDir, "audit"),
+    MCP_TRASH_DIR: path.join(evidenceDir, "trash"),
+    MCP_AUTO_APPROVE: "0",
+  }).map(([key, value]) => `${key} = ${JSON.stringify(value)}`).join(", ") + " }",
+] : [];
 const prompt = [
   "You are the selected White Studio headless executor.",
   `Executor: ${selected}`,
@@ -417,6 +481,11 @@ const prompt = [
   `Output kind: ${outputKind || "implementation"}`,
   "",
   "Rules:",
+  ...(strictAuth ? [
+    "- Do not write any files or run shell commands. Use only the supplied vault-workspace MCP tools.",
+    "- Call workspace_list, runtime_capabilities, workspace_read on tests/fixture.test.js, and runtime_run_test with runner=node_test,target=tests.",
+    "- Return one JSON object with status done or blocked and workspace_root equal to the assigned project root. Never claim CAS or remote publication.",
+  ] : []),
   "- Read AGENTS.md at the repository root if present.",
   "- Work only inside the assigned repository/worktree.",
   "- Do not commit, push, merge, deploy, reset --hard, clean, force push, or modify secrets.",
@@ -435,12 +504,16 @@ let agentRun;
 if (selected === "codex") {
   agentRun = runTool(
     "codex",
-    codexExecArgs(analysisOnly),
+    [...mcpOverrides.flatMap(override => ["-c", override]), ...codexExecArgs(strictAuth || analysisOnly)],
     {
       cwd: agentProjectRoot,
       input: prompt,
       timeout: maxAgentSeconds * 1000,
-      env: process.env,
+      env: strictAuth
+        ? Object.fromEntries(Object.keys(process.env)
+          .filter(key => !/(?:TOKEN|API_KEY|PASSWORD|SECRET|CREDENTIAL|COOKIE)/i.test(key))
+          .map(key => [key, process.env[key]]))
+        : process.env,
     }
   );
 } else if (selected === "cursor") {
@@ -504,7 +577,34 @@ if (agentOk) {
 const testsOk =
   agentOk &&
   tests.length === testProfile.tests.length &&
-  tests.every((item) => item.ok);
+  tests.every((item) => item.ok && (!strictAuth || item.exit_code === 0));
+const observedMcp = strictAuth && fs.existsSync(mcpEvidencePath)
+  ? fs.readFileSync(mcpEvidencePath, "utf8").trim().split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line))
+  : [];
+const requiredMcp = ["initialize", "tools/list", "workspace.list", "runtime.capabilities", "workspace.read", "runtime.run_test"];
+const observedMethods = new Set(observedMcp.filter(row => row.root === agentProjectRoot).map(row => row.method));
+const report = agentOutput.match(/\{[^{}]*"workspace_root"[^{}]*\}/g)?.at(-1);
+let reportOk = false;
+try {
+  const parsed = JSON.parse(report || "null");
+  reportOk = parsed?.status === "done" && typeof parsed.workspace_root === "string" &&
+    path.resolve(parsed.workspace_root) === agentProjectRoot;
+} catch {
+  // Missing or malformed evidence fails closed.
+}
+const strictEvidenceMissing = strictAuth && (!reportOk || !requiredMcp.every(method => observedMethods.has(method)) ||
+  /"status"\s*:\s*"blocked"|status\s*=\s*blocked/i.test(agentOutput));
+if (strictAuth) {
+  strictFields.push(
+    `- mcp_workspace_root：\`${agentProjectRoot}\``,
+    `- mcp_methods：\`${[...observedMethods].join(" | ")}\``,
+    `- evidence_digest：\`${crypto.createHash("sha256").update(JSON.stringify({
+      runId, traceId, leaseId, strictFields, observedMcp, tests, agentOutputHash,
+    })).digest("hex")}\``,
+    `- bounded_test_results：\`${tests.map(test => `${test.runner}:${test.exit_code}`).join(" | ")}\``,
+  );
+  process.stdout.write(`RTS01_EXECUTION_EVIDENCE mcp=${strictEvidenceMissing ? "BLOCKED" : "PASS"} bounded_tests=${testsOk ? "PASS" : "BLOCKED"}\n`);
+}
 
 let add = { status: 0, stdout: "", stderr: "" };
 let diffCheck = { status: 0, stdout: "", stderr: "" };
@@ -561,9 +661,11 @@ if (analysisOnly) {
 
 const validationOk =
   testsOk &&
+  !strictEvidenceMissing &&
   add.status === 0 &&
   diffCheck.status === 0 &&
   (analysisOnly || stagedState.status === 0 || stagedState.status === 1) &&
+  (!strictAuth || stagedState.status === 0) &&
   !readOnlyViolation;
 
 let branchName = "";
@@ -638,6 +740,8 @@ const code = !agentOk
   ? "agent_execution_failed"
   : !testsOk
     ? "validation_failed"
+    : strictEvidenceMissing
+      ? "rts01_same_run_evidence_unverified"
     : readOnlyViolation
       ? "read_only_violation"
       : diffCheck.status !== 0
@@ -656,6 +760,7 @@ writeTerminalResult({
   identity,
   validation: identityValidation,
   details: [
+    ...strictFields,
     `- route：\`${decision.route}\``,
     `- requested_executor：\`${decision.requested_executor}\``,
     `- selected_executor：\`${selected}\``,
@@ -666,7 +771,9 @@ writeTerminalResult({
     `- code：\`${code}\``,
     `- agent_exit_code：${Number.isInteger(agentRun.status) ? agentRun.status : "null"}`,
     `- agent_output_sha256：\`${agentOutputHash}\``,
-    agentOutput
+    strictAuth
+      ? `- agent_report_root_match：\`${reportOk}\``
+      : agentOutput
       ? `- agent_output：\n\n${agentOutput.split(/\\r?\\n/).map((line) => "    " + line).join("\\n")}`
       : "- agent_output：(empty)",
     `- files_changed：\`${filesChanged.join(" | ") || "(none)"}\``,
