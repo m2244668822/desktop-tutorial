@@ -99,7 +99,6 @@ function codexExecArgs(analysisOnly) {
   }
 
   if (helpText.includes("--ephemeral")) args.push("--ephemeral");
-  args.push("-");
   return args;
 }
 
@@ -540,7 +539,7 @@ if (selected === "codex") {
   agentRun = runTool(
     "codex",
     [...mcpOverrides.flatMap(override => ["-c", override]), ...codexExecArgs(strictAuth || analysisOnly),
-      ...(strictAuth && !legacyRtsProbe ? ["--output-schema", schemaPath, "-"] : [])],
+      ...(strictAuth && !legacyRtsProbe ? ["--output-schema", schemaPath] : []), "-"],
     {
       cwd: agentProjectRoot,
       input: prompt,
