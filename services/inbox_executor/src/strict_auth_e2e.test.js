@@ -47,6 +47,7 @@ test("strict MCP records the fixture path and only permits the bounded test", ()
       ["tools/call", { name: "workspace_read", arguments: { path: "tests/fixture.test.js" } }],
       ["tools/call", { name: "runtime_run_test", arguments: { runner: "node_test", target: "tests" } }],
       ["tools/call", { name: "runtime_run_test", arguments: { runner: "pytest", target: "tests" } }],
+      ["tools/call", { name: "runtime_run_test", arguments: { runner: "node_test", target: "tests", projectDir: "." } }],
       ["tools/call", { name: "workspace_read", arguments: { path: "../other.md" } }],
     ];
     const input = calls.map(([method, params], id) => JSON.stringify({ jsonrpc: "2.0", id, method, params })).join("\n") + "\n";
@@ -58,12 +59,19 @@ test("strict MCP records the fixture path and only permits the bounded test", ()
     });
     assert.equal(result.status, 0, result.stderr);
     const responses = result.stdout.trim().split(/\r?\n/).map(line => JSON.parse(line));
+    const testTool = responses.find(row => row.id === 1)?.result?.tools?.find(tool => tool.name === "runtime_run_test");
+    assert.deepEqual(testTool?.inputSchema?.properties?.runner?.enum, ["node_test"]);
+    assert.deepEqual(testTool?.inputSchema?.properties?.target?.enum, ["tests"]);
+    assert.equal(testTool?.inputSchema?.properties?.projectDir, undefined);
+    assert.equal(testTool?.inputSchema?.additionalProperties, false);
     assert.equal(responses.find(row => row.id === 5)?.result?.isError, true);
     assert.equal(responses.find(row => row.id === 6)?.result?.isError, true);
+    assert.equal(responses.find(row => row.id === 7)?.result?.isError, true);
     const rows = readFileSync(evidence, "utf8").trim().split(/\r?\n/).map(line => JSON.parse(line));
     assert.deepEqual(rows.filter(row => row.outcome === "ok").map(row => row.method).sort(),
       ["initialize", "runtime.run_test", "tools/list", "workspace.list", "workspace.read"]);
-    assert.ok(rows.some(row => row.method === "runtime.run_test" && row.outcome === "denied"));
+    assert.ok(rows.some(row => row.method === "runtime.run_test" && row.outcome === "denied:runtime_test_runner"));
+    assert.ok(rows.some(row => row.method === "runtime.run_test" && row.outcome === "denied:runtime_test_project_dir"));
     assert.ok(rows.every(row => row.root === root));
   } finally {
     rmSync(fixture, { recursive: true, force: true, maxRetries: 12, retryDelay: 150 });

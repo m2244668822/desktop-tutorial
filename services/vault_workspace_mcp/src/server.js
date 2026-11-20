@@ -32,10 +32,38 @@ const INTERNAL_TOOL_NAME_BY_HOST = Object.freeze(
 );
 
 function hostToolDefs() {
-  return TOOL_DEFS.map((tool) => ({
-    ...tool,
-    name: HOST_TOOL_NAME_BY_INTERNAL[tool.name] || tool.name.replace(/[^a-z0-9_-]/gi, "_"),
-  }));
+  return TOOL_DEFS.map((tool) => {
+    const hostTool = {
+      ...tool,
+      name: HOST_TOOL_NAME_BY_INTERNAL[tool.name] || tool.name.replace(/[^a-z0-9_-]/gi, "_"),
+    };
+    if (rtsEvidence && tool.name === "runtime.run_test") {
+      hostTool.description = "Run only the fixed Node test suite in the assigned RTS fixture.";
+      hostTool.inputSchema = {
+        type: "object",
+        properties: {
+          runner: { type: "string", enum: ["node_test"] },
+          target: { type: "string", enum: ["tests"] },
+        },
+        required: ["runner", "target"],
+        additionalProperties: false,
+      };
+    }
+    return hostTool;
+  });
+}
+
+function rtsDenialReason(name, args) {
+  if (!rtsTools.has(name)) return "tool_not_allowed";
+  if (name === "workspace.read" && args.path !== "tests/fixture.test.js") return "workspace_read_path";
+  if (name === "workspace.list" && args.dir && args.dir !== ".") return "workspace_list_dir";
+  if (name === "runtime.run_test") {
+    if (args.runner !== "node_test") return "runtime_test_runner";
+    if (args.target !== "tests") return "runtime_test_target";
+    if (Object.hasOwn(args, "projectDir")) return "runtime_test_project_dir";
+    if (Object.keys(args).some((key) => !["runner", "target"].includes(key))) return "runtime_test_extra_argument";
+  }
+  return null;
 }
 
 function internalToolName(name) {
@@ -131,11 +159,12 @@ async function handle(msg) {
     const args = params?.arguments || {};
     try {
       recordRts(evidenceName, "attempt");
-      if (rtsEvidence && (!rtsTools.has(name) ||
-          (name === "workspace.read" && args.path !== "tests/fixture.test.js") ||
-          (name === "workspace.list" && args.dir && args.dir !== ".") ||
-          (name === "runtime.run_test" && (args.runner !== "node_test" || args.target !== "tests" || args.projectDir)))) {
-        throw Object.assign(new Error("Tool or arguments outside the RTS fixture profile"), { code: "rts01_tool_denied" });
+      const denialReason = rtsEvidence ? rtsDenialReason(name, args) : null;
+      if (denialReason) {
+        throw Object.assign(new Error("Tool or arguments outside the RTS fixture profile"), {
+          code: "rts01_tool_denied",
+          reason: denialReason,
+        });
       }
       const result = await dispatch(ws, name, rtsEvidence && name === "runtime.run_test"
         ? { runner: "node_test", target: "tests", timeoutSec: 60 }
@@ -149,7 +178,7 @@ async function handle(msg) {
         },
       };
     } catch (err) {
-      recordRts(evidenceName, err.code === "rts01_tool_denied" ? "denied" : "dispatch_error");
+      recordRts(evidenceName, err.code === "rts01_tool_denied" ? `denied:${err.reason || "policy"}` : "dispatch_error");
       return {
         jsonrpc: "2.0",
         id,
