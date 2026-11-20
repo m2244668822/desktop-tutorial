@@ -517,7 +517,7 @@ const prompt = [
     `- Do not write files or run shell commands. Use only the ${selectedFixtureServer} MCP server.`,
     "- Call workspace_list, runtime_capabilities, workspace_read on tests/fixture.test.js, and runtime_run_test with runner=node_test,target=tests.",
     legacyRtsProbe
-      ? "- Return one JSON object with status done or blocked and workspace_root equal to the assigned project root. Never claim CAS or remote publication."
+      ? "- This is a read-only fixture verification. Return one JSON object with status done only if every required MCP call and bounded test succeeds, otherwise blocked, and workspace_root equal to the assigned project root. Never claim CAS or remote publication."
       : "- Set workspace_root to the exact absolute workspace_root reported by runtime_capabilities. Report status done only when every required MCP call and bounded test succeeds; otherwise report blocked. Never claim CAS or remote publication.",
   ] : []),
   ...(strictAuth ? [] : ["- Read AGENTS.md at the repository root if present."]),
@@ -525,7 +525,9 @@ const prompt = [
   "- Do not commit, push, merge, deploy, reset --hard, clean, force push, or modify secrets.",
   analysisOnly
     ? "- This is a read-only analysis task. Do not modify repository files. Return the complete requested deliverable in your final response."
-    : "- Make the smallest change needed for the task.",
+    : strictAuth
+      ? "- Keep this fixture verification read-only. Do not modify files or run shell commands."
+      : "- Make the smallest change needed for the task.",
   "- You may run targeted tests, but the orchestrator will independently validate afterward when a test profile applies.",
   "- Do not modify the task contract file.",
   "- Stop after the requested deliverable; do not wait for user input.",
