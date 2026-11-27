@@ -6,6 +6,7 @@
  */
 
 import readline from "node:readline";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { VaultWorkspace, TOOL_DEFS, dispatch } from "./workspace.js";
@@ -31,10 +32,38 @@ const INTERNAL_TOOL_NAME_BY_HOST = Object.freeze(
 );
 
 function hostToolDefs() {
-  return TOOL_DEFS.map((tool) => ({
-    ...tool,
-    name: HOST_TOOL_NAME_BY_INTERNAL[tool.name] || tool.name.replace(/[^a-z0-9_-]/gi, "_"),
-  }));
+  return TOOL_DEFS.map((tool) => {
+    const hostTool = {
+      ...tool,
+      name: HOST_TOOL_NAME_BY_INTERNAL[tool.name] || tool.name.replace(/[^a-z0-9_-]/gi, "_"),
+    };
+    if (rtsEvidence && tool.name === "runtime.run_test") {
+      hostTool.description = "Run only the fixed Node test suite in the assigned RTS fixture.";
+      hostTool.inputSchema = {
+        type: "object",
+        properties: {
+          runner: { type: "string", enum: ["node_test"] },
+          target: { type: "string", enum: ["tests"] },
+        },
+        required: ["runner", "target"],
+        additionalProperties: false,
+      };
+    }
+    return hostTool;
+  });
+}
+
+function rtsDenialReason(name, args) {
+  if (!rtsTools.has(name)) return "tool_not_allowed";
+  if (name === "workspace.read" && args.path !== "tests/fixture.test.js") return "workspace_read_path";
+  if (name === "workspace.list" && args.dir && args.dir !== ".") return "workspace_list_dir";
+  if (name === "runtime.run_test") {
+    if (args.runner !== "node_test") return "runtime_test_runner";
+    if (args.target !== "tests") return "runtime_test_target";
+    if (Object.hasOwn(args, "projectDir")) return "runtime_test_project_dir";
+    if (Object.keys(args).some((key) => !["runner", "target"].includes(key))) return "runtime_test_extra_argument";
+  }
+  return null;
 }
 
 function internalToolName(name) {
@@ -66,6 +95,14 @@ const trashDir =
   process.env.MCP_TRASH_DIR ||
   path.join(workspaceRoot, "runtime", ".mcp-trash");
 const autoApprove = process.env.MCP_AUTO_APPROVE === "1";
+const rtsEvidence = process.env.RTS01_MCP_EVIDENCE;
+const rtsTools = new Set(["workspace.list", "workspace.read", "runtime.capabilities", "runtime.run_test"]);
+
+function recordRts(method, outcome = "ok") {
+  if (rtsEvidence) {
+    fs.appendFileSync(rtsEvidence, JSON.stringify({ method, outcome, root: path.resolve(workspaceRoot) }) + "\n");
+  }
+}
 
 const ws = new VaultWorkspace({
   workspaceRoot,
@@ -93,6 +130,7 @@ function send(msg) {
 async function handle(msg) {
   const { id, method, params } = msg;
   if (method === "initialize") {
+    recordRts(method);
     return {
       jsonrpc: "2.0",
       id,
@@ -107,18 +145,31 @@ async function handle(msg) {
     return null;
   }
   if (method === "tools/list") {
+    recordRts(method);
     return {
       jsonrpc: "2.0",
       id,
-      result: { tools: hostToolDefs() },
+      result: { tools: hostToolDefs().filter(tool => !rtsEvidence || rtsTools.has(internalToolName(tool.name))) },
     };
   }
   if (method === "tools/call") {
     const requestedName = params?.name;
     const name = internalToolName(requestedName);
+    const evidenceName = rtsTools.has(name) ? name : "other_tool";
     const args = params?.arguments || {};
     try {
-      const result = await dispatch(ws, name, args);
+      recordRts(evidenceName, "attempt");
+      const denialReason = rtsEvidence ? rtsDenialReason(name, args) : null;
+      if (denialReason) {
+        throw Object.assign(new Error("Tool or arguments outside the RTS fixture profile"), {
+          code: "rts01_tool_denied",
+          reason: denialReason,
+        });
+      }
+      const result = await dispatch(ws, name, rtsEvidence && name === "runtime.run_test"
+        ? { runner: "node_test", target: "tests", timeoutSec: 60 }
+        : args);
+      recordRts(evidenceName, name !== "runtime.run_test" || (result.ok && result.exit_code === 0) ? "ok" : "test_failed");
       return {
         jsonrpc: "2.0",
         id,
@@ -127,6 +178,7 @@ async function handle(msg) {
         },
       };
     } catch (err) {
+      recordRts(evidenceName, err.code === "rts01_tool_denied" ? `denied:${err.reason || "policy"}` : "dispatch_error");
       return {
         jsonrpc: "2.0",
         id,
@@ -210,7 +262,6 @@ process.stdin.on("data", (chunk) => {
   }
 });
 
-process.stdin.on("end", () => process.exit(0));
 
 process.stderr.write(
   `[vault-workspace-mcp] root=${workspaceRoot} autoApprove=${autoApprove}\n`

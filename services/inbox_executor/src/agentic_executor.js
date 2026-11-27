@@ -21,6 +21,9 @@ import {
 } from "./executor_identity.js";
 import { contractField, routeInboxTask } from "./executor_router.js";
 import { normalizeProjectReference } from "./project_reference.js";
+import { buildTerminalResult, createOperationId, operationResultFields } from "./operation.js";
+import { createRtsFixtureWorktree } from "./rts_fixture_worktree.js";
+import { classifyRtsReport, fixtureServer, fixtureTools, inspectRtsAgentEvents } from "./rts_agent_evidence.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const vaultRoot = path.resolve(
@@ -47,6 +50,10 @@ function git(cwd, args, timeout = 30000) {
 
 function runTool(command, args, options = {}) {
   if (process.platform !== "win32") return run(command, args, options);
+  if (command === "codex" && process.env.WHITE_STUDIO_CODEX_BIN &&
+      fs.existsSync(process.env.WHITE_STUDIO_CODEX_BIN)) {
+    return run(process.env.WHITE_STUDIO_CODEX_BIN, args, options);
+  }
   const located = run("where.exe", [command], {
     cwd: options.cwd || vaultRoot,
     timeout: 2500,
@@ -94,7 +101,6 @@ function codexExecArgs(analysisOnly) {
   }
 
   if (helpText.includes("--ephemeral")) args.push("--ephemeral");
-  args.push("-");
   return args;
 }
 
@@ -220,13 +226,14 @@ function buildIdentity(selected, capabilities, now) {
   };
 }
 
-function writeTerminalResult({ text, marker, status, taskId, identity, validation, details }) {
-  const resultMarkdown = [
-    `- task_id：\`${taskId}\``,
-    `- 結果：${status}`,
-    executorIdentityMarkdown(identity, validation),
-    ...details,
-  ].join("\n");
+function writeTerminalResult({ text, marker, status, taskId, operationId, identity, validation, details }) {
+  const resultMarkdown = buildTerminalResult({
+    operationId,
+    taskId,
+    status,
+    identityMarkdown: executorIdentityMarkdown(identity, validation),
+    details,
+  });
   let next = setStatus(text, status === "done" ? "done" : "blocked");
   next = upsertNamedResult(next, marker, resultMarkdown);
   // Keep Result files compatible with git diff --check. A single trailing
@@ -250,13 +257,13 @@ function currentClaimState(taskId, identity) {
   return { ok: true, code: validation.code, text, validation };
 }
 
-function installFailClosedHandlers(taskId, identity, selected) {
+function installFailClosedHandlers(taskId, operationId, identity, selected, evidence = []) {
   let handling = false;
   const handler = (error) => {
     if (handling) return;
     handling = true;
     const code = error?.code || "orchestration_exception";
-    const message = String(error?.stack || error?.message || error)
+    const message = evidence.length ? code : String(error?.stack || error?.message || error)
       .replace(/\r?\n/g, " ")
       .slice(0, 1600);
     try {
@@ -267,9 +274,12 @@ function installFailClosedHandlers(taskId, identity, selected) {
           marker: `## Result（${selected}-executor 回寫）`,
           status: "blocked",
           taskId,
+          operationId,
           identity,
           validation: current.validation,
           details: [
+            ...evidence,
+            ...(error?.worktreeEvidence ? [`- worktree_failure：\`${JSON.stringify(error.worktreeEvidence)}\``] : []),
             `- code：\`${code}\``,
             "- route：`agentic`",
             `- message：${message}`,
@@ -307,6 +317,12 @@ if (initial.status !== "queued") {
 }
 
 const taskId = taskIdFromText(initial.text);
+const operationId = createOperationId();
+const legacyRtsProbe = process.env.RTS01_MCP_PROBE_BASELINE === "1" && /^rts01-mcp-probe-\d+-baseline$/.test(taskId);
+const strictAuth = contractField(initial.text, "auth_mode")?.trim().toLowerCase() === "chatgpt";
+const runId = process.env.GITHUB_RUN_ID || "";
+const traceId = strictAuth ? crypto.randomUUID() : "";
+const leaseId = strictAuth ? crypto.randomUUID() : "";
 const outputKind = String(contractField(initial.text, "Output") || "").trim().toLowerCase();
 const analysisOnly = new Set(["analysis", "summary", "checklist", "proposal", "reading-layer"]).has(outputKind);
 
@@ -318,6 +334,36 @@ const controlWs = new VaultWorkspace({
 });
 const capabilities = controlWs.runtimeCapabilities();
 const decision = routeInboxTask(initial.text, capabilities, process.env);
+let strictFields = [];
+if (strictAuth) {
+  const runtimeRevision = String(git(__dirname, ["rev-parse", "HEAD"]).stdout || "").trim();
+  const apiKeyFallback = Object.keys(process.env).some(key => /^(?:CODEX|OPENAI)_API_KEY$/i.test(key));
+  const login = !apiKeyFallback && /^\d+$/.test(runId)
+    ? runTool("codex", ["login", "status"], { cwd: vaultRoot, timeout: 12000 })
+    : {};
+  const loginText = (String(login.stdout || "") + "\n" + String(login.stderr || ""))
+    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "");
+  const authClass = /^\s*Logged in using ChatGPT\s*$/im.test(loginText) ? "chatgpt" : "unverified";
+  const headlessReady = capabilities.executor_readiness?.codex?.headless_ready === true;
+  strictFields = [
+    `- run_id：\`${runId}\``,
+    `- trace_id：\`${traceId}\``,
+    `- runtime_revision：\`${runtimeRevision}\``,
+    `- RTS01_AUTH_CLASS：\`${authClass}\``,
+    `- RTS01_LOGIN_STATUS_EXIT：\`${login.status ?? "unavailable"}\``,
+    `- RTS01_API_KEY_FALLBACK：\`${apiKeyFallback}\``,
+    `- RTS01_HEADLESS_READY：\`${headlessReady}\``,
+  ];
+  if (authClass !== "chatgpt" || login.status !== 0 || apiKeyFallback || !headlessReady ||
+      decision.selected_executor !== "codex" || !/^\d+$/.test(runId) || !/^[0-9a-f]{40}$/.test(runtimeRevision)) {
+    const result = [...operationResultFields({ operationId, taskId }), ...strictFields, "- code: strict_agentic_auth_gate_failed"].join("\n");
+    const blocked = upsertNamedResult(setStatus(initial.text, "blocked"), "## Result（codex-executor 回寫）", result);
+    fs.writeFileSync(inboxPath, blocked.replace(/\r?\n+$/, "\n"), "utf8");
+    process.stderr.write("RTS01_STRICT_AUTH_GATE_BLOCKED before_claim=true\n");
+    process.exit(4);
+  }
+  process.stdout.write(`RTS01_STRICT_AUTH_GATE_PASS task_id=${taskId} run_id=${runId} trace_id=${traceId}\n`);
+}
 if (!decision.ok || decision.route !== "agentic") {
   process.stderr.write(`agentic-executor: route rejected ${JSON.stringify(decision)}\n`);
   process.exit(4);
@@ -327,11 +373,25 @@ const selected = decision.selected_executor;
 const identity = buildIdentity(selected, capabilities, new Date());
 let running = setStatus(initial.text, "running");
 running = upsertExecutorClaim(running, taskId, identity);
+if (strictAuth) {
+  const leaseExpires = new Date(Date.now() + (maxAgentSeconds + 540) * 1000).toISOString();
+  strictFields.push(`- lease_id：\`${leaseId}\``, `- lease_expires_at：\`${leaseExpires}\``);
+  running = running.replace(
+    /(^## Executor Claim[^\r\n]*\r?\n)/m,
+    `$1\n- run_id：\`${runId}\`\n- trace_id：\`${traceId}\`\n- lease_id：\`${leaseId}\`\n- lease_expires_at：\`${leaseExpires}\`\n`
+  );
+}
 fs.writeFileSync(inboxPath, running, "utf8");
-installFailClosedHandlers(taskId, identity, selected);
+if (strictAuth) process.stdout.write(`RTS01_CLAIM_PERSISTED task_id=${taskId} run_id=${runId} trace_id=${traceId} lease_id=${leaseId}\n`);
+installFailClosedHandlers(taskId, operationId, identity, selected, strictFields);
 
 const project = resolveAssignedProject(contractField(initial.text, "project"));
 const testProfile = loadTestProfile(project.name, { allowEmpty: analysisOnly });
+if (strictAuth && (project.name !== "automation-fixture" || analysisOnly ||
+    testProfile.tests.length !== 1 || testProfile.tests[0].runner !== "node_test" ||
+    testProfile.tests[0].target !== "tests" || testProfile.tests[0].timeoutSec !== 60)) {
+  throw Object.assign(new Error("RTS fixture profile mismatch"), { code: "rts01_fixture_profile_mismatch" });
+}
 
 const repoRootResult = git(project.abs, ["rev-parse", "--show-toplevel"]);
 if (repoRootResult.status !== 0) {
@@ -367,7 +427,7 @@ if (conflictingLines.length > 0) {
 }
 
 const safeName = safeTaskName(taskId);
-const worktreeName = shortWorktreeName(taskId);
+const worktreeName = shortWorktreeName(strictAuth ? taskId + ":" + traceId : taskId);
 const branchNameCandidate = "runner/" + safeName;
 const refCheck = git(sourceRepoRoot, ["check-ref-format", "--branch", branchNameCandidate]);
 if (refCheck.status !== 0) {
@@ -389,6 +449,11 @@ if (!analysisOnly) {
     worktreeName
   );
   fs.mkdirSync(path.dirname(worktreeRoot), { recursive: true });
+  if (strictAuth) {
+    const worktreeEvidence = createRtsFixtureWorktree(sourceRepoRoot, worktreeRoot, baseSha);
+    strictFields.push(`- worktree_evidence：\`${JSON.stringify(worktreeEvidence)}\``);
+    console.log("RTS01_WORKTREE_PASS " + JSON.stringify(worktreeEvidence));
+  } else {
   git(sourceRepoRoot, ["worktree", "remove", "--force", worktreeRoot], 60000);
   git(sourceRepoRoot, ["worktree", "prune"], 30000);
   if (fs.existsSync(worktreeRoot)) {
@@ -396,7 +461,7 @@ if (!analysisOnly) {
   }
   const worktreeAdd = git(
     sourceRepoRoot,
-    ["worktree", "add", "--detach", worktreeRoot, baseSha],
+      ["-c", "core.longpaths=true", "worktree", "add", "--detach", worktreeRoot, baseSha],
     180000
   );
   if (worktreeAdd.status !== 0) {
@@ -405,11 +470,46 @@ if (!analysisOnly) {
       detail: String(worktreeAdd.stderr || worktreeAdd.stdout || "").slice(-1600),
     });
   }
+  }
 }
 
 const agentProjectRoot = projectRelInRepo
   ? path.join(worktreeRoot, projectRelInRepo)
   : worktreeRoot;
+const evidenceDir = strictAuth
+  ? fs.mkdtempSync(path.join(process.env.RUNNER_TEMP || os.tmpdir(), "rts01-"))
+  : "";
+const mcpEvidencePath = path.join(evidenceDir, "mcp.jsonl");
+const schemaPath = path.join(evidenceDir, "final.schema.json");
+if (strictAuth) {
+  fs.writeFileSync(schemaPath, JSON.stringify({
+    type: "object",
+    properties: {
+      status: { type: "string", enum: ["done", "blocked"] },
+      workspace_root: { type: "string" },
+    },
+    required: ["status", "workspace_root"],
+    additionalProperties: false,
+  }), "utf8");
+}
+const selectedFixtureServer = legacyRtsProbe ? "vault-workspace" : fixtureServer;
+const mcpConfig = "mcp_servers." + selectedFixtureServer;
+const mcpOverrides = strictAuth ? [
+  mcpConfig + ".command=" + JSON.stringify(process.execPath),
+  mcpConfig + ".args=" + JSON.stringify([path.resolve(__dirname, "../../vault_workspace_mcp/src/server.js")]),
+  ...(legacyRtsProbe ? [] : [
+    mcpConfig + ".required=true",
+    mcpConfig + ".enabled_tools=" + JSON.stringify(fixtureTools),
+    ...fixtureTools.map(tool => mcpConfig + ".tools." + tool + '.approval_mode="approve"'),
+  ]),
+  mcpConfig + ".env={ " + Object.entries({
+    RTS01_MCP_EVIDENCE: mcpEvidencePath,
+    VAULT_WORKSPACE_ROOT: agentProjectRoot,
+    MCP_AUDIT_DIR: path.join(evidenceDir, "audit"),
+    MCP_TRASH_DIR: path.join(evidenceDir, "trash"),
+    MCP_AUTO_APPROVE: "0",
+  }).map(([key, value]) => `${key} = ${JSON.stringify(value)}`).join(", ") + " }",
+] : [];
 const prompt = [
   "You are the selected White Studio headless executor.",
   `Executor: ${selected}`,
@@ -418,11 +518,20 @@ const prompt = [
   `Output kind: ${outputKind || "implementation"}`,
   "",
   "Rules:",
-  "- Read AGENTS.md at the repository root if present.",
+  ...(strictAuth ? [
+    `- Do not write files or run shell commands. Use only the ${selectedFixtureServer} MCP server.`,
+    "- Call workspace_list, runtime_capabilities, workspace_read on tests/fixture.test.js, and runtime_run_test with runner=node_test,target=tests.",
+    legacyRtsProbe
+      ? "- This is a read-only fixture verification. Return one JSON object with status done only if every required MCP call and bounded test succeeds, otherwise blocked, and workspace_root equal to the assigned project root. Never claim CAS or remote publication."
+      : "- Set workspace_root to the exact absolute workspace_root reported by runtime_capabilities. Report status done only when every required MCP call and bounded test succeeds; otherwise report blocked. Never claim CAS or remote publication.",
+  ] : []),
+  ...(strictAuth ? [] : ["- Read AGENTS.md at the repository root if present."]),
   "- Work only inside the assigned repository/worktree.",
   "- Do not commit, push, merge, deploy, reset --hard, clean, force push, or modify secrets.",
   analysisOnly
     ? "- This is a read-only analysis task. Do not modify repository files. Return the complete requested deliverable in your final response."
+    : strictAuth
+      ? "- Keep this fixture verification read-only. Do not modify files or run shell commands."
     : "- Make the smallest change needed for the task.",
   "- You may run targeted tests, but the orchestrator will independently validate afterward when a test profile applies.",
   "- Do not modify the task contract file.",
@@ -436,12 +545,17 @@ let agentRun;
 if (selected === "codex") {
   agentRun = runTool(
     "codex",
-    codexExecArgs(analysisOnly),
+    [...mcpOverrides.flatMap(override => ["-c", override]), ...codexExecArgs(strictAuth || analysisOnly),
+      ...(strictAuth && !legacyRtsProbe ? ["--output-schema", schemaPath] : []), "-"],
     {
       cwd: agentProjectRoot,
       input: prompt,
       timeout: maxAgentSeconds * 1000,
-      env: process.env,
+      env: strictAuth
+        ? Object.fromEntries(Object.keys(process.env)
+          .filter(key => !/(?:TOKEN|API_KEY|PASSWORD|SECRET|CREDENTIAL|COOKIE)/i.test(key))
+          .map(key => [key, process.env[key]]))
+        : process.env,
     }
   );
 } else if (selected === "cursor") {
@@ -506,7 +620,37 @@ const testsOk = analysisOnly
   ? agentOk
   : agentOk &&
     tests.length === testProfile.tests.length &&
-    tests.every((item) => item.ok);
+  tests.every((item) => item.ok && (!strictAuth || item.exit_code === 0));
+const observedMcp = strictAuth && fs.existsSync(mcpEvidencePath)
+  ? fs.readFileSync(mcpEvidencePath, "utf8").trim().split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line))
+  : [];
+const requiredMcp = ["initialize", "tools/list", "workspace.list", "runtime.capabilities", "workspace.read", "runtime.run_test"];
+const observedMethods = new Set(observedMcp.filter(row => row.root === agentProjectRoot && row.outcome === "ok").map(row => row.method));
+const { final, ...agentDiagnostics } = strictAuth ? inspectRtsAgentEvents(agentRun.stdout, agentRun.stderr) : {};
+const report = strictAuth ? classifyRtsReport(final, agentProjectRoot, path) : null;
+const reportOk = report?.root === "match";
+const strictEvidenceMissing = strictAuth && (!reportOk || report.status !== "done" ||
+  !requiredMcp.every(method => observedMethods.has(method)));
+if (strictAuth) {
+  const diagnostics = {
+    ...agentDiagnostics,
+    final_kind: !final ? "missing" : /^\s*(?:`{3}json\s*)?\{/.test(final) ? "json_like" : "text",
+    report_root_verified: reportOk,
+    report,
+    server_events: observedMcp.map(({ method, outcome }) => ({ method, outcome })),
+  };
+  strictFields.push(`- rts_diagnostics：\`${JSON.stringify(diagnostics)}\``);
+  console.log("RTS01_AGENT_DIAGNOSTICS " + JSON.stringify(diagnostics));
+  strictFields.push(
+    `- mcp_workspace_root：\`${agentProjectRoot}\``,
+    `- mcp_methods：\`${[...observedMethods].join(" | ")}\``,
+    `- evidence_digest：\`${crypto.createHash("sha256").update(JSON.stringify({
+      runId, traceId, leaseId, strictFields, observedMcp, tests, agentOutputHash,
+    })).digest("hex")}\``,
+    `- bounded_test_results：\`${tests.map(test => `${test.runner}:${test.exit_code}`).join(" | ")}\``,
+  );
+  process.stdout.write(`RTS01_EXECUTION_EVIDENCE mcp=${strictEvidenceMissing ? "BLOCKED" : "PASS"} bounded_tests=${testsOk ? "PASS" : "BLOCKED"}\n`);
+}
 
 let add = { status: 0, stdout: "", stderr: "" };
 let diffCheck = { status: 0, stdout: "", stderr: "" };
@@ -563,9 +707,11 @@ if (analysisOnly) {
 
 const validationOk =
   testsOk &&
+  !strictEvidenceMissing &&
   add.status === 0 &&
   diffCheck.status === 0 &&
   (analysisOnly || stagedState.status === 0 || stagedState.status === 1) &&
+  (!strictAuth || stagedState.status === 0) &&
   !readOnlyViolation;
 
 let branchName = "";
@@ -640,6 +786,8 @@ const code = !agentOk
   ? "agent_execution_failed"
   : !testsOk
     ? "validation_failed"
+    : strictEvidenceMissing
+      ? "rts01_same_run_evidence_unverified"
     : readOnlyViolation
       ? "read_only_violation"
       : diffCheck.status !== 0
@@ -655,9 +803,11 @@ writeTerminalResult({
   marker: `## Result（${selected}-executor 回寫）`,
   status: done ? "done" : "blocked",
   taskId,
+  operationId,
   identity,
   validation: identityValidation,
   details: [
+    ...strictFields,
     `- route：\`${decision.route}\``,
     `- requested_executor：\`${decision.requested_executor}\``,
     `- selected_executor：\`${selected}\``,
@@ -668,7 +818,9 @@ writeTerminalResult({
     `- code：\`${code}\``,
     `- agent_exit_code：${Number.isInteger(agentRun.status) ? agentRun.status : "null"}`,
     `- agent_output_sha256：\`${agentOutputHash}\``,
-    agentOutput
+    strictAuth
+      ? `- agent_report_root_match：\`${reportOk}\``
+      : agentOutput
       ? `- agent_output：\n\n${agentOutput.split(/\\r?\\n/).map((line) => "    " + line).join("\\n")}`
       : "- agent_output：(empty)",
     `- files_changed：\`${filesChanged.join(" | ") || "(none)"}\``,

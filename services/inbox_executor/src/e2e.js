@@ -17,6 +17,27 @@ import {
 import { classifyMechanicalActions, contractHash, currentTaskEnvelope, taskIdFromText, upsertDaemonResult } from "./inbox.js";
 import { contractField, routeInboxTask } from "./executor_router.js";
 import { normalizeProjectReference } from "./project_reference.js";
+import { buildTerminalResult, createOperationId } from "./operation.js";
+
+const operationA = createOperationId();
+const operationB = createOperationId();
+assert.match(operationA, /^[0-9a-f-]{36}$/i);
+assert.notEqual(operationA, operationB);
+const terminalResult = buildTerminalResult({
+  operationId: operationA,
+  taskId: "operation-test",
+  status: "done",
+  identityMarkdown: "- executor_identity：valid",
+  details: ["- readback：PASS"],
+});
+assert.ok(terminalResult.includes(`operation_id：\`${operationA}\``));
+assert.match(terminalResult, /task_id：`operation-test`/);
+assert.match(terminalResult, /結果：done/);
+assert.match(terminalResult, /readback：PASS/);
+assert.throws(
+  () => buildTerminalResult({ operationId: operationA, taskId: "operation-test", status: "running" }),
+  /terminal_result_status_invalid/
+);
 
 const claimedAt = "2026-09-30T00:00:00.000Z";
 const codex = normalizeExecutorIdentity({
@@ -61,6 +82,10 @@ assert.deepEqual(
     "obsidian-vault-refactor-2026-09-08"
   ),
   { name: "obsidian-vault-refactor-2026-09-08", vaultRelative: "." }
+);
+assert.deepEqual(
+  normalizeProjectReference("automation-fixture", "obsidian-vault-refactor-2026-09-08"),
+  { name: "automation-fixture", vaultRelative: "runtime/.mcp-automation-fixture" }
 );
 assert.deepEqual(
   routeInboxTask(agenticAuto, readyCaps, { WHITE_STUDIO_EXECUTOR_ORDER: "codex,cursor" }),
