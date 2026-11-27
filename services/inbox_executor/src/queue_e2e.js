@@ -88,5 +88,13 @@ try {
   assert.equal(second.outputs.task_id, "queue-low");
   console.log("QUEUE_E2E_PASS");
 } finally {
-  fs.rmSync(root, { recursive: true, force: true });
+  try {
+    // Windows Defender and the runner indexer can briefly retain a file after
+    // the child queue process exits. Cleanup is hygiene, not the queue
+    // contract, so retry transient locks and do not turn a passing E2E into a
+    // false negative when the final removal remains deferred.
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+  } catch (error) {
+    console.warn(`QUEUE_E2E_CLEANUP_DEFERRED path=${root} code=${error?.code ?? "unknown"}`);
+  }
 }

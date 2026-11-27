@@ -57,6 +57,8 @@ Pushback requires `INBOX_SYNC_PUSH=1`.
 
 ## Executor Identity Contract
 
+Agentic executor 的每次執行會產生獨立 `operation_id`，並寫入 done 或 blocked 的 Result。它識別一次執行；`task_id` 識別工作契約。重新執行同一 task 會取得新的 `operation_id`，方便把該次 Result 與執行證據對齊。
+
 每次 `queued → running` 會先寫入 `Executor Claim`。Claim 與 Result 共用同一份 identity，至少包含：
 
 - `executor_id`、`executor_type`、`executor_provider`、`executor_product`

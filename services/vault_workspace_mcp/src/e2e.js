@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * L1/L2 E2E: read → propose patch → approved patch → verify → safe scratch restore
- * Isolated git repo under runtime/.mcp-e2e-scratch (does not commit the vault).
+ * Isolated git repo in a disposable OS temp directory.
  */
 
 import fs from "node:fs";
@@ -12,13 +12,10 @@ import { spawn, spawnSync } from "node:child_process";
 import { VaultWorkspace, TOOL_DEFS, dispatch } from "./workspace.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const vaultRoot = path.resolve(__dirname, "..", "..", "..", "..");
-const scratchRoot = path.join(vaultRoot, "runtime", ".mcp-e2e-scratch");
+const scratchRoot = fs.mkdtempSync(path.join(process.env.RUNNER_TEMP || os.tmpdir(), "vault-mcp-e2e-"));
 const auditDir = path.join(scratchRoot, ".mcp-audit");
 const trashDir = path.join(scratchRoot, ".mcp-trash");
 
-fs.rmSync(scratchRoot, { recursive: true, force: true });
-fs.mkdirSync(scratchRoot, { recursive: true });
 
 function git(args) {
   const r = spawnSync("git", args, { cwd: scratchRoot, encoding: "utf8" });
@@ -377,7 +374,7 @@ async function stdioHandshake() {
             `stdio MCP timeout method=${method} stdout=${stdoutBuffer} stderr=${stderrBuffer}`,
           ),
         );
-      }, 5000);
+      }, 20000); // Windows runner startup can spend several seconds resolving the agent shim.
       pending.set(id, { resolve, reject, timer });
       child.stdin.write(
         JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n",
@@ -436,9 +433,15 @@ async function stdioHandshake() {
     console.log("STDIO_HANDSHAKE_PASS");
   } finally {
     child.stdin.end();
-    child.kill();
+    if (child.exitCode === null && child.signalCode === null) {
+      const closed = new Promise(resolve => child.once("close", resolve));
+      child.kill();
+      await closed;
+    }
   }
 }
 
 await stdioHandshake();
 console.log("E2E_PASS");
+fs.rmSync(scratchRoot, { recursive: true, force: true, maxRetries: 12, retryDelay: 200 });
+console.log("MCP_E2E_SCRATCH_CLEANUP_PASS");

@@ -230,6 +230,12 @@ export class VaultWorkspace {
     const available = {};
 
     for (const command of commands) {
+      if (command === "codex" && process.platform === "win32" &&
+          process.env.WHITE_STUDIO_CODEX_BIN && fs.existsSync(process.env.WHITE_STUDIO_CODEX_BIN)) {
+        locations[command] = process.env.WHITE_STUDIO_CODEX_BIN;
+        available[command] = true;
+        continue;
+      }
       const result = spawnSync(locator, [command], {
         cwd: this.root,
         encoding: "utf8",
@@ -277,7 +283,7 @@ export class VaultWorkspace {
     };
 
     const codexVersion = probe("codex", ["--version"], 3000);
-    const codexAuth = probe("codex", ["login", "status"], 5000);
+    const codexAuth = probe("codex", ["login", "status"], 12000);
     const cursorVersion = probe("agent", ["--version"], 3000);
     const cursorAuth = probe("agent", ["status"], 5000);
     const vscodeVersion = probe("code", ["--version"], 3000);
