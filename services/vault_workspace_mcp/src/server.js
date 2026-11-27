@@ -74,6 +74,16 @@ const ws = new VaultWorkspace({
   autoApprove,
 });
 
+function auditProtocol(protocolMethod, outcome, extra = {}) {
+  ws.audit({
+    kind: "mcp_protocol",
+    host_id: process.env.MCP_HOST_ID || "unknown",
+    protocol_method: protocolMethod,
+    outcome,
+    ...extra,
+  });
+}
+
 function send(msg) {
   const body = JSON.stringify(msg);
   // MCP stdio clients expect one JSON-RPC message per line.
@@ -93,6 +103,7 @@ function send(msg) {
 async function handle(msg) {
   const { id, method, params } = msg;
   if (method === "initialize") {
+    auditProtocol("initialize", "success");
     return {
       jsonrpc: "2.0",
       id,
@@ -107,6 +118,7 @@ async function handle(msg) {
     return null;
   }
   if (method === "tools/list") {
+    auditProtocol("tools/list", "success");
     return {
       jsonrpc: "2.0",
       id,
@@ -119,6 +131,7 @@ async function handle(msg) {
     const args = params?.arguments || {};
     try {
       const result = await dispatch(ws, name, args);
+      auditProtocol("tools/call", "success", { tool: requestedName || name });
       return {
         jsonrpc: "2.0",
         id,
@@ -127,6 +140,10 @@ async function handle(msg) {
         },
       };
     } catch (err) {
+      auditProtocol("tools/call", "error", {
+        tool: requestedName || name,
+        error_code: err.code || "error",
+      });
       return {
         jsonrpc: "2.0",
         id,
